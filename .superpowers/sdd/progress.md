@@ -103,10 +103,26 @@ high-var 594px/3kf, chromeTop=76 (true 24), chromeBottom 23→73 (0.48×).
 ## CB log
 - CB iter 0: baseline captured; interfaces pinned in DECISIONS.md.
 - CB1 b547adb, CB2 17233b2, CB3 486eb74.
-- CB4+5: manifest contentBands + SampleHandler wiring + Compositor per-segment crop + missing-seam
-  median fallback. Repro GREEN (both variants ratio 0.99, band (24,20), marker once). Required two
-  supporting fixes discovered via diagnostics: (a) OffsetMatcher confidence had an absolute 1e-3
-  floor that zeroed low-variance matches → made ratio-based; (b) repro fixtures were pathological
-  (per-pixel noise averages to gray; period-10 aliased with step; builder upside-down) → rewrote to
-  text-line block model, dense frames, upright builder (DECISIONS CB-fixtures). Seam.chromeTop/Bottom
-  fields still present (removed in CB6 after EditView migrates). 74 StitchKit tests green.
+- CB4+5 eab0836: manifest contentBands + SampleHandler wiring + Compositor per-segment crop +
+  missing-seam median fallback. Repro GREEN (both variants ratio 0.99, band (24,20), marker once).
+  Supporting fixes: (a) OffsetMatcher confidence 1e-3 floor zeroed low-variance matches → ratio-based;
+  (b) repro fixtures pathological → text-line block model, dense frames, upright builder.
+- CB6 385e719: EditView per-segment band steppers; removed Seam.chromeTop/Bottom; deleted
+  ChromeDetector/ChromeBands + tests.
+
+## Verification (evidence) — DONE
+- `swift test` (StitchKit): **69 tests pass**.
+- `xcodebuild ... build`: **BUILD SUCCEEDED** (app + LongshotBroadcast extension).
+- `xcodebuild ... test`: **TEST SUCCEEDED** (app tests + UI launch).
+- ChromeStitchReproTests (acceptance): RED→GREEN, both variants ratio 0.99, band (24,20),
+  chrome once + marker once (extended assertions).
+- Final whole-branch review (2 independent agents):
+  - Correctness reviewer: all focus areas verified correct; 1 Important finding
+    (single-pair segment break) → fixed 2e6de2f (persistence streak).
+  - Silent-failure hunter: no rule violations; Finding 1 (band low-confidence not
+    surfaced) + Finding 2 (fallback undocumented) → fixed b8c8f2d.
+
+## Commits (content-band fix)
+b547adb CB1 · 17233b2 CB2 · 486eb74 CB3 · eab0836 CB4+5 · 385e719 CB6 · b8c8f2d review-fix-1/2 · 2e6de2f review-fix-3
+
+STATUS: DONE — all done-criteria met with evidence.
