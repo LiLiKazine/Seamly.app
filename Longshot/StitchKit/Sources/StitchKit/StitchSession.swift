@@ -6,6 +6,9 @@ public enum SegmentBreakReason: String, Codable, Sendable {
     case lostLock
     /// The frame dimensions changed mid-capture (device rotation).
     case rotation
+    /// The locked content band changed shape sharply (a collapsing header, a keyboard) —
+    /// the new steady state re-locks in the fresh segment.
+    case contentChanged
 }
 
 /// The interface orientation of a segment. A rotation closes the current segment and
