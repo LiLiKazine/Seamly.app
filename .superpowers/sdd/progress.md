@@ -28,11 +28,11 @@ submission, no force-push, no new worktree. On-device verifications are out of a
 | A5 | PositionTracker | done | 0024325 |
 | A6 | FrameSelector | done | f45e376 |
 | A7 | Compositor | done | 496f399 |
-| B1 | Project: package dep + App Group | done | pending-hash |
-| B2 | App Group session store + pickup | pending | |
-| B3 | Capture-start + onboarding | pending | |
-| B4 | Library home surface | pending | |
-| B5 | Preview + edit + export | pending | |
+| B1 | Project: package dep + App Group | done | 479a0ea |
+| B2 | App Group session store + pickup | done | (this commit) |
+| B3 | Capture-start + onboarding | done | (this commit) |
+| B4 | Library home surface | done | (this commit) |
+| B5 | Preview + edit + export | done | (this commit) |
 | C1 | Broadcast extension target scaffold | pending | |
 | C2 | RPBroadcastSampleHandler wiring | pending | |
 | C3 | Whole-project build + review | pending | |

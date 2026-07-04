@@ -87,6 +87,24 @@ private func topCrop(_ image: CGImage, x: Int = 0, top: Int, width: Int, height:
         #expect(maxDiff <= 4)   // pixel-exact within rounding
     }
 
+    @Test func globalTrimCropsTopAndBottom() throws {
+        let W = 120, H = 300
+        let reference = noise(width: W, height: 900)
+        var frames: [Int: CGImage] = [:]
+        var keyframes: [Keyframe] = []
+        var seams: [Seam] = []
+        for (i, pos) in [0, 200, 400, 600].enumerated() {
+            frames[i] = topCrop(reference, top: pos, width: W, height: H)
+            keyframes.append(keyframe(i, height: H, width: W))
+            if i > 0 { seams.append(Seam(fromIndex: i - 1, provisionalDy: 200, confidence: 0.8)) }
+        }
+        let session = StitchSession(createdAt: Date(timeIntervalSince1970: 0), deviceScale: 3, orientation: .portrait,
+                                    keyframes: keyframes, seams: seams, topTrim: 50, bottomTrim: 80)
+        let out = try compositor.composite(session) { frames[$0.index]! }
+        #expect(out.height == 900 - 50 - 80)
+        #expect(out.width == W)
+    }
+
     @Test func singleKeyframeReproducesItself() throws {
         let img = noise(width: 100, height: 250)
         let session = StitchSession(createdAt: Date(timeIntervalSince1970: 0), deviceScale: 2, orientation: .portrait,
