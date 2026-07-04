@@ -22,13 +22,20 @@ public struct OffsetMatcher: Sendable {
 
     /// Aligns `b` onto `a`. A positive `dy` means content scrolled *down* by `dy` rows:
     /// `a[dy + k]` corresponds to `b[k]`.
-    public func match(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>) -> Match {
+    ///
+    /// `rowMask` (screen-row indexed, one entry per row) restricts the score to content
+    /// rows: a row contributes only when it is unmasked in *both* frames. Static chrome
+    /// sits at the same screen row across frames, so masking those rows out keeps the
+    /// alignment content-driven instead of being pinned to `dy=0` by fixed bars. `nil`
+    /// scores every overlapping row (unchanged behavior). A candidate offset whose masked
+    /// overlap falls below `minimumOverlap` is rejected exactly as an unmasked one would be.
+    public func match(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>, rowMask: [Bool]? = nil) -> Match {
         var bestOffset = 0
         var bestScore = Float.greatestFiniteMagnitude
         var scored: [(offset: Int, score: Float)] = []
 
         for offset in searchRange {
-            guard let score = weightedMAD(a, b, offset: offset) else { continue }
+            guard let score = weightedMAD(a, b, offset: offset, rowMask: rowMask) else { continue }
             scored.append((offset, score))
             if score < bestScore {
                 bestScore = score
@@ -51,22 +58,28 @@ public struct OffsetMatcher: Sendable {
     }
 
     /// Variance-weighted mean absolute difference over the overlap, or `nil` if the
-    /// overlap is too small or carries no structure.
-    private func weightedMAD(_ a: FrameProfile, _ b: FrameProfile, offset: Int) -> Float? {
+    /// overlap is too small or carries no structure. When `rowMask` is supplied, only rows
+    /// unmasked in both frames count toward the score and the `minimumOverlap` guard.
+    private func weightedMAD(_ a: FrameProfile, _ b: FrameProfile, offset: Int, rowMask: [Bool]?) -> Float? {
         // b[k] aligns with a[offset + k]; k must be valid in both.
         let kStart = max(0, -offset)
         let kEnd = min(b.rowCount, a.rowCount - offset)
-        let overlap = kEnd - kStart
-        guard overlap >= minimumOverlap else { return nil }
 
         var weightedSum: Float = 0
         var weightTotal: Float = 0
+        var counted = 0
         for k in kStart..<kEnd {
             let ai = offset + k
+            if let rowMask {
+                // Skip rows masked out in either frame (chrome sits at the same screen row).
+                guard ai < rowMask.count, k < rowMask.count, rowMask[ai], rowMask[k] else { continue }
+            }
             let weight = (a.variances[ai] + b.variances[k]) * 0.5
             weightedSum += weight * abs(a.means[ai] - b.means[k])
             weightTotal += weight
+            counted += 1
         }
+        guard counted >= minimumOverlap else { return nil }
         guard weightTotal > 1e-6 else { return nil }
         return weightedSum / weightTotal
     }
