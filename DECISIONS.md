@@ -21,6 +21,15 @@ reverse it. Format: `## [slice] Decision — why — alternatives — reversible
 - Reversible: yes — a HorizontalProfile can be added later without changing `Match`'s shape.
 - Confidence: high.
 
+## [B2] Keyframes default to raw BGRA-to-disk; lossless HEIC offered but pending device check
+- Why: the pixel-exact/hard-cut design depends on byte-faithful keyframes. ImageIO has no
+  guaranteed public "lossless HEIC" switch, and the ~50 MB extension encode-memory spike is
+  an explicit device go/no-go. Raw BGRA-to-disk is guaranteed lossless and allocation-free
+  (a memcpy), which the spec names as the fallback. So the extension defaults to raw; HEIC is
+  implemented and selectable once device memory/fidelity is verified.
+- Reversible: yes — format is per-keyframe (filename extension), switchable without schema change.
+- Confidence: high.
+
 ## [plan] On-device "early verifications" treated as pending, not blockers
 - Why: cue-from-extension, lossless-encode memory peak, ReplayKit pixel format, and iOS 26
   picker behavior all require a physical device and the developer's signing team — outside
