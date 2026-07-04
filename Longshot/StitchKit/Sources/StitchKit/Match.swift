@@ -22,25 +22,3 @@ public struct Match: Sendable, Equatable {
         self.confidence = confidence
     }
 }
-
-/// The static top/bottom bands of a seam — window chrome (status bar, nav bar, tab
-/// bar, home indicator) that repeats across frames and must be cropped from
-/// intermediate frames so it isn't stamped into the middle of the long image.
-public struct ChromeBands: Sendable, Equatable {
-    /// Number of contiguous static rows at the top of the frame, in profile rows.
-    public let topRows: Int
-    /// Number of contiguous static rows at the bottom, in profile rows.
-    public let bottomRows: Int
-    /// True when a band shifted versus the previous seam (e.g. a collapsing header),
-    /// which makes this seam's chrome untrustworthy — flag rather than model it.
-    public let isAmbiguous: Bool
-
-    public init(topRows: Int, bottomRows: Int, isAmbiguous: Bool = false) {
-        self.topRows = topRows
-        self.bottomRows = bottomRows
-        self.isAmbiguous = isAmbiguous
-    }
-
-    /// No chrome detected.
-    public static let none = ChromeBands(topRows: 0, bottomRows: 0)
-}

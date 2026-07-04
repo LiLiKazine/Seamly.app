@@ -9,7 +9,12 @@ struct EditView: View {
     let model: LibraryModel
 
     init(session: StitchSession, model: LibraryModel) {
-        _draft = State(initialValue: session)
+        var seeded = session
+        // One editable content band per segment; fill any the extension didn't lock so every
+        // segment is adjustable (older manifests default to .unlocked).
+        let segmentCount = max(1, seeded.segmentBreaks.count + 1)
+        while seeded.contentBands.count < segmentCount { seeded.contentBands.append(.unlocked) }
+        _draft = State(initialValue: seeded)
         self.model = model
     }
 
@@ -21,10 +26,15 @@ struct EditView: View {
                     stepperRow("Bottom", value: $draft.bottomTrim, range: 0...2000, step: 20)
                 }
 
-                if let first = draft.seams.indices.first {
+                if !draft.contentBands.isEmpty {
                     Section("Chrome (crop repeated bars)") {
-                        stepperRow("Top bar", value: chromeTop(first), range: 0...600, step: 5)
-                        stepperRow("Bottom bar", value: chromeBottom(first), range: 0...600, step: 5)
+                        ForEach(draft.contentBands.indices, id: \.self) { i in
+                            if draft.contentBands.count > 1 {
+                                Text("Segment \(i + 1)").font(.caption).foregroundStyle(.secondary)
+                            }
+                            stepperRow("Top bar", value: bandTop(i), range: 0...600, step: 5)
+                            stepperRow("Bottom bar", value: bandBottom(i), range: 0...600, step: 5)
+                        }
                     }
                 }
 
@@ -59,11 +69,15 @@ struct EditView: View {
         }
     }
 
-    private func chromeTop(_ i: Int) -> Binding<Int> {
-        Binding(get: { draft.seams[i].chromeTopPixels }, set: { draft.seams[i].chromeTopPixels = $0 })
+    // Editing a band is an explicit user choice, so clear the low-confidence flag (no more
+    // "detection uncertain" warning) as the value is adjusted.
+    private func bandTop(_ i: Int) -> Binding<Int> {
+        Binding(get: { draft.contentBands[i].topChrome },
+                set: { draft.contentBands[i].topChrome = $0; draft.contentBands[i].isLowConfidence = false })
     }
-    private func chromeBottom(_ i: Int) -> Binding<Int> {
-        Binding(get: { draft.seams[i].chromeBottomPixels }, set: { draft.seams[i].chromeBottomPixels = $0 })
+    private func bandBottom(_ i: Int) -> Binding<Int> {
+        Binding(get: { draft.contentBands[i].bottomChrome },
+                set: { draft.contentBands[i].bottomChrome = $0; draft.contentBands[i].isLowConfidence = false })
     }
     private func offset(_ i: Int) -> Binding<Int> {
         Binding(get: { draft.seams[i].provisionalDy }, set: { draft.seams[i].provisionalDy = $0 })

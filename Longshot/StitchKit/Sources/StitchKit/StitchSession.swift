@@ -39,8 +39,9 @@ public struct Keyframe: Codable, Sendable, Equatable, Identifiable {
 }
 
 /// The seam between keyframe `index` and keyframe `index + 1`: the extension's
-/// *provisional* alignment plus the chrome bands to crop. The app snaps `provisionalDy`
-/// to pixel-exact precision during compositing; it never recomputes from scratch.
+/// *provisional* alignment. The app snaps `provisionalDy` to pixel-exact precision during
+/// compositing; it never recomputes from scratch. Chrome to crop lives per-segment on
+/// `StitchSession.contentBands`, not here.
 public struct Seam: Codable, Sendable, Equatable {
     /// Index of the earlier keyframe in the pair.
     public var fromIndex: Int
@@ -49,10 +50,8 @@ public struct Seam: Codable, Sendable, Equatable {
     /// Incidental horizontal offset in source pixels.
     public var provisionalDx: Int
     public var confidence: Double
-    /// Static chrome to crop, in source pixels.
-    public var chromeTopPixels: Int
-    public var chromeBottomPixels: Int
-    /// Flagged for review — low confidence, ambiguous chrome, or nonzero `dx`.
+    /// Flagged for review — low confidence or nonzero `dx`. (Chrome is no longer per-seam;
+    /// it is a per-segment `ContentBand` on `StitchSession`.)
     public var isLowConfidence: Bool
 
     public init(
@@ -60,16 +59,12 @@ public struct Seam: Codable, Sendable, Equatable {
         provisionalDy: Int,
         provisionalDx: Int = 0,
         confidence: Double,
-        chromeTopPixels: Int = 0,
-        chromeBottomPixels: Int = 0,
         isLowConfidence: Bool = false
     ) {
         self.fromIndex = fromIndex
         self.provisionalDy = provisionalDy
         self.provisionalDx = provisionalDx
         self.confidence = confidence
-        self.chromeTopPixels = chromeTopPixels
-        self.chromeBottomPixels = chromeBottomPixels
         self.isLowConfidence = isLowConfidence
     }
 }
