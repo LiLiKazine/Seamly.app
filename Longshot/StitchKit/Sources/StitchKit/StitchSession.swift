@@ -111,6 +111,10 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
     public var keyframes: [Keyframe]
     public var seams: [Seam]
     public var segmentBreaks: [SegmentBreak]
+    /// One content band per segment (segment order matches `splitIntoSegments`), locked by
+    /// the extension's multi-frame consensus and used by the compositor's crop. A missing or
+    /// short array means "no confident band" — segments beyond it are treated as `.unlocked`.
+    public var contentBands: [ContentBand]
     /// User's global top/bottom trim (source pixels) applied to the final image — a
     /// non-destructive manifest edit, so it re-composites instantly from the keyframes.
     public var topTrim: Int
@@ -126,6 +130,7 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         keyframes: [Keyframe] = [],
         seams: [Seam] = [],
         segmentBreaks: [SegmentBreak] = [],
+        contentBands: [ContentBand] = [],
         topTrim: Int = 0,
         bottomTrim: Int = 0
     ) {
@@ -138,6 +143,7 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         self.keyframes = keyframes
         self.seams = seams
         self.segmentBreaks = segmentBreaks
+        self.contentBands = contentBands
         self.topTrim = topTrim
         self.bottomTrim = bottomTrim
     }
@@ -157,6 +163,7 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         keyframes = try c.decode([Keyframe].self, forKey: .keyframes)
         seams = try c.decode([Seam].self, forKey: .seams)
         segmentBreaks = try c.decode([SegmentBreak].self, forKey: .segmentBreaks)
+        contentBands = try c.decodeIfPresent([ContentBand].self, forKey: .contentBands) ?? []
         topTrim = try c.decodeIfPresent(Int.self, forKey: .topTrim) ?? 0
         bottomTrim = try c.decodeIfPresent(Int.self, forKey: .bottomTrim) ?? 0
     }
@@ -167,5 +174,12 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
     /// True when a segment break sits immediately after the given keyframe index.
     public func hasSegmentBreak(after index: Int) -> Bool {
         segmentBreaks.contains { $0.afterKeyframeIndex == index }
+    }
+
+    /// The content band for segment `index` (0-based, in `splitIntoSegments` order), or
+    /// `.unlocked` when none was recorded — no confident band, so the whole frame is content.
+    public func contentBand(forSegment index: Int) -> ContentBand {
+        guard index >= 0, index < contentBands.count else { return .unlocked }
+        return contentBands[index]
     }
 }

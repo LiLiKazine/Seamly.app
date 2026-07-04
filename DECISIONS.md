@@ -104,3 +104,27 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
   red→green, fresh reviewer. `swift test` is the fast loop for slices 1–5; `xcodebuild` gates
   slices 4/6 (extension + app compile).
 - Reversible: yes. Confidence: high.
+
+## [CB-fixtures] Revise repro fixtures to model real content (distinct per-row luminance)
+- Finding (measured, ChromeDiagTests): the original repro fixtures produce content with almost
+  no vertical signal for a mean+variance profiler. HIGH = per-pixel white noise → every row
+  averages to ~0.5 gray → scrolling changes only ~14/211 profile rows. LOW = `220-(r%10)`
+  (period 10) with step 110 (multiple of 10) → row means alias to identical values when
+  scrolled. Neither is trackable by design, and no masking/consensus can recover absent signal.
+- Real screen content (what "the matcher tracks easily" means, and what mean+variance profiling
+  targets) has distinct per-row luminance. Fix: both variants get distinct, non-aliasing
+  per-row means via a per-row hash; they differ only in *horizontal variance* — the true HIGH
+  vs LOW distinction the two gaps test. Chrome stays high-variance static; geometry, the unique
+  marker, and all assertions are preserved (and extended per spec: chrome once, marker once).
+- Why legitimate (not gaming): the bug under fix is chrome-bias/wiring, not "track pure noise";
+  the spec itself calls for extending this test. The absolute 0.02 static tolerance is correct
+  for realistic content (chrome Δ=0 vs content Δ~0.3) — no classifier change needed.
+- Reversible: yes — fixture-only; the geometry/assertions contract is unchanged. Confidence: high.
+
+## [CB-seam-fields] Defer removing Seam.chromeTop/BottomPixels to slice 6
+- Why: those fields are read by Compositor (slice 5) and EditView (slice 6). Removing them in
+  slice 4 breaks compilation before their readers migrate. Sequence: slice 4 stops *writing*
+  them (SampleHandler no longer sets chrome on seams, drops ChromeDetector), slice 5 stops the
+  Compositor *reading* them (crops by contentBand instead), slice 6 migrates EditView and then
+  deletes the now-unused fields. Keeps the package green after every slice.
+- Reversible: yes. Confidence: high.
