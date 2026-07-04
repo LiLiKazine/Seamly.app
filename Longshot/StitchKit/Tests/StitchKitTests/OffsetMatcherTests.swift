@@ -90,4 +90,69 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
         let m = matcher.match(a, b, searchRange: -95...95)
         #expect(m.dy == 15)   // the true, well-overlapped offset still wins
     }
+
+    // MARK: - Row mask (chrome exclusion) — Gap 1
+
+    /// Build a framed profile: `chrome` static rows at top+bottom (high variance, so they
+    /// dominate the weighted MAD) wrapping a low-variance content window.
+    private func framedProfile(chrome: Int, total: Int, content: [Float], chromePattern: [Float]) -> FrameProfile {
+        precondition(content.count == total - 2 * chrome)
+        var means = [Float](repeating: 0, count: total)
+        var vars = [Float](repeating: 0, count: total)
+        for i in 0..<total {
+            if i < chrome {
+                means[i] = chromePattern[i]; vars[i] = 0.3
+            } else if i >= total - chrome {
+                means[i] = chromePattern[chrome + (i - (total - chrome))]; vars[i] = 0.3
+            } else {
+                means[i] = content[i - chrome]; vars[i] = 0.01   // faint content, low weight
+            }
+        }
+        return FrameProfile(means: means, variances: vars, sourceWidth: 100, sourceHeight: total * 10)
+    }
+
+    @Test func staticChromeBiasesUnmaskedMatchToZero() {
+        // Regression proof of Gap 1: identical high-variance chrome pins the unmasked match
+        // to dy=0 even though the low-variance content scrolled by 15.
+        let full = contentSignal(count: 140).map { 0.5 + ($0 - 0.5) * 0.05 }   // faint content
+        let chrome = (0..<40).map { Float(($0 * 37) % 100) / 100 }              // strong pattern
+        let a = framedProfile(chrome: 20, total: 140, content: Array(full[0..<100]), chromePattern: chrome)
+        let b = framedProfile(chrome: 20, total: 140, content: Array(full[15..<115]), chromePattern: chrome)
+        let m = matcher.match(a, b, searchRange: -30...30)
+        #expect(m.dy == 0)   // chrome wins — the bug we are fixing
+    }
+
+    @Test func rowMaskExcludesChromeAndRecoversContentShift() {
+        let full = contentSignal(count: 140).map { 0.5 + ($0 - 0.5) * 0.05 }
+        let chrome = (0..<40).map { Float(($0 * 37) % 100) / 100 }
+        let a = framedProfile(chrome: 20, total: 140, content: Array(full[0..<100]), chromePattern: chrome)
+        let b = framedProfile(chrome: 20, total: 140, content: Array(full[15..<115]), chromePattern: chrome)
+        // Mask: content rows [20, 120) true, chrome rows false. Same screen-row mask for both.
+        var mask = [Bool](repeating: true, count: 140)
+        for i in 0..<20 { mask[i] = false }
+        for i in 120..<140 { mask[i] = false }
+        let m = matcher.match(a, b, searchRange: -30...30, rowMask: mask)
+        #expect(m.dy == 15)   // chrome excluded -> the true content shift wins
+        #expect(m.confidence > 0.3)
+    }
+
+    @Test func rowMaskWithTooFewContentRowsYieldsNoMatch() {
+        // A mask leaving fewer than minimumOverlap content rows -> no candidate qualifies.
+        let a = profile(contentSignal(count: 100))
+        let b = profile(contentSignal(count: 100, seed: 2))
+        var mask = [Bool](repeating: false, count: 100)
+        for i in 40..<44 { mask[i] = true }   // 4 rows < minimumOverlap (8)
+        let m = matcher.match(a, b, searchRange: -20...20, rowMask: mask)
+        #expect(m.dy == 0)
+        #expect(m.confidence == 0)
+    }
+
+    @Test func nilMaskIsIdenticalToUnmasked() {
+        let full = contentSignal(count: 120)
+        let a = profile(Array(full[0..<100]))
+        let b = profile(Array(full[15..<115]))
+        let plain = matcher.match(a, b, searchRange: -40...40)
+        let masked = matcher.match(a, b, searchRange: -40...40, rowMask: nil)
+        #expect(plain == masked)
+    }
 }

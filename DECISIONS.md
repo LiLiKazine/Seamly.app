@@ -55,3 +55,52 @@ reverse it. Format: `## [slice] Decision — why — alternatives — reversible
   the intent) — rejected in favor of an explicit create at the import site.
 - Reversible: yes — a localized guard; covered by `BroadcastImportTests`. — `459f2cc`
 - Confidence: high (fix verified on device: capture appeared on return).
+
+---
+
+# Content-Band Stitching Fix (spec 2026-07-04)
+
+Goal: content band as a first-class, segment-stable concept via multi-frame consensus +
+adaptive bootstrap; use it in matching (Gap 1) and compositing (Gap 2) so output height ≈
+unique content (±10%) for high- and low-variance screens.
+
+Baseline (iter 0): `swift test` → 57 tests, 55 pass, 2 RED repro. low-var 264px/1kf (ratio
+0.21, whole scroll lost = Gap 1); high-var 594px/3kf, chromeTop=76 (true 24), chromeBottom
+23→73 (ratio 0.48 = Gap 2).
+
+## [CB-plan] Central interface design pinned up front for cross-slice consistency
+Reversible: yes — additive within StitchKit, behind the package API. Confidence: high.
+
+- **Slice 1 — matcher mask.** `match(_ a, _ b, searchRange, rowMask: [Bool]? = nil)`. Default
+  nil = unchanged (keeps 55 baseline green). Term for overlap index k (b row k ↔ a row
+  offset+k) included iff `rowMask == nil || (rowMask[k] && rowMask[offset+k])`. Chrome is
+  static in *screen* space so one mask indexes both frames. Masked overlap < minimumOverlap →
+  rejected (nil). `[Bool]` not `ClosedRange` because bootstrap needs an arbitrary static mask.
+- **Slice 2 — `ContentBand { topChrome, bottomChrome, isLowConfidence }`** in *source pixels*,
+  Codable/Sendable/Equatable. `ContentBandDetector` (evolve ChromeDetector), works in *profile
+  rows*, mutating struct owned per-segment by tracker: `staticMask(a,b)->[Bool]?` (content =
+  NOT static vs prev; nil when too few content rows → caller matches unmasked);
+  `observe(a,b,dy:)` accumulates per-row static votes over moving pairs, locks after
+  `minMovingFrames` (3) when band stable; `lockedBand:(top,bottom)?` in rows;
+  `bandChangedSharply(a,b)->Bool`. Delete `ChromeDetector`/`ChromeBands` once unused (slice 3/4).
+- **Slice 3 — tracker.** Owns detector reset per segment. Non-first frame: staticMask → masked
+  (bootstrap) or unmasked (pre-scroll); observe; post-lock use locked band as mask +
+  bandChangedSharply → segment break. Expose `TrackingResult.lockedBand: ContentBand?` (pixels
+  via rowScale). No-stall test: low-variance advances from frame 1.
+- **Slice 4 — manifest.** `StitchSession.contentBands: [ContentBand]` by segment; graceful
+  decode `?? []`; `contentBand(forSegment:)` default {0,0,lowConf}. Remove `Seam.chromeTop/
+  BottomPixels` (unknown keys ignored on old-manifest decode). SampleHandler stops calling
+  ChromeDetector, writes bands from `result.lockedBand` by segment. No confident lock →
+  {0,0}+isLowConfidence (content never lost, chrome merely repeats) + editor override.
+- **Slice 5 — compositor.** Crop by `contentBand(forSegment:)` not `refinedSeams.first`; keep
+  pixel-exact refine within band. Missing-seam fallback = median of segment's known dys (never
+  the full band, which stacks).
+- **Slice 6 — EditView.** Per-segment ContentBand steppers bound to `draft.contentBands`,
+  non-destructive re-composite.
+
+## [CB-exec] Drive slices with subagent-driven-development; interfaces pinned above
+- Why: slices are sequential+dependent (SDD is the composition-map engine). Pinning interfaces
+  centrally prevents fresh implementers from choosing inconsistent shapes. Each slice: TDD
+  red→green, fresh reviewer. `swift test` is the fast loop for slices 1–5; `xcodebuild` gates
+  slices 4/6 (extension + app compile).
+- Reversible: yes. Confidence: high.

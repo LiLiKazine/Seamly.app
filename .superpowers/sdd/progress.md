@@ -71,3 +71,34 @@ iOS 26 broadcast-picker behavior. Code is written to the spec's documented fallb
 - B1 project integration (479a0ea) · B3–B5 app UI (510602c)
 - C1–C3 broadcast extension (da4b8de)
 - Review fixes (ca4653e)
+
+---
+
+# Content-Band Stitching Fix (spec 2026-07-04) — active
+
+Spec: `docs/superpowers/specs/2026-07-04-content-band-stitching-fix-design.md`
+Decisions: `DECISIONS.md` → "Content-Band Stitching Fix" section (interfaces pinned there).
+
+**Goal:** content band as first-class, segment-stable concept (multi-frame consensus +
+adaptive bootstrap), used in matching (Gap 1) and compositing (Gap 2) → output ≈ unique
+content (±10%) for high- and low-variance screens.
+
+**Done-criteria:** ChromeStitchReproTests GREEN both variants (+ extended: chrome once, marker
+once); new per-slice unit tests green; 55 baseline stay green; `xcodebuild` app + extension
+GREEN; final review clean/Minor.
+
+**Baseline (CB iter 0):** `swift test` → 57 tests, 55 pass, 2 RED. low-var 264px/1kf (0.21×);
+high-var 594px/3kf, chromeTop=76 (true 24), chromeBottom 23→73 (0.48×).
+
+## CB task status
+| # | Task | Status | Commit(s) |
+|---|------|--------|-----------|
+| CB1 | Row mask in OffsetMatcher | pending | |
+| CB2 | ContentBand model + ContentBandDetector (consensus + bootstrap + change signal) | pending | |
+| CB3 | Wire detector into PositionTracker (bootstrap→locked; TrackingResult.lockedBand; no-stall) | pending | |
+| CB4 | Manifest contract (contentBands per segment; remove Seam chrome fields; SampleHandler) | pending | |
+| CB5 | Compositor crop by segment band; missing-seam fallback; repro GREEN | pending | |
+| CB6 | EditView per-segment band adjustment | pending | |
+
+## CB log
+- CB iter 0: baseline captured; interfaces pinned in DECISIONS.md.
