@@ -36,10 +36,9 @@ final class LibraryModel {
     private let appStore: SessionStore
     private let groupStore: SessionStore?
 
-    init() {
-        let appContainer = LibraryModel.appContainerURL()
+    init(appContainer: URL = LibraryModel.appContainerURL(), groupContainer: URL? = AppGroup.containerURL) {
         self.appStore = SessionStore(containerURL: appContainer)
-        self.groupStore = AppGroup.containerURL.map { SessionStore(containerURL: $0) }
+        self.groupStore = groupContainer.map { SessionStore(containerURL: $0) }
     }
 
     /// App-owned storage under Application Support.
@@ -66,7 +65,18 @@ final class LibraryModel {
         guard let groupStore else { return false }
         let appStore = self.appStore
         return await Task.detached {
+            let fm = FileManager.default
             var sawEmpty = false
+            do {
+                // The destination's `sessions/` parent must exist or the `moveItem` below fails and
+                // nothing ever imports — on a fresh install nothing else has created it yet.
+                try fm.createDirectory(at: appStore.sessionsDirectory, withIntermediateDirectories: true)
+            } catch {
+                // Without this directory no import can succeed; there's no per-session recovery, so
+                // log and bail rather than silently loop doing nothing.
+                print("Longshot: could not create app sessions directory: \(error)")
+                return false
+            }
             for session in groupStore.loadAll() {
                 let source = groupStore.folder(for: session.id)
                 // Never touch a session the extension may still be writing. Import when it's
@@ -76,16 +86,22 @@ final class LibraryModel {
                 let finalized = session.status == .complete || Self.isStale(manifest)
                 guard finalized else { continue }
 
-                if session.hasStitchableContent {
-                    let dest = appStore.folder(for: session.id)
-                    if !FileManager.default.fileExists(atPath: dest.path) {
-                        try? FileManager.default.moveItem(at: source, to: dest)
+                do {
+                    if session.hasStitchableContent {
+                        let dest = appStore.folder(for: session.id)
+                        if fm.fileExists(atPath: dest.path) {
+                            try fm.removeItem(at: source)   // already imported; drop the duplicate
+                        } else {
+                            try fm.moveItem(at: source, to: dest)
+                        }
                     } else {
-                        try? FileManager.default.removeItem(at: source)
+                        sawEmpty = true
+                        try fm.removeItem(at: source)   // nothing to stitch; discard
                     }
-                } else {
-                    sawEmpty = true
-                    try? FileManager.default.removeItem(at: source)
+                } catch {
+                    // Skip this one session but keep importing the rest; a stuck session that
+                    // silently disappears is exactly the failure we're guarding against.
+                    print("Longshot: failed to import session \(session.id): \(error)")
                 }
             }
             return sawEmpty
