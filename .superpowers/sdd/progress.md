@@ -98,7 +98,7 @@ high-var 594px/3kf, chromeTop=76 (true 24), chromeBottom 23→73 (0.48×).
 | CB3 | Wire detector into PositionTracker (bootstrap→locked; TrackingResult.lockedBand; no-stall) | done | 486eb74 |
 | CB4 | Manifest contract (contentBands per segment; SampleHandler) | done | (with CB5) |
 | CB5 | Compositor crop by segment band; missing-seam fallback; repro GREEN | done | (commit below) |
-| CB6 | EditView per-segment band adjustment; remove Seam chrome fields | in_progress | |
+| CB6 | EditView per-segment band adjustment; remove Seam chrome fields; delete ChromeDetector | done | (commit below) |
 
 ## CB log
 - CB iter 0: baseline captured; interfaces pinned in DECISIONS.md.
