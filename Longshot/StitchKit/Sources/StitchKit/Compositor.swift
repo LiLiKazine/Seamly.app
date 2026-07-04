@@ -218,9 +218,14 @@ public struct Compositor: Sendable {
             if seg.count == 1 {
                 add(seg[0], 0, h)
             } else {
-                // Missing-seam fallback: the median of the segment's known offsets — a plausible
-                // scroll step. Never the full content band (that would redraw an entire frame's
-                // content and stack it, the very bug this fix removes).
+                // Missing-seam fallback. A well-formed session has a seam for every consecutive
+                // pair in a segment, so this only fires on a malformed/partial manifest — a
+                // recoverable case where *some* placement is required (throwing would fail the
+                // whole assembly). We substitute the median of the segment's known positive
+                // offsets — a plausible scroll step — deliberately, never the full content band
+                // (which would redraw an entire frame and stack it, the bug this fix removes).
+                // Zero/negative "offsets" are excluded from the basis as non-advances; if none
+                // remain, half the band is a safe non-stacking default.
                 let knownDys = seg.dropLast().compactMap { dyByFrom[$0.index] }.filter { $0 > 0 }
                 let fallbackDy = medianDy(knownDys) ?? max(1, band / 2)
 

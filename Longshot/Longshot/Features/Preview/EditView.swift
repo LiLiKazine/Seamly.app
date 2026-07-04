@@ -32,6 +32,10 @@ struct EditView: View {
                             if draft.contentBands.count > 1 {
                                 Text("Segment \(i + 1)").font(.caption).foregroundStyle(.secondary)
                             }
+                            if draft.contentBands[i].isLowConfidence {
+                                Label("Bars weren't detected confidently here — set the crop.", systemImage: "rectangle.dashed")
+                                    .font(.caption).foregroundStyle(.orange)
+                            }
                             stepperRow("Top bar", value: bandTop(i), range: 0...600, step: 5)
                             stepperRow("Bottom bar", value: bandBottom(i), range: 0...600, step: 5)
                         }
