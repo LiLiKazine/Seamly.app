@@ -1,6 +1,7 @@
 # 2026-07-04-01: Capture-by-scrolling via ReplayKit broadcast + pixel-matching stitch
 
-**Status:** Decided (pre-implementation)
+**Status:** Decided + grilled (pre-implementation). See "Refinements" at the end for the
+stress-test pass that reshaped the core model.
 
 ## Context
 
@@ -81,3 +82,47 @@ Vision. Hard-cut seams, not feathered.
 - Open follow-ups: extreme-height output images (v1 caps + warns; tiling deferred), and
   the exact keyframe-commit threshold (~65% of scroll band → ≥30% overlap) may need
   tuning against real capture sessions.
+
+## Refinements (grilling pass, 2026-07-04)
+
+A relentless stress-test of the design reshaped several decisions. Highlights:
+
+- **Core model became absolute-position tracking ("capture the union").** Instead of
+  pairwise stitches, track the user's scroll position and append only content past the
+  deepest point seen. Scrolling back up is free and never duplicates; recovery falls out
+  naturally. Two matching modes: tracking (vs. previous frame) and relocalize (vs. the
+  accumulated 1-D map after a lost lock).
+- **Chrome detection: continuous per-seam, tolerance-based, motion-gated.** Byte-identical
+  was too strict (clock ticks, anti-aliasing) and once-at-start was wrong (collapsing
+  headers, pre-scroll identical frames). Header-collapse transitions are flagged, not
+  modeled.
+- **Mid-capture guidance = sound + haptic cue only, fired early.** A broadcast extension
+  can't draw UI, and a notification banner would pollute the captured frames — so **no
+  banner in any case**. The cue's meaning is taught in first-run onboarding. Recovery of a
+  truly-lost fling → labeled segment break + in-app post-stop recapture (match against the
+  two frames bounding the gap); no fabricated pixels; automatic in-session reconstruction
+  deferred.
+- **Keyframes must be lossless** (lossless HEIC, raw-to-disk fallback). Lossy HEIC would
+  break the identical-overlap / hard-cut / near-zero-residual premises the engine rests on.
+- **Authority flipped**: the extension (dense stream) owns global structure; the app only
+  does a small full-res *local* seam refinement for pixel-exactness — not a from-scratch
+  recompute.
+- **Extension memory**: one full frame + all-1-D; chrome from profiles; copy-and-release
+  buffers immediately (also prevents ReplayKit throttling → fewer gaps). Lossless encode is
+  the watched spike.
+- **Sessions**: unique App-Group folder, incremental manifest with `recording`→`complete`
+  status; crashed/interrupted sessions still yield a usable, badged-incomplete stitch;
+  pickup via launch/foreground scan; Library is the home surface.
+- **Very-tall output**: downscaled preview is *mandatory* (16,384 px texture limit), not
+  just an optimization. Raster export capped + warned; **PDF export pulled into v1** (drawn
+  incrementally into a CGContext PDF — memory-safe, uncapped, paginated Safari-style past
+  the ~14,400 pt viewer ceiling; routes to Files/Share, not Photos).
+- **Manual editing retargeted**: offset correction at flagged seams (cut-row nudging is a
+  no-op on identical pixels) + global end-trim + chrome-crop override; non-destructive.
+- **Geometry**: orientation consistent per segment (rotation → break); `dx` assumed 0
+  (flag if violated). **Color**: source color space preserved end-to-end (P3-aware).
+- **Four early on-device go/no-go checks**: cue-from-extension feasibility, lossless-encode
+  memory peak, ReplayKit pixel format/color space, iOS 26 broadcast-picker API.
+
+**Status of the option-level decisions above is unchanged**; these refinements sit *within*
+the chosen approach. Full detail in the spec.
