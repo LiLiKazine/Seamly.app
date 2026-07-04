@@ -1,44 +1,90 @@
 # Longshot
 
-**Capture beyond the screen.** Longshot stitches multiple screenshots into a single, seamless long screenshot — perfect for saving full conversations, articles, timelines, and any content that scrolls.
+**Capture beyond the screen.** Longshot turns a scroll into a single, seamless long
+screenshot — of *any* app. Start a capture, scroll through the content you want, stop,
+and Longshot stitches the frames into one continuous image.
 
-iOS doesn't natively support scrolling screenshots outside of Safari's full-page PDF export. Longshot fills that gap for every app.
+iOS doesn't natively support scrolling screenshots outside of Safari's full-page PDF
+export. Longshot fills that gap for every app.
 
-> **Status: early stage.** The project is currently a fresh SwiftUI app scaffold — the stitching engine and the features below are the roadmap, not yet shipped. Sections marked _(planned)_ describe the intended design.
+> **Status: early stage.** The project is currently a fresh SwiftUI app scaffold — the
+> capture pipeline and stitching engine below are the roadmap, not yet shipped. The
+> approved design lives in
+> [`docs/superpowers/specs/2026-07-04-broadcast-scroll-stitching-design.md`](docs/superpowers/specs/2026-07-04-broadcast-scroll-stitching-design.md).
+
+## How It Works
+
+Because iOS only lets an app see *another* app's screen through **ReplayKit system
+broadcast**, capture works like a screen recording you drive yourself:
+
+1. Open Longshot and tap **Capture**. iOS shows the broadcast picker and a 3-second
+   countdown, then the red recording indicator appears.
+2. Switch to the app you want to capture and **scroll** through the content.
+3. Stop the broadcast (from the system red indicator / Control Center) and return to
+   Longshot.
+4. Longshot has already selected overlapping keyframes while you scrolled; it now
+   stitches them into one long image. **Review, fine-tune any seam, and export.**
+
+Capture is *process-after-stop*: the app is backgrounded while you scroll another app,
+so the stitched result is assembled when you come back — not shown live.
 
 ## Features _(planned)_
 
-- 📸 **Smart stitching** — Import 2+ screenshots and Longshot automatically detects overlapping regions and merges them into one continuous image
-- ✂️ **Manual adjustment** — Fine-tune stitch boundaries with a drag handle when auto-detection needs a nudge
-- 🧹 **Clean output** — Automatically crops status bars, notches, and home indicators from intermediate frames
-- 🖼️ **Flexible export** — Save as PNG/JPEG to Photos, share directly, or copy to clipboard
-- 🔒 **Fully offline** — All processing happens on-device. No accounts, no uploads, no tracking
+- 📜 **Scroll to capture** — no manual screenshotting; scroll the target app and Longshot
+  grabs the frames automatically via a screen broadcast
+- 🧠 **Smart stitching** — detects the vertical scroll offset between frames and merges
+  them into one continuous image, pixel-exact along each seam
+- 🧹 **Automatic chrome handling** — the fixed status bar, nav bar, and tab bar are
+  detected (as the rows that don't move) and kept only once, not repeated down the image
+- ⚠️ **Confidence warnings** — seams where the match is uncertain (an ad loaded, a fast
+  scroll, a mid-animation frame) are flagged in the preview so you can re-capture
+- ✂️ **Manual seam adjustment** — drag a handle to nudge any stitch boundary when the
+  automatic cut needs a correction
+- 🖼️ **Flexible export** — save as PNG/JPEG to Photos, share via the system sheet, or
+  copy to the clipboard
+- 🔒 **Fully offline** — all processing happens on-device. No accounts, no uploads, no
+  tracking. The broadcast captures your screen only during the session, and nothing
+  ever leaves your phone
 
-### Planned
+### Roadmap
 
-- [ ] Screen recording mode — record a scroll session, extract and stitch frames automatically (ReplayKit)
+- [ ] Import existing screenshots from Photos (the manual alternative to broadcast)
 - [ ] Horizontal stitching for wide content
 - [ ] Annotation tools (blur sensitive info, arrows, text)
 - [ ] Share extension — stitch directly from the Photos share sheet
+- [ ] Tiling assembly for extreme-height captures
 - [ ] iPad and macOS (Catalyst) support
 
-## How It Works _(planned)_
+## Architecture
 
-1. Take overlapping screenshots while scrolling (each shot should share ~20% of content with the previous one)
-2. Open Longshot and select the screenshots in order (or let auto-sort handle it)
-3. Longshot uses the Vision framework to find matching feature points in adjacent images and computes the optimal seam
-4. Review, adjust if needed, and export
+Three build products plus a shared container:
+
+| Piece | Role |
+|---|---|
+| **`StitchKit`** (local Swift package) | Pure, testable core — vertical-offset matching, chrome detection, frame selection, compositing. Accelerate + Core Graphics only. Imported by both the app and the extension. |
+| **`Longshot`** (app target, SwiftUI) | Start-capture UI, Library of captures, scrollable preview with confidence flags + manual seam adjustment, export. Does the heavy pixel compositing. |
+| **`LongshotBroadcast`** (Broadcast Upload Extension) | `RPBroadcastSampleHandler` that receives live screen frames, runs only lightweight matching + frame selection, and streams keyframes + a manifest to disk. Does no compositing (stays under the ~50 MB extension memory limit). |
+| **App Group container** | Shared handoff — the extension writes keyframes (HEIC) + manifest JSON; the app reads them after the broadcast stops. |
+
+**Stitching approach.** Adjacent frames differ by a pure integer *vertical* shift, and
+overlap pixels are *identical* — so Longshot does **not** use Vision's
+`VNTranslationalImageRegistrationRequest` (its global registration is corrupted by the
+fixed chrome and isn't pixel-exact). Instead it reduces each frame to a 1-D grayscale
+profile and finds the offset by minimizing mean-absolute-difference with **Accelerate
+(vDSP/vImage)** — pixel-exact, fast, and deterministically unit-testable. Seams are a
+**hard cut**, never feathered: blending two identical copies of crisp text only blurs it.
 
 ## Tech Stack
 
 | Layer | Choice |
 |---|---|
-| Language | Swift 6 (app target; test targets currently Swift 5) |
+| Language | Swift 6 (app + `StitchKit`; legacy test targets on Swift 5) |
 | UI | SwiftUI |
 | Concurrency | Swift Concurrency (`async`/`await`, actors) — no GCD |
-| Image matching | Vision (`VNTranslationalImageRegistrationRequest`) _(planned)_ |
-| Image compositing | Core Image / Core Graphics _(planned)_ |
-| Photo access | PhotosUI (`PHPickerViewController`) _(planned)_ |
+| Screen capture | ReplayKit system broadcast (`RPSystemBroadcastPickerView` + Broadcast Upload Extension) |
+| Offset matching | Accelerate — `vImage` (pixel extraction/grayscale), `vDSP` (MAD scoring) |
+| Compositing | Core Graphics (`CGContext`, hard-cut seams) |
+| Photo export | PhotosUI / Photos |
 | Testing | Swift Testing (`import Testing`) |
 | Minimum target | iOS 26.5 |
 
@@ -47,7 +93,7 @@ iOS doesn't natively support scrolling screenshots outside of Safari's full-page
 Current (Xcode scaffold):
 
 ```
-Longshot/                     # repo root (README, CLAUDE.md)
+Longshot/                     # repo root (README, CLAUDE.md, docs/)
 └── Longshot/
     ├── Longshot.xcodeproj
     ├── Longshot/             # app sources — LongshotApp.swift, ContentView.swift, Assets
@@ -55,20 +101,26 @@ Longshot/                     # repo root (README, CLAUDE.md)
     └── LongshotUITests/      # UI tests
 ```
 
-Intended, as features land:
+Intended, as the design lands:
 
 ```
-Longshot/Longshot/Longshot/
-├── App/                  # App entry point, root navigation
-├── Features/
-│   ├── Import/           # Photo picker, screenshot selection & ordering
-│   ├── Stitch/           # Stitching engine, overlap detection, seam adjustment UI
-│   └── Export/           # Rendering, format options, share sheet
-├── Core/
-│   ├── ImageRegistration/# Vision-based alignment
-│   ├── Compositing/      # Seam blending, cropping heuristics
-│   └── Extensions/
-└── Resources/
+Longshot/
+├── StitchKit/                # local Swift package (pure core, Swift Testing)
+│   ├── Sources/StitchKit/    # VerticalProfile, OffsetMatcher, ChromeDetector,
+│   │                         #   FrameSelector, Compositor, StitchSession
+│   └── Tests/StitchKitTests/ # synthetic-fixture TDD
+└── Longshot/
+    ├── Longshot.xcodeproj
+    ├── Longshot/             # app target
+    │   ├── App/              # entry point, root navigation
+    │   ├── Features/
+    │   │   ├── Capture/      # broadcast start UI, onboarding, capture status
+    │   │   ├── Library/      # list of past captures
+    │   │   ├── Preview/      # scrollable long-image preview, confidence flags,
+    │   │   │                 #   manual seam adjustment
+    │   │   └── Export/       # Photos / share / clipboard
+    │   └── Shared/           # App Group paths, session store
+    └── LongshotBroadcast/    # Broadcast Upload Extension (RPBroadcastSampleHandler)
 ```
 
 ## Getting Started
@@ -78,6 +130,8 @@ Longshot/Longshot/Longshot/
 - Xcode 26+ (iOS 26.5 SDK)
 - iOS 26.5 deployment target
 - No third-party dependencies (100% first-party frameworks)
+- A device for real capture — the broadcast picker and system broadcast are best
+  exercised on hardware
 
 ### Build
 
@@ -87,22 +141,32 @@ cd longshot
 open Longshot/Longshot.xcodeproj
 ```
 
-Set your development team under *Signing & Capabilities*, select a simulator or device, and hit ⌘R. No API keys or configuration needed.
+Set your development team under *Signing & Capabilities* (both the app and the
+`LongshotBroadcast` extension need signing, and both must share the same **App Group**),
+select a device, and hit ⌘R. No API keys or configuration needed.
 
 ### Testing
 
-Tests use **Swift Testing** (`import Testing`, `@Test`, `#expect`). Run with ⌘U or:
+Tests use **Swift Testing** (`import Testing`, `@Test`, `#expect`). The bulk of coverage
+lives in `StitchKit`, fed by synthetic fixtures — a tall reference image sliced into
+overlapping tiles at known offsets, so matching and compositing are verified
+deterministically and offline.
 
 ```bash
+# StitchKit package tests
+swift test --package-path StitchKit
+
+# App/UI tests
 xcodebuild test -project Longshot/Longshot.xcodeproj -scheme Longshot \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-Once the stitching engine lands, bundle sample screenshot sets as test fixtures so the registration/compositing tests stay deterministic and offline.
-
 ## Privacy
 
-Longshot processes all images on-device. It requests read access to your photo library only for the screenshots you explicitly select, and write access only when you export. Nothing ever leaves your phone.
+Longshot processes all images on-device. During a capture, the ReplayKit broadcast sees
+your screen only for the duration of the session you start, and Longshot only ever keeps
+the frames it stitches. It requests write access to your photo library only when you
+export. Nothing ever leaves your phone.
 
 ## License
 
