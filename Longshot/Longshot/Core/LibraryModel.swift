@@ -21,6 +21,9 @@ struct Capture: Identifiable {
     var id: UUID { session.id }
     var isIncomplete: Bool { session.status == .recording }
     var flaggedSeamCount: Int { session.seams.filter(\.isLowConfidence).count }
+    /// Segments whose chrome band didn't lock confidently — composited whole-frame (chrome may
+    /// repeat) and awaiting an editor override. Surfaced so the failure isn't silent.
+    var lowConfidenceBandCount: Int { session.contentBands.filter(\.isLowConfidence).count }
 }
 
 /// The Library is the app's home surface and the source of truth for captures. It scans the

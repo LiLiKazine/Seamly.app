@@ -70,10 +70,14 @@ struct PreviewView: View {
     @ViewBuilder
     private func warnings(_ capture: Capture) -> some View {
         let breaks = capture.session.segmentBreaks.count
-        if capture.isIncomplete || capture.flaggedSeamCount > 0 || breaks > 0 {
+        let lowBands = capture.lowConfidenceBandCount
+        if capture.isIncomplete || capture.flaggedSeamCount > 0 || breaks > 0 || lowBands > 0 {
             VStack(alignment: .leading, spacing: 4) {
                 if capture.isIncomplete {
                     Label("Incomplete capture — stitched from what was saved.", systemImage: "exclamationmark.circle")
+                }
+                if lowBands > 0 {
+                    Label("\(lowBands) section(s) with uncertain bars — tap Edit to set the crop.", systemImage: "rectangle.dashed")
                 }
                 if capture.flaggedSeamCount > 0 {
                     Label("\(capture.flaggedSeamCount) seam(s) flagged. Tap Edit to fine-tune.", systemImage: "flag")
