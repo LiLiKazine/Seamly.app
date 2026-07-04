@@ -24,8 +24,8 @@ submission, no force-push, no new worktree. On-device verifications are out of a
 | A1 | StitchKit scaffold + StitchSession | done | 8e3fc26 |
 | A2 | VerticalProfile | done | 6f90e6c |
 | A3 | OffsetMatcher | done | ecb948a |
-| A4 | ChromeDetector | done | pending-hash |
-| A5 | PositionTracker | pending | |
+| A4 | ChromeDetector | done | 108d5a5 |
+| A5 | PositionTracker | done | pending-hash |
 | A6 | FrameSelector | pending | |
 | A7 | Compositor | pending | |
 | B1 | Project: package dep + App Group | pending | |
