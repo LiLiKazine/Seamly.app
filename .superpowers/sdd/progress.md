@@ -1,0 +1,41 @@
+# Progress Ledger — Broadcast Scroll-Stitching
+
+**Goal:** Implement the approved broadcast scroll-stitching design end-to-end: a pure
+`StitchKit` core (TDD), a SwiftUI app (capture-start, library, preview, edit, export),
+and a `LongshotBroadcast` upload extension, all building on the iPhone 17 simulator with
+StitchKit tests green.
+
+**Branch:** `feat/broadcast-scroll-stitching` (in main worktree `/Users/leo/Developer/Longshot`)
+
+**Done-criteria:**
+1. `swift test` (StitchKit) green — pasted evidence.
+2. `xcodebuild` app + extension build green on iPhone 17 sim — pasted evidence.
+3. Every spec v1 feature mapped to a delivered change.
+4. Final whole-branch review clean / only Minor findings.
+5. On-device go/no-go checks (cue, memory peak, pixel format, picker) documented as pending device+team work.
+
+**Hard-stop allowlist (task-specific):** no signing-team-dependent device runs, no App Store
+submission, no force-push, no new worktree. On-device verifications are out of autonomous reach.
+
+## Task status
+
+| # | Task | Status | Commits |
+|---|------|--------|---------|
+| A1 | StitchKit scaffold + StitchSession | pending | |
+| A2 | VerticalProfile | pending | |
+| A3 | OffsetMatcher | pending | |
+| A4 | ChromeDetector | pending | |
+| A5 | PositionTracker | pending | |
+| A6 | FrameSelector | pending | |
+| A7 | Compositor | pending | |
+| B1 | Project: package dep + App Group | pending | |
+| B2 | App Group session store + pickup | pending | |
+| B3 | Capture-start + onboarding | pending | |
+| B4 | Library home surface | pending | |
+| B5 | Preview + edit + export | pending | |
+| C1 | Broadcast extension target scaffold | pending | |
+| C2 | RPBroadcastSampleHandler wiring | pending | |
+| C3 | Whole-project build + review | pending | |
+
+## Log
+(one line per completed task with commit range)
