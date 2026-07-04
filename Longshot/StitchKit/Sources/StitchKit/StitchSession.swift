@@ -108,6 +108,10 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
     public var keyframes: [Keyframe]
     public var seams: [Seam]
     public var segmentBreaks: [SegmentBreak]
+    /// User's global top/bottom trim (source pixels) applied to the final image — a
+    /// non-destructive manifest edit, so it re-composites instantly from the keyframes.
+    public var topTrim: Int
+    public var bottomTrim: Int
 
     public init(
         id: UUID = UUID(),
@@ -118,7 +122,9 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         colorSpaceName: String? = nil,
         keyframes: [Keyframe] = [],
         seams: [Seam] = [],
-        segmentBreaks: [SegmentBreak] = []
+        segmentBreaks: [SegmentBreak] = [],
+        topTrim: Int = 0,
+        bottomTrim: Int = 0
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -129,6 +135,8 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         self.keyframes = keyframes
         self.seams = seams
         self.segmentBreaks = segmentBreaks
+        self.topTrim = topTrim
+        self.bottomTrim = bottomTrim
     }
 
     /// A session with fewer than two keyframes has nothing to stitch.

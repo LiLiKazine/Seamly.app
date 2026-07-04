@@ -69,7 +69,17 @@ public struct Compositor: Sendable {
         let refined = try refineSeams(session, images: images)
         let layout = try plan(session, refinedSeams: refined, images: images)
         let colorSpace = try firstImage(session, images).colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!
-        return try renderRaster(layout.pieces, width: layout.width, height: layout.totalHeight, colorSpace: colorSpace, images: images)
+        let full = try renderRaster(layout.pieces, width: layout.width, height: layout.totalHeight, colorSpace: colorSpace, images: images)
+        return applyTrim(full, top: session.topTrim, bottom: session.bottomTrim)
+    }
+
+    /// Crop the user's global top/bottom trim from a composited image (top-referenced).
+    private func applyTrim(_ image: CGImage, top: Int, bottom: Int) -> CGImage {
+        let t = max(0, top), b = max(0, bottom)
+        let keep = image.height - t - b
+        guard (t > 0 || b > 0), keep > 0 else { return image }
+        // cropping is bottom-referenced: trimming `top` from the top means y = bottom trim.
+        return image.cropping(to: CGRect(x: 0, y: b, width: image.width, height: keep)) ?? image
     }
 
     /// Render a set of pieces (destination Ys relative to the strip top) into one raster.
