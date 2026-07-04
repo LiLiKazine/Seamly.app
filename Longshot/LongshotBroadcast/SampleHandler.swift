@@ -17,7 +17,6 @@ import StitchKit
 class SampleHandler: RPBroadcastSampleHandler {
     private let ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private let profiler = VerticalProfile()
-    private let chromeDetector = ChromeDetector()
     private var tracker = PositionTracker()
     private var selector = FrameSelector()
 
@@ -26,7 +25,6 @@ class SampleHandler: RPBroadcastSampleHandler {
     private var session: StitchSession?
 
     private var keyframeIndex = 0
-    private var lastKeyframeProfile: FrameProfile?
     private var lastKeyframeRow = 0
     private var lastSegment = 0
     private var framesSinceCue = 1_000
@@ -134,21 +132,23 @@ class SampleHandler: RPBroadcastSampleHandler {
 
         if case .segmentBreak(let reason) = result.decision, keyframeIndex > 0 {
             session.segmentBreaks.append(SegmentBreak(afterKeyframeIndex: keyframeIndex - 1, reason: reason))
-        } else if keyframeIndex > 0, result.segmentIndex == lastSegment, let previous = lastKeyframeProfile {
+        } else if keyframeIndex > 0, result.segmentIndex == lastSegment {
             let dyRows = max(0, result.position - lastKeyframeRow)
             let dyPixels = Int(Double(dyRows) * profile.rowScale)
-            let bands = chromeDetector.detect(previous, profile, dy: dyRows)
             session.seams.append(Seam(
                 fromIndex: keyframeIndex - 1,
                 provisionalDy: dyPixels,
                 confidence: result.confidence,
-                chromeTopPixels: Int(Double(bands.topRows) * profile.rowScale),
-                chromeBottomPixels: Int(Double(bands.bottomRows) * profile.rowScale),
-                isLowConfidence: bands.isAmbiguous || result.confidence < 0.4
+                isLowConfidence: result.confidence < 0.4
             ))
         }
 
-        lastKeyframeProfile = profile
+        // Record/refresh this segment's content band. It locks mid-segment via consensus, so
+        // the last write per segment carries the settled band (or `.unlocked` if none locked).
+        let seg = result.segmentIndex
+        while session.contentBands.count <= seg { session.contentBands.append(.unlocked) }
+        session.contentBands[seg] = result.contentBand
+
         lastKeyframeRow = result.position
         lastSegment = result.segmentIndex
         keyframeIndex += 1

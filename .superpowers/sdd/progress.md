@@ -93,12 +93,20 @@ high-var 594px/3kf, chromeTop=76 (true 24), chromeBottom 23→73 (0.48×).
 ## CB task status
 | # | Task | Status | Commit(s) |
 |---|------|--------|-----------|
-| CB1 | Row mask in OffsetMatcher | pending | |
-| CB2 | ContentBand model + ContentBandDetector (consensus + bootstrap + change signal) | pending | |
-| CB3 | Wire detector into PositionTracker (bootstrap→locked; TrackingResult.lockedBand; no-stall) | pending | |
-| CB4 | Manifest contract (contentBands per segment; remove Seam chrome fields; SampleHandler) | pending | |
-| CB5 | Compositor crop by segment band; missing-seam fallback; repro GREEN | pending | |
-| CB6 | EditView per-segment band adjustment | pending | |
+| CB1 | Row mask in OffsetMatcher | done | b547adb |
+| CB2 | ContentBand model + ContentBandDetector (consensus + bootstrap + change signal) | done | 17233b2 |
+| CB3 | Wire detector into PositionTracker (bootstrap→locked; TrackingResult.lockedBand; no-stall) | done | 486eb74 |
+| CB4 | Manifest contract (contentBands per segment; SampleHandler) | done | (with CB5) |
+| CB5 | Compositor crop by segment band; missing-seam fallback; repro GREEN | done | (commit below) |
+| CB6 | EditView per-segment band adjustment; remove Seam chrome fields | in_progress | |
 
 ## CB log
 - CB iter 0: baseline captured; interfaces pinned in DECISIONS.md.
+- CB1 b547adb, CB2 17233b2, CB3 486eb74.
+- CB4+5: manifest contentBands + SampleHandler wiring + Compositor per-segment crop + missing-seam
+  median fallback. Repro GREEN (both variants ratio 0.99, band (24,20), marker once). Required two
+  supporting fixes discovered via diagnostics: (a) OffsetMatcher confidence had an absolute 1e-3
+  floor that zeroed low-variance matches → made ratio-based; (b) repro fixtures were pathological
+  (per-pixel noise averages to gray; period-10 aliased with step; builder upside-down) → rewrote to
+  text-line block model, dense frames, upright builder (DECISIONS CB-fixtures). Seam.chromeTop/Bottom
+  fields still present (removed in CB6 after EditView migrates). 74 StitchKit tests green.

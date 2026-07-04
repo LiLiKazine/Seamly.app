@@ -15,8 +15,9 @@ import Foundation
                 Keyframe(filename: "kf-0000.heic", pixelWidth: 1290, pixelHeight: 2796, index: 0),
                 Keyframe(filename: "kf-0001.heic", pixelWidth: 1290, pixelHeight: 2796, index: 1),
             ],
-            seams: [Seam(fromIndex: 0, provisionalDy: 1800, confidence: 0.92, chromeTopPixels: 150, chromeBottomPixels: 120)],
-            segmentBreaks: []
+            seams: [Seam(fromIndex: 0, provisionalDy: 1800, confidence: 0.92)],
+            segmentBreaks: [],
+            contentBands: [ContentBand(topChrome: 150, bottomChrome: 120)]
         )
     }
 
@@ -71,6 +72,31 @@ import Foundation
         #expect(session.topTrim == 0)
         #expect(session.bottomTrim == 0)
         #expect(session.status == .complete)
+    }
+
+    @Test func decodesManifestMissingContentBands() throws {
+        // A manifest written before per-segment content bands existed must still decode,
+        // defaulting to no bands (segments treated as whole-frame content, flagged).
+        let json = """
+        {"id":"11111111-1111-1111-1111-111111111111","createdAt":1000000,
+         "status":"complete","deviceScale":3,"orientation":"portrait",
+         "keyframes":[],"seams":[],"segmentBreaks":[]}
+        """
+        let session = try JSONDecoder().decode(StitchSession.self, from: Data(json.utf8))
+        #expect(session.contentBands.isEmpty)
+        #expect(session.contentBand(forSegment: 0) == .unlocked)
+    }
+
+    @Test func contentBandLookupIsPerSegmentAndClamps() {
+        var session = sampleSession()
+        session.contentBands = [
+            ContentBand(topChrome: 150, bottomChrome: 120),
+            ContentBand(topChrome: 40, bottomChrome: 0, isLowConfidence: true),
+        ]
+        #expect(session.contentBand(forSegment: 0) == ContentBand(topChrome: 150, bottomChrome: 120))
+        #expect(session.contentBand(forSegment: 1).topChrome == 40)
+        #expect(session.contentBand(forSegment: 2) == .unlocked)   // out of range
+        #expect(session.contentBand(forSegment: -1) == .unlocked)
     }
 
     @Test func frameProfileExposesRowGeometry() {

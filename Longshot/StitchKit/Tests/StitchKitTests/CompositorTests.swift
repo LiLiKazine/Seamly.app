@@ -114,21 +114,50 @@ private func topCrop(_ image: CGImage, x: Int = 0, top: Int, width: Int, height:
         #expect(out.height == 250)
     }
 
-    @Test func chromeAppearsOnceAtTopAndBottom() throws {
+    @Test func cropsChromeOnceUsingSegmentBandAcrossManyKeyframes() throws {
         let W = 100, H = 300, T = 20, B = 20
+        // Chromed frame: red top band, blue bottom band, a per-row content ramp between.
         let kf = TestImages.make(width: W, height: H) { ctx in
-            ctx.setFillColor(gray: 0.5, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
-            ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: W, height: T))          // top chrome red
-            ctx.setFillColor(red: 0, green: 0, blue: 1, alpha: 1); ctx.fill(CGRect(x: 0, y: H - B, width: W, height: B))      // bottom chrome blue
+            for y in T..<(H - B) {
+                let g = CGFloat((y * 7) % 200) / 255
+                ctx.setFillColor(gray: g, alpha: 1); ctx.fill(CGRect(x: 0, y: y, width: W, height: 1))
+            }
+            ctx.setFillColor(red: 1, green: 0, blue: 0, alpha: 1); ctx.fill(CGRect(x: 0, y: 0, width: W, height: T))      // top red
+            ctx.setFillColor(red: 0, green: 0, blue: 1, alpha: 1); ctx.fill(CGRect(x: 0, y: H - B, width: W, height: B))  // bottom blue
         }
+        // Four keyframes (>2): the chrome band must be cropped from every intermediate frame,
+        // not just the first seam's — using the segment's ContentBand.
         let session = StitchSession(createdAt: Date(timeIntervalSince1970: 0), deviceScale: 3, orientation: .portrait,
-                                    keyframes: [keyframe(0, height: H, width: W), keyframe(1, height: H, width: W)],
-                                    seams: [Seam(fromIndex: 0, provisionalDy: 100, confidence: 0.7, chromeTopPixels: T, chromeBottomPixels: B)])
+                                    keyframes: (0..<4).map { keyframe($0, height: H, width: W) },
+                                    seams: (0..<3).map { Seam(fromIndex: $0, provisionalDy: 100, confidence: 0.7) },
+                                    contentBands: [ContentBand(topChrome: T, bottomChrome: B)])
         let out = try compositor.composite(session) { _ in kf }
-        #expect(out.height == (H - B) + 100 + B)   // 400
-        #expect(rgb(out, x: 50, y: 5).r > 200)      // top chrome red
-        #expect(rgb(out, x: 50, y: 200).g > 100)    // middle content gray/green channel present, not pure red/blue
-        #expect(rgb(out, x: 50, y: out.height - 5).b > 200)  // bottom chrome blue
+        #expect(out.height == (H - B) + 100 * 3 + B)   // top chrome + 3 content bands + bottom chrome
+
+        // Red appears only in the top band and blue only in the bottom band — chrome once,
+        // not restamped at each of the three interior seams.
+        let reds = (0..<out.height).filter { let p = rgb(out, x: 50, y: $0); return p.r > 200 && p.b < 80 }
+        let blues = (0..<out.height).filter { let p = rgb(out, x: 50, y: $0); return p.b > 200 && p.r < 80 }
+        #expect(!reds.isEmpty && reds.allSatisfy { $0 < T + 4 })
+        #expect(!blues.isEmpty && blues.allSatisfy { $0 > out.height - B - 4 })
+    }
+
+    @Test func missingSeamFallbackDoesNotStackFullFrame() throws {
+        let W = 100, H = 300, T = 20, B = 20
+        let reference = noise(width: W, height: 900)
+        var frames: [Int: CGImage] = [:]
+        for (i, pos) in [0, 100, 200].enumerated() { frames[i] = topCrop(reference, top: pos, width: W, height: H) }
+        // Three keyframes but only the FIRST seam is recorded; the second is missing.
+        let session = StitchSession(createdAt: Date(timeIntervalSince1970: 0), deviceScale: 3, orientation: .portrait,
+                                    keyframes: (0..<3).map { keyframe($0, height: H, width: W) },
+                                    seams: [Seam(fromIndex: 0, provisionalDy: 100, confidence: 0.8)],
+                                    contentBands: [ContentBand(topChrome: T, bottomChrome: B)])
+        let out = try compositor.composite(session) { frames[$0.index]! }
+        let band = H - T - B
+        // The old fallback drew a whole content band for the missing seam (stacking); the
+        // median-of-known-offsets fallback draws only ~100 rows.
+        #expect(out.height < (H - B) + 100 + band + B)          // did not stack a full frame
+        #expect(out.height == (H - B) + 100 + 100 + B)          // fallback == median(known dys) == 100
     }
 
     @Test func pdfPaginatesPastPageLimit() throws {

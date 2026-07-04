@@ -188,8 +188,6 @@ public struct Compositor: Sendable {
 
     private func plan(_ session: StitchSession, refinedSeams: [Seam], images: (Keyframe) throws -> CGImage) throws -> Layout {
         let dyByFrom = Dictionary(uniqueKeysWithValues: refinedSeams.map { ($0.fromIndex, $0.provisionalDy) })
-        let chromeTop = refinedSeams.first?.chromeTopPixels ?? 0
-        let chromeBottom = refinedSeams.first?.chromeBottomPixels ?? 0
         let segmentsKF = splitIntoSegments(session)
 
         let width = try firstImage(session, images).width
@@ -198,6 +196,11 @@ public struct Compositor: Sendable {
         var cursor = 0
 
         for (s, seg) in segmentsKF.enumerated() {
+            // Crop chrome using *this segment's* locked band, not the first seam's globally.
+            let contentBand = session.contentBand(forSegment: s)
+            let chromeTop = max(0, contentBand.topChrome)
+            let chromeBottom = max(0, contentBand.bottomChrome)
+
             if s > 0 {
                 pieces.append(Piece(keyframe: nil, srcY: 0, height: separatorHeight, destY: cursor, segmentLocalY: 0))
                 cursor += separatorHeight
@@ -215,9 +218,15 @@ public struct Compositor: Sendable {
             if seg.count == 1 {
                 add(seg[0], 0, h)
             } else {
+                // Missing-seam fallback: the median of the segment's known offsets — a plausible
+                // scroll step. Never the full content band (that would redraw an entire frame's
+                // content and stack it, the very bug this fix removes).
+                let knownDys = seg.dropLast().compactMap { dyByFrom[$0.index] }.filter { $0 > 0 }
+                let fallbackDy = medianDy(knownDys) ?? max(1, band / 2)
+
                 add(seg[0], 0, h - chromeBottom)   // top chrome + full content
                 for j in 1..<seg.count {
-                    let rawDy = dyByFrom[seg[j - 1].index] ?? band
+                    let rawDy = dyByFrom[seg[j - 1].index] ?? fallbackDy
                     let dy = min(max(rawDy, 1), band)
                     add(seg[j], h - chromeBottom - dy, dy)
                 }
@@ -227,6 +236,13 @@ public struct Compositor: Sendable {
         }
 
         return Layout(pieces: pieces, segments: segments, width: width, totalHeight: cursor)
+    }
+
+    /// Median of the segment's known offsets, or `nil` if there are none.
+    private func medianDy(_ dys: [Int]) -> Int? {
+        guard !dys.isEmpty else { return nil }
+        let sorted = dys.sorted()
+        return sorted[sorted.count / 2]
     }
 
     private func splitIntoSegments(_ session: StitchSession) -> [[Keyframe]] {

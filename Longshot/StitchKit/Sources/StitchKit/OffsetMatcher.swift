@@ -89,9 +89,11 @@ public struct OffsetMatcher: Sendable {
     private func confidenceMargin(best: Float, runnerUp: Float) -> Double {
         // No distinct competitor scored at all — a single candidate region, can't judge.
         guard runnerUp < .greatestFiniteMagnitude else { return 0.5 }
-        // A distinct competitor is essentially as good as the winner (periodic / uniform
-        // content): the alignment is ambiguous, not trustworthy.
-        guard runnerUp > 1e-3 else { return 0 }
+        // Both scores essentially zero (two equally-perfect alignments — periodic content, or
+        // no signal): ambiguous. Use a tiny epsilon only to avoid a 0/0; the *ratio* below —
+        // not an absolute score floor — is what judges decisiveness. An absolute floor wrongly
+        // condemns low-variance content (text-on-white), whose MADs are legitimately tiny.
+        guard runnerUp > 1e-9 else { return 0 }
         let ratio = Double(best / runnerUp)
         return min(1, max(0, 1 - ratio))
     }
