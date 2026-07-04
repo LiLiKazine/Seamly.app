@@ -40,6 +40,10 @@ enum StitchAssembler {
         guard image.height > maxHeight else { return image }
         let scale = Double(maxHeight) / Double(image.height)
         let w = max(1, Int(Double(image.width) * scale)), h = maxHeight
+        // Downscale is best-effort: if the context can't be allocated or read back (effectively
+        // only under memory pressure), fall back to the full-res image. It may exceed the GPU
+        // texture limit and fail to render, but that's strictly better than crashing the display
+        // path — and the failure surfaces visibly rather than as a silent wrong-size proxy.
         guard let ctx = CGContext(
             data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
             space: image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB)!,

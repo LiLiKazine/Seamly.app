@@ -46,8 +46,21 @@ class SampleHandler: RPBroadcastSampleHandler {
         let session = StitchSession(createdAt: Date(), status: .recording, deviceScale: 1, orientation: .portrait)
         self.store = store
         self.session = session
-        self.folder = try? store.createFolder(for: session.id)
-        try? store.writeManifest(session)
+        do {
+            // Without a session folder there is nowhere to write keyframes — the whole
+            // broadcast would silently produce nothing. Fail loudly instead.
+            self.folder = try store.createFolder(for: session.id)
+        } catch {
+            finishBroadcastWithError(NSError(domain: "Longshot", code: 2, userInfo: [NSLocalizedDescriptionKey: "Couldn't create capture storage"]))
+            return
+        }
+        do {
+            try store.writeManifest(session)
+        } catch {
+            // Non-fatal: the incremental writes in commitKeyframe retry this. Log so a
+            // shared-container write problem is diagnosable rather than silent.
+            NSLog("Longshot: initial manifest write failed: \(error)")
+        }
     }
 
     override func processSampleBuffer(_ sampleBuffer: CMSampleBuffer, with sampleBufferType: RPSampleBufferType) {
@@ -82,7 +95,13 @@ class SampleHandler: RPBroadcastSampleHandler {
         guard var session, let store else { return }
         session.status = .complete
         self.session = session
-        try? store.writeManifest(session)
+        do {
+            try store.writeManifest(session)
+        } catch {
+            // The app can still recover this capture via the staleness heuristic, but log:
+            // a failed final write is why a finished capture might import as "incomplete".
+            NSLog("Longshot: final manifest write failed: \(error)")
+        }
         CFNotificationCenterPostNotification(
             CFNotificationCenterGetDarwinNotifyCenter(),
             CFNotificationName("io.github.lilikazine.Longshot.sessionFinished" as CFString),
@@ -102,7 +121,14 @@ class SampleHandler: RPBroadcastSampleHandler {
 
         let filename = String(format: "kf-%04d.bgra", keyframeIndex)
         let url = folder.appendingPathComponent(filename)
-        do { try KeyframeIO.writeRaw(image, to: url) } catch { return }
+        do {
+            try KeyframeIO.writeRaw(image, to: url)
+        } catch {
+            // Skip this keyframe but keep the broadcast running. Log so a run that drops
+            // frames (e.g. the container filling up) isn't a silent gap in the stitch.
+            NSLog("Longshot: keyframe write failed (\(filename)): \(error)")
+            return
+        }
 
         session.keyframes.append(Keyframe(filename: filename, pixelWidth: image.width, pixelHeight: image.height, index: keyframeIndex))
 
@@ -127,7 +153,10 @@ class SampleHandler: RPBroadcastSampleHandler {
         lastSegment = result.segmentIndex
         keyframeIndex += 1
         self.session = session
-        try? store.writeManifest(session)   // incremental
+        // Best-effort incremental checkpoint: the next keyframe writes the manifest again and
+        // broadcastFinished() writes the authoritative final copy, so a dropped write here is
+        // recovered by the following one. Intentionally not surfaced per-frame.
+        try? store.writeManifest(session)
     }
 
     // MARK: - Safety cue

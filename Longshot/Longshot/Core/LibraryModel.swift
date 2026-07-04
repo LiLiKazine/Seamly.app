@@ -45,7 +45,13 @@ final class LibraryModel {
     static func appContainerURL() -> URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Longshot", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        do {
+            try FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
+        } catch {
+            // Non-fatal: SessionStore recreates this lazily on the first write. Log so a
+            // genuinely unwritable Application Support (rare) is diagnosable, not silent.
+            print("Longshot: could not create app container: \(error)")
+        }
         return base
     }
 
@@ -111,6 +117,9 @@ final class LibraryModel {
     /// A `.recording` manifest untouched for a while means the broadcast crashed rather than
     /// finished; such partial sessions are safe to import (and get badged incomplete).
     nonisolated private static func isStale(_ manifest: URL, olderThan seconds: TimeInterval = 90) -> Bool {
+        // A missing or unreadable manifest can't be judged stale — treat it as not-stale so we
+        // never import a folder that isn't a crashed recording. The throw here is expected
+        // (e.g. the folder vanished mid-scan), so swallowing it is intentional.
         guard let modified = try? FileManager.default.attributesOfItem(atPath: manifest.path)[.modificationDate] as? Date else {
             return false
         }
@@ -155,7 +164,14 @@ final class LibraryModel {
     func fullComposite(_ id: UUID) async -> CGImage? {
         guard let capture = captures.first(where: { $0.id == id }) else { return nil }
         let session = capture.session, folder = capture.folder
-        return await Task.detached { try? StitchAssembler.composite(session, in: folder) }.value
+        return await Task.detached {
+            do {
+                return try StitchAssembler.composite(session, in: folder)
+            } catch {
+                print("Longshot: full composite failed for \(session.id): \(error)")
+                return nil
+            }
+        }.value
     }
 
     /// Render the capture to a PDF in a temp file for sharing.
@@ -164,12 +180,24 @@ final class LibraryModel {
         let session = capture.session, folder = capture.folder
         return await Task.detached {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("Longshot-\(session.id.uuidString).pdf")
-            do { try StitchAssembler.writePDF(session, in: folder, to: url); return url } catch { return nil }
+            do {
+                try StitchAssembler.writePDF(session, in: folder, to: url)
+                return url
+            } catch {
+                print("Longshot: PDF export failed for \(session.id): \(error)")
+                return nil
+            }
         }.value
     }
 
     func delete(_ id: UUID) {
-        try? appStore.delete(id)
+        do {
+            try appStore.delete(id)
+        } catch {
+            // Still drop it from the UI, but log: an undeletable folder would otherwise
+            // reappear on the next scan as a silent ghost.
+            print("Longshot: could not delete session \(id): \(error)")
+        }
         captures.removeAll { $0.id == id }
     }
 
@@ -177,7 +205,14 @@ final class LibraryModel {
     func update(_ session: StitchSession) async {
         guard let index = captures.firstIndex(where: { $0.id == session.id }) else { return }
         let folder = captures[index].folder
-        try? SessionStore(containerURL: folder.deletingLastPathComponent().deletingLastPathComponent()).writeManifest(session)
+        do {
+            let store = SessionStore(containerURL: folder.deletingLastPathComponent().deletingLastPathComponent())
+            try store.writeManifest(session)
+        } catch {
+            // The in-memory capture still updates and re-assembles below, but the edit won't
+            // survive relaunch if this write fails. Log rather than silently lose it.
+            print("Longshot: could not persist edited manifest for \(session.id): \(error)")
+        }
         captures[index] = Capture(session: session, folder: folder, phase: .processing, proxy: captures[index].proxy)
         await assemble(session.id)
     }

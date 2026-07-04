@@ -54,6 +54,8 @@ public struct SessionStore: Sendable {
     /// skipped rather than throwing, so one corrupt session never hides the rest.
     public func loadAll() -> [StitchSession] {
         let fm = FileManager.default
+        // No sessions directory yet (fresh install, before any write) is the expected empty
+        // case, so swallowing the throw and returning [] here is intentional.
         guard let entries = try? fm.contentsOfDirectory(at: sessionsDirectory, includingPropertiesForKeys: nil) else {
             return []
         }
