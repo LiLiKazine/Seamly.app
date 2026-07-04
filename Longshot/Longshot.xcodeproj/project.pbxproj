@@ -57,6 +57,16 @@
 		D0D0D00000000000000000C2 /* LongshotBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LongshotBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D0D0D00000000000000000CE /* Exceptions for "LongshotBroadcast" folder in "LongshotBroadcast" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D0D0D00000000000000000C1 /* LongshotBroadcast */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		B3CFC87E2FF912610078D068 /* Longshot */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
@@ -76,22 +86,12 @@
 		D0D0D00000000000000000C3 /* LongshotBroadcast */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				D0D0D00000000000000000CE /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				D0D0D00000000000000000CE /* Exceptions for "LongshotBroadcast" folder in "LongshotBroadcast" target */,
 			);
 			path = LongshotBroadcast;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
-
-/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		D0D0D00000000000000000CE /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = D0D0D00000000000000000C1 /* LongshotBroadcast */;
-		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		B3CFC8792FF912610078D068 /* Frameworks */ = {
@@ -177,29 +177,6 @@
 			productReference = B3CFC87C2FF912610078D068 /* Longshot.app */;
 			productType = "com.apple.product-type.application";
 		};
-		D0D0D00000000000000000C1 /* LongshotBroadcast */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = D0D0D00000000000000000C7 /* Build configuration list for PBXNativeTarget "LongshotBroadcast" */;
-			buildPhases = (
-				D0D0D00000000000000000C4 /* Sources */,
-				D0D0D00000000000000000C5 /* Frameworks */,
-				D0D0D00000000000000000C6 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			fileSystemSynchronizedGroups = (
-				D0D0D00000000000000000C3 /* LongshotBroadcast */,
-			);
-			name = LongshotBroadcast;
-			packageProductDependencies = (
-				D0D0D00000000000000000B2 /* StitchKit */,
-			);
-			productName = LongshotBroadcast;
-			productReference = D0D0D00000000000000000C2 /* LongshotBroadcast.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 		B3CFC8882FF912620078D068 /* LongshotTests */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = B3CFC8A02FF912620078D068 /* Build configuration list for PBXNativeTarget "LongshotTests" */;
@@ -245,6 +222,29 @@
 			productName = LongshotUITests;
 			productReference = B3CFC8932FF912620078D068 /* LongshotUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		D0D0D00000000000000000C1 /* LongshotBroadcast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D0D0D00000000000000000C7 /* Build configuration list for PBXNativeTarget "LongshotBroadcast" */;
+			buildPhases = (
+				D0D0D00000000000000000C4 /* Sources */,
+				D0D0D00000000000000000C5 /* Frameworks */,
+				D0D0D00000000000000000C6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D0D0D00000000000000000C3 /* LongshotBroadcast */,
+			);
+			name = LongshotBroadcast;
+			packageProductDependencies = (
+				D0D0D00000000000000000B2 /* StitchKit */,
+			);
+			productName = LongshotBroadcast;
+			productReference = D0D0D00000000000000000C2 /* LongshotBroadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -360,11 +360,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		D0D0D00000000000000000CB /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = D0D0D00000000000000000C1 /* LongshotBroadcast */;
-			targetProxy = D0D0D00000000000000000CC /* PBXContainerItemProxy */;
-		};
 		B3CFC88B2FF912620078D068 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = B3CFC87B2FF912610078D068 /* Longshot */;
@@ -374,6 +369,11 @@
 			isa = PBXTargetDependency;
 			target = B3CFC87B2FF912610078D068 /* Longshot */;
 			targetProxy = B3CFC8942FF912620078D068 /* PBXContainerItemProxy */;
+		};
+		D0D0D00000000000000000CB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D0D0D00000000000000000C1 /* LongshotBroadcast */;
+			targetProxy = D0D0D00000000000000000CC /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -499,16 +499,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Longshot saves your long screenshots to your photo library.";
+				CODE_SIGN_ENTITLEMENTS = Longshot/Longshot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PJBUF7JSHK;
-				CODE_SIGN_ENTITLEMENTS = Longshot/Longshot.entitlements;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Longshot saves your long screenshots to your photo library.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -545,16 +545,16 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Longshot saves your long screenshots to your photo library.";
+				CODE_SIGN_ENTITLEMENTS = Longshot/Longshot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PJBUF7JSHK;
-				CODE_SIGN_ENTITLEMENTS = Longshot/Longshot.entitlements;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Longshot saves your long screenshots to your photo library.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
