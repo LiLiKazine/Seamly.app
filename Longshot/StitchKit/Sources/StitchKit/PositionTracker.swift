@@ -27,14 +27,19 @@ public struct TrackingResult: Equatable, Sendable {
     public let confidence: Double
     /// Index of the segment this frame belongs to (bumped on every break).
     public let segmentIndex: Int
+    /// The current segment's content band (source pixels), once consensus has locked it;
+    /// `.unlocked` (whole frame is content, flagged) until then. One band governs the whole
+    /// segment — the caller records the last value per segment.
+    public let contentBand: ContentBand
 
-    public init(decision: TrackingDecision, needsSafetyCue: Bool, position: Int, maxY: Int, confidence: Double, segmentIndex: Int) {
+    public init(decision: TrackingDecision, needsSafetyCue: Bool, position: Int, maxY: Int, confidence: Double, segmentIndex: Int, contentBand: ContentBand = .unlocked) {
         self.decision = decision
         self.needsSafetyCue = needsSafetyCue
         self.position = position
         self.maxY = maxY
         self.confidence = confidence
         self.segmentIndex = segmentIndex
+        self.contentBand = contentBand
     }
 }
 
@@ -47,6 +52,8 @@ public struct TrackingResult: Equatable, Sendable {
 /// state across tasks, so no actor is needed; state lives in the struct and mutates in place.
 public struct PositionTracker: Sendable {
     private let matcher: OffsetMatcher
+    /// Pristine detector config, copied into `detector` at the start of each segment.
+    private let detectorTemplate: ContentBandDetector
     /// Overlap fraction below which the safety cue should fire (before content is lost).
     private let safetyMargin: Double
     /// Tracking-match confidence below which we treat the lock as lost and relocalize.
@@ -61,20 +68,26 @@ public struct PositionTracker: Sendable {
     private var started = false
     private var segmentIndex = 0
     private var segmentWidth = 0
+    private var segmentRowScale: Double = 1
     private var previous: FrameProfile?
     private var position = 0
     private var maxY = 0
     private var mapMeans: [Float] = []
     private var mapVariances: [Float] = []
+    /// Per-segment content-band consensus; reset from `detectorTemplate` at each segment start.
+    private var detector: ContentBandDetector
 
     public init(
         matcher: OffsetMatcher = OffsetMatcher(),
+        bandDetector: ContentBandDetector = ContentBandDetector(),
         safetyMargin: Double = 0.4,
         minTrackingConfidence: Double = 0.3,
         relocalizeConfidence: Double = 0.5,
         relocalizeWindowFrames: Int = 4
     ) {
         self.matcher = matcher
+        self.detectorTemplate = bandDetector
+        self.detector = bandDetector
         self.safetyMargin = safetyMargin
         self.minTrackingConfidence = minTrackingConfidence
         self.relocalizeConfidence = relocalizeConfidence
@@ -96,13 +109,33 @@ public struct PositionTracker: Sendable {
 
         let n = frame.rowCount
         let bound = max(0, n - matcher.minimumOverlap)
-        let m = matcher.match(previous!, frame, searchRange: -bound...bound)
+        // Restrict matching to content rows so static chrome can't pin the offset to dy=0:
+        // the locked band once consensus is confident, else the adaptive per-pair static
+        // mask (bootstrap). A nil mask (pre-scroll / still frames) matches every row.
+        let mask: [Bool]?
+        if let locked = detector.lockedBand {
+            mask = contentMask(rowCount: n, top: locked.top, bottom: locked.bottom)
+        } else {
+            mask = detector.staticMask(previous!, frame)
+        }
+        let m = matcher.match(previous!, frame, searchRange: -bound...bound, rowMask: mask)
         let overlapRows = n - abs(m.dy)
         let lostLock = m.confidence < minTrackingConfidence || overlapRows < matcher.minimumOverlap
 
         if lostLock {
             return relocalize(frame)
         }
+
+        // A locked band that changes shape sharply (collapsing header, keyboard) closes the
+        // segment; the new steady state re-locks in the fresh segment.
+        if detector.lockedBand != nil, detector.bandChangedSharply(previous!, frame) {
+            segmentIndex += 1
+            startSegment(frame)
+            return result(.segmentBreak(reason: .contentChanged), cue: true, confidence: m.confidence)
+        }
+
+        // Fold this pair into the band consensus (only moving pairs vote, inside observe).
+        detector.observe(previous!, frame, dy: m.dy)
 
         let newPosition = position + m.dy
         let overlapFraction = Double(overlapRows) / Double(n)
@@ -143,11 +176,23 @@ public struct PositionTracker: Sendable {
     private mutating func startSegment(_ frame: FrameProfile) {
         started = true
         segmentWidth = frame.sourceWidth
+        segmentRowScale = frame.rowScale
         previous = frame
         position = 0
         maxY = frame.rowCount
         mapMeans = frame.means
         mapVariances = frame.variances
+        detector = detectorTemplate
+    }
+
+    /// A content mask (screen-row indexed) for the locked band: `true` for content rows
+    /// `[top, n − bottom)`, `false` for the chrome edges.
+    private func contentMask(rowCount n: Int, top: Int, bottom: Int) -> [Bool] {
+        var mask = [Bool](repeating: false, count: n)
+        let lo = min(max(0, top), n)
+        let hi = max(lo, n - max(0, bottom))
+        for i in lo..<hi { mask[i] = true }
+        return mask
     }
 
     /// Extends the union/map with any rows the frame reveals beyond `maxY`; returns the
@@ -165,6 +210,16 @@ public struct PositionTracker: Sendable {
     }
 
     private func result(_ decision: TrackingDecision, cue: Bool, confidence: Double) -> TrackingResult {
-        TrackingResult(decision: decision, needsSafetyCue: cue, position: position, maxY: maxY, confidence: confidence, segmentIndex: segmentIndex)
+        let band: ContentBand
+        if let locked = detector.lockedBand {
+            band = ContentBand(
+                topChrome: Int((Double(locked.top) * segmentRowScale).rounded()),
+                bottomChrome: Int((Double(locked.bottom) * segmentRowScale).rounded()),
+                isLowConfidence: false
+            )
+        } else {
+            band = .unlocked
+        }
+        return TrackingResult(decision: decision, needsSafetyCue: cue, position: position, maxY: maxY, confidence: confidence, segmentIndex: segmentIndex, contentBand: band)
     }
 }
