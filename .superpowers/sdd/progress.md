@@ -26,8 +26,8 @@ submission, no force-push, no new worktree. On-device verifications are out of a
 | A3 | OffsetMatcher | done | ecb948a |
 | A4 | ChromeDetector | done | 108d5a5 |
 | A5 | PositionTracker | done | 0024325 |
-| A6 | FrameSelector | done | pending-hash |
-| A7 | Compositor | pending | |
+| A6 | FrameSelector | done | f45e376 |
+| A7 | Compositor | done | pending-hash |
 | B1 | Project: package dep + App Group | pending | |
 | B2 | App Group session store + pickup | pending | |
 | B3 | Capture-start + onboarding | pending | |
