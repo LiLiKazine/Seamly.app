@@ -45,10 +45,14 @@ struct LibraryView: View {
         }
         .task {
             if !hasSeenOnboarding { showOnboarding = true; hasSeenOnboarding = true }
+            AppGroup.startBroadcastFinishObserver()
             await model.refresh()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await model.refresh(); showEmptyNudge = model.lastPickupWasEmpty } }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .longshotBroadcastFinished)) { _ in
+            Task { await model.refresh(); showEmptyNudge = model.lastPickupWasEmpty }
         }
         .sheet(isPresented: $showOnboarding) { OnboardingView() }
         .sheet(isPresented: $showCapture) {

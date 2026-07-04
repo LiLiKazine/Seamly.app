@@ -58,6 +58,21 @@ import Foundation
         #expect(!session.hasSegmentBreak(after: 1))
     }
 
+    @Test func decodesManifestMissingLaterFields() throws {
+        // A manifest written before topTrim/bottomTrim existed must still decode (defaulting),
+        // not throw and silently drop the capture.
+        let json = """
+        {"id":"11111111-1111-1111-1111-111111111111","createdAt":1000000,
+         "status":"complete","deviceScale":3,"orientation":"portrait",
+         "keyframes":[],"seams":[],"segmentBreaks":[]}
+        """
+        let decoder = JSONDecoder()
+        let session = try decoder.decode(StitchSession.self, from: Data(json.utf8))
+        #expect(session.topTrim == 0)
+        #expect(session.bottomTrim == 0)
+        #expect(session.status == .complete)
+    }
+
     @Test func frameProfileExposesRowGeometry() {
         let profile = FrameProfile(means: [0.1, 0.2, 0.3, 0.4], variances: [0, 0, 0, 0], sourceWidth: 100, sourceHeight: 800)
         #expect(profile.rowCount == 4)
