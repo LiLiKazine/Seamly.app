@@ -29,13 +29,13 @@ submission, no force-push, no new worktree. On-device verifications are out of a
 | A6 | FrameSelector | done | f45e376 |
 | A7 | Compositor | done | 496f399 |
 | B1 | Project: package dep + App Group | done | 479a0ea |
-| B2 | App Group session store + pickup | done | (this commit) |
-| B3 | Capture-start + onboarding | done | (this commit) |
-| B4 | Library home surface | done | (this commit) |
-| B5 | Preview + edit + export | done | (this commit) |
-| C1 | Broadcast extension target scaffold | pending | |
-| C2 | RPBroadcastSampleHandler wiring | pending | |
-| C3 | Whole-project build + review | pending | |
+| B2 | App Group session store + pickup | done | 510602c |
+| B3 | Capture-start + onboarding | done | 510602c |
+| B4 | Library home surface | done | 510602c |
+| B5 | Preview + edit + export | done | 510602c |
+| C1 | Broadcast extension target scaffold | done | (this) |
+| C2 | RPBroadcastSampleHandler wiring | done | (this) |
+| C3 | Whole-project build (review pending) | done | (this) |
 
 ## Log
 (one line per completed task with commit range)
