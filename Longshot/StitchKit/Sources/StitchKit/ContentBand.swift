@@ -13,8 +13,9 @@ public struct ContentBand: Codable, Sendable, Equatable {
     public var topChrome: Int
     /// Static bottom chrome to crop, in source pixels.
     public var bottomChrome: Int
-    /// True when no confident band locked (or a sharp change made it untrustworthy) — the
-    /// segment is flagged for the editor rather than silently mis-cropped.
+    /// True when no confident band locked for the segment — the segment is flagged for the
+    /// editor rather than silently mis-cropped. (A sharp mid-segment change is handled by a
+    /// segment break, not by flagging a locked band.)
     public var isLowConfidence: Bool
 
     public init(topChrome: Int = 0, bottomChrome: Int = 0, isLowConfidence: Bool = false) {

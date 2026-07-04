@@ -172,15 +172,22 @@ private func frame(_ signal: [Float], pos: Int, height: Int = 100, width: Int = 
         for s in stride(from: 20, through: 100, by: 20) { last = t.process(chromeFrame(doc, scroll: s)) }
         #expect(last.segmentIndex == 0)   // still one segment through the stable stretch
 
-        // Header collapses 10 -> 2 rows: rows [2,10) that were chrome become content. The
-        // pair still overlaps (content [10,90) unchanged), so this is a band change, not a
-        // lost lock.
-        var collapsed = chromeFrame(doc, scroll: 100)
-        var means = collapsed.means, vars = collapsed.variances
-        for i in 2..<Self.chromeTop { means[i] = doc[500 + i]; vars[i] = 0.02 }
-        collapsed = FrameProfile(means: means, variances: vars, sourceWidth: 100, sourceHeight: collapsed.sourceHeight)
+        // Header collapses 10 -> 2 rows: rows [2,10) that were chrome become content (continuing
+        // the doc just above the window). The pair still overlaps in the locked content band,
+        // so this is a band change, not a lost lock.
+        func collapsed(scroll: Int) -> FrameProfile {
+            let f = chromeFrame(doc, scroll: scroll)
+            var means = f.means, vars = f.variances
+            for i in 2..<Self.chromeTop { means[i] = doc[max(0, scroll - Self.chromeTop + i)]; vars[i] = 0.02 }
+            return FrameProfile(means: means, variances: vars, sourceWidth: 100, sourceHeight: f.sourceHeight)
+        }
 
-        let broke = t.process(collapsed)
+        // A single collapsed pair must NOT break (persistence guards against one noisy pair)…
+        let first = t.process(collapsed(scroll: 120))
+        #expect(first.decision != .segmentBreak(reason: .contentChanged))
+        #expect(first.segmentIndex == 0)
+        // …but a sustained collapse (a second consecutive collapsed pair) does.
+        let broke = t.process(collapsed(scroll: 140))
         #expect(broke.decision == .segmentBreak(reason: .contentChanged))
         #expect(broke.segmentIndex == 1)
     }
