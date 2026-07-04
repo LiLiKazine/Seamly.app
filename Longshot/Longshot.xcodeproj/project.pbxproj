@@ -6,6 +6,11 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D0D0D00000000000000000A3 /* StitchKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D0D00000000000000000A2 /* StitchKit */; };
+		D0D0D00000000000000000B3 /* StitchKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D0D00000000000000000B2 /* StitchKit */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		B3CFC88A2FF912620078D068 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +57,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D0D0D00000000000000000A3 /* StitchKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -112,6 +118,7 @@
 			);
 			name = Longshot;
 			packageProductDependencies = (
+				D0D0D00000000000000000A2 /* StitchKit */,
 			);
 			productName = Longshot;
 			productReference = B3CFC87C2FF912610078D068 /* Longshot.app */;
@@ -195,6 +202,9 @@
 			);
 			mainGroup = B3CFC8732FF912610078D068;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D0D0D00000000000000000A1 /* XCLocalSwiftPackageReference "StitchKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B3CFC87D2FF912610078D068 /* Products */;
 			projectDirPath = "";
@@ -393,6 +403,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PJBUF7JSHK;
+				CODE_SIGN_ENTITLEMENTS = Longshot/Longshot.entitlements;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -437,6 +448,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PJBUF7JSHK;
+				CODE_SIGN_ENTITLEMENTS = Longshot/Longshot.entitlements;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_PREVIEWS = YES;
@@ -615,6 +627,24 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D0D0D00000000000000000A1 /* XCLocalSwiftPackageReference "StitchKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = StitchKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D0D0D00000000000000000A2 /* StitchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StitchKit;
+		};
+		D0D0D00000000000000000B2 /* StitchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StitchKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B3CFC8742FF912610078D068 /* Project object */;
 }
