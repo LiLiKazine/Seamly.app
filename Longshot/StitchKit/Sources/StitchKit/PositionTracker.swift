@@ -63,6 +63,9 @@ public struct PositionTracker: Sendable {
     /// Relocalize search half-window, in multiples of the frame height, around the last
     /// known position — biases toward where we were and bounds the search cost.
     private let relocalizeWindowFrames: Int
+    /// Consecutive moving pairs that must all show a sharp band change before the segment
+    /// breaks — persistence guards against a single unreliable pair.
+    private let sharpChangeToBreak: Int
 
     // Mutable capture state (current segment).
     private var started = false
@@ -76,6 +79,8 @@ public struct PositionTracker: Sendable {
     private var mapVariances: [Float] = []
     /// Per-segment content-band consensus; reset from `detectorTemplate` at each segment start.
     private var detector: ContentBandDetector
+    /// Consecutive moving pairs showing a sharp band change (reset on any non-sharp pair).
+    private var sharpChangeStreak = 0
 
     public init(
         matcher: OffsetMatcher = OffsetMatcher(),
@@ -83,7 +88,8 @@ public struct PositionTracker: Sendable {
         safetyMargin: Double = 0.4,
         minTrackingConfidence: Double = 0.3,
         relocalizeConfidence: Double = 0.5,
-        relocalizeWindowFrames: Int = 4
+        relocalizeWindowFrames: Int = 4,
+        sharpChangeToBreak: Int = 2
     ) {
         self.matcher = matcher
         self.detectorTemplate = bandDetector
@@ -92,6 +98,7 @@ public struct PositionTracker: Sendable {
         self.minTrackingConfidence = minTrackingConfidence
         self.relocalizeConfidence = relocalizeConfidence
         self.relocalizeWindowFrames = relocalizeWindowFrames
+        self.sharpChangeToBreak = sharpChangeToBreak
     }
 
     public mutating func process(_ frame: FrameProfile) -> TrackingResult {
@@ -127,8 +134,15 @@ public struct PositionTracker: Sendable {
         }
 
         // A locked band that changes shape sharply (collapsing header, keyboard) closes the
-        // segment; the new steady state re-locks in the fresh segment.
+        // segment. Require the change to *persist* across consecutive moving pairs before
+        // breaking — a single pair is unreliable (a slow/uniform row just inside the chrome
+        // edge can momentarily read static), the same reason the band lock needs consensus.
         if detector.lockedBand != nil, detector.bandChangedSharply(previous!, frame) {
+            sharpChangeStreak += 1
+        } else {
+            sharpChangeStreak = 0
+        }
+        if sharpChangeStreak >= sharpChangeToBreak {
             segmentIndex += 1
             startSegment(frame)
             return result(.segmentBreak(reason: .contentChanged), cue: true, confidence: m.confidence)
@@ -183,6 +197,7 @@ public struct PositionTracker: Sendable {
         mapMeans = frame.means
         mapVariances = frame.variances
         detector = detectorTemplate
+        sharpChangeStreak = 0
     }
 
     /// A content mask (screen-row indexed) for the locked band: `true` for content rows
