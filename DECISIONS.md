@@ -10,6 +10,17 @@ reverse it. Format: `## [slice] Decision — why — alternatives — reversible
 - Reversible: yes — a package folder is self-contained; can be re-homed as a target later.
 - Confidence: high.
 
+## [A3] Incidental `dx` measured in full-res Compositor refinement, not the profile matcher
+- Why: `FrameProfile` is a per-row vertical signal with no horizontal information, so
+  profile-based `OffsetMatcher` structurally cannot recover `dx`. The spec only wants `dx`
+  *monitored* to flag a seam (scroll views are vertically locked). The full-res seam
+  refinement in `Compositor` has real pixels and is the natural place to measure a small
+  horizontal shift and set `Seam.isLowConfidence`.
+- Alternatives: add a per-column HorizontalProfile to every frame (extra per-frame work in
+  the memory-constrained extension for a monitoring-only signal) — rejected.
+- Reversible: yes — a HorizontalProfile can be added later without changing `Match`'s shape.
+- Confidence: high.
+
 ## [plan] On-device "early verifications" treated as pending, not blockers
 - Why: cue-from-extension, lossless-encode memory peak, ReplayKit pixel format, and iOS 26
   picker behavior all require a physical device and the developer's signing team — outside

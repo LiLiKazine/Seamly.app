@@ -21,8 +21,8 @@ submission, no force-push, no new worktree. On-device verifications are out of a
 
 | # | Task | Status | Commits |
 |---|------|--------|---------|
-| A1 | StitchKit scaffold + StitchSession | pending | |
-| A2 | VerticalProfile | pending | |
+| A1 | StitchKit scaffold + StitchSession | done | 8e3fc26 |
+| A2 | VerticalProfile | done | 6f90e6c |
 | A3 | OffsetMatcher | pending | |
 | A4 | ChromeDetector | pending | |
 | A5 | PositionTracker | pending | |
