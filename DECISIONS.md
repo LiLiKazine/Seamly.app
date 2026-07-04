@@ -37,3 +37,21 @@ reverse it. Format: `## [slice] Decision — why — alternatives — reversible
   and-segment) so it is correct whichever way the device checks land.
 - Reversible: yes — they are runtime config toggles, not architectural forks.
 - Confidence: high.
+- **Verified on device 2026-07-04 (iPhone 17 Pro Max, iOS 26)** — all four passed:
+  - cue-from-extension ✅ haptic felt during scroll.
+  - memory peak ✅ extension ran a full capture with no jetsam/crash report → raw-BGRA-to-disk
+    default confirmed; HEIC stays optional/unneeded.
+  - ReplayKit pixel format ✅ end-to-end stitch produced a clean Ready thumbnail with no color
+    corruption (CoreImage normalizes whatever format ReplayKit delivers before keyframes are
+    written as BGRA).
+  - iOS 26 picker behavior ✅ `RPSystemBroadcastPickerView` listed Longshot and started the broadcast.
+
+## [B4] `LibraryModel.importFromGroup` must create the app `sessions/` dir before moving
+- Why: `FileManager.moveItem` does not create intermediate directories; on a fresh install
+  nothing had created `…/Longshot/sessions/`, so the first import threw and a bare `try?`
+  swallowed it — the "coming back from a broadcast does nothing" bug. Fix creates the parent
+  first and replaces the swallowing `try?` with logged `do/catch` per CLAUDE.md's error rule.
+- Alternatives: create the dir lazily in `SessionStore` on every read (broader surface, hides
+  the intent) — rejected in favor of an explicit create at the import site.
+- Reversible: yes — a localized guard; covered by `BroadcastImportTests`. — `459f2cc`
+- Confidence: high (fix verified on device: capture appeared on return).

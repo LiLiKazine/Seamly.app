@@ -9,7 +9,7 @@
 - **StitchKit:** `swift test` → **55 tests / 8 suites pass** (incl. golden pixel-exact reproduction).
 - **App + extension:** `xcodebuild` → **BUILD SUCCEEDED** on iPhone 17 sim, no warnings in our code; app launches and renders.
 - **Review:** two parallel reviewers; all Critical/Important/Minor findings fixed (commit `ca4653e`).
-- **Pending (needs device + signing team, out of autonomous reach):** the four early on-device go/no-go checks — code written to the spec's documented fallbacks; see `DECISIONS.md`.
+- **On-device verification (iPhone 17 Pro Max, iOS 26, 2026-07-04):** ✅ all four early go/no-go checks passed (cue, memory, pixel format, picker) and the full "coming back from a broadcast" flow works. A fresh-install import bug found during this pass is fixed (`459f2cc`, `BroadcastImportTests`); see `DECISIONS.md`.
 - Live status ledger: `.superpowers/sdd/progress.md`. PR-open blocked by a `gh` account mismatch (branch pushed; user opens the PR).
 
 ## Strategy
@@ -59,7 +59,8 @@ against the iPhone 17 simulator.
 - [x] `xcodebuild build` (app + extension, iPhone 17 sim) green — **BUILD SUCCEEDED**, no warnings in our code.
 - [x] Every spec v1 feature mapped to a delivered change — traceability table in `.superpowers/sdd/progress.md`.
 - [x] Final whole-branch review clean — all Critical/Important/Minor findings fixed; one PLAUSIBLE-only thread-safety note documented (ReplayKit serializes callbacks).
-- [x] On-device go/no-go checks documented as pending (device + team required) — `DECISIONS.md`, ledger.
+- [x] On-device go/no-go checks **verified passed** (iPhone 17 Pro Max, iOS 26) — `DECISIONS.md`.
+- [x] Fresh-install App Group import bug fixed and regression-tested — `459f2cc`, `BroadcastImportTests`.
 
 ## Deviations from the original plan
 - **Engine:** the team lead drove StitchKit's sequential TDD directly (single package target makes parallel edits collide); subagents were used for the final parallel code review. App UI was written directly rather than swarmed.
