@@ -32,6 +32,33 @@ picks and writes on export.
 - **First-party frameworks only.** No third-party dependencies — Vision, Core Image,
   Core Graphics, PhotosUI, SwiftUI.
 
+## Error handling
+
+**Never swallow errors silently.** An error that vanishes with no propagation, no log,
+and no user-visible effect turns a real failure (disk full, corrupt manifest, denied
+permission) into a silent no-op that's near-impossible to debug. The default is to
+*propagate* (`throws`) or *handle* (recover, log, or surface to the user) — not discard.
+
+Avoid these swallowing patterns unless the exception below applies:
+
+- `try?` that drops the error and continues as if nothing happened.
+- `catch {}` (empty) or `catch { return nil }` / `catch { return }` that discards the error.
+- Fallbacks like `?? someDefault` or `?? image` that mask a failure behind a plausible value.
+
+Instead:
+
+- **Propagate** with `throws` / `try` when the caller can react — most Core functions
+  (`StitchAssembler`, `Exporter`) already do this. Prefer it.
+- **Handle meaningfully** at the boundary: recover, or surface to the user (e.g.
+  `ExportView` sets `status = error.localizedDescription`), or at minimum log the error.
+- **When you genuinely must ignore an error** (best-effort cleanup, expected-benign
+  failure), do it *explicitly and narrowly*: catch the specific error, and leave a comment
+  saying why ignoring is correct — e.g. `catch { /* best-effort cleanup; source already gone */ }`.
+  A bare `try?` doesn't document intent; a commented `catch` does.
+
+Rule of thumb: if a reviewer can't tell whether an error was ignored *on purpose*, the
+handling is wrong.
+
 ## Commands
 
 ```bash
