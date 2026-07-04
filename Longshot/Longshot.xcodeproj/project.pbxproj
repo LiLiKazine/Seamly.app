@@ -6,6 +6,12 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		D0D0D00000000000000000A3 /* StitchKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D0D00000000000000000A2 /* StitchKit */; };
+		D0D0D00000000000000000B3 /* StitchKit in Frameworks */ = {isa = PBXBuildFile; productRef = D0D0D00000000000000000B2 /* StitchKit */; };
+		D0D0D00000000000000000CD /* LongshotBroadcast.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D0D0D00000000000000000C2 /* LongshotBroadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		B3CFC88A2FF912620078D068 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -21,13 +27,45 @@
 			remoteGlobalIDString = B3CFC87B2FF912610078D068;
 			remoteInfo = Longshot;
 		};
+		D0D0D00000000000000000CC /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = B3CFC8742FF912610078D068 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D0D0D00000000000000000C1;
+			remoteInfo = LongshotBroadcast;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		D0D0D00000000000000000CA /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				D0D0D00000000000000000CD /* LongshotBroadcast.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		B3CFC87C2FF912610078D068 /* Longshot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Longshot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3CFC8892FF912620078D068 /* LongshotTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LongshotTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		B3CFC8932FF912620078D068 /* LongshotUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LongshotUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D0D0D00000000000000000C2 /* LongshotBroadcast.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = LongshotBroadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D0D0D00000000000000000CE /* Exceptions for "LongshotBroadcast" folder in "LongshotBroadcast" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = D0D0D00000000000000000C1 /* LongshotBroadcast */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		B3CFC87E2FF912610078D068 /* Longshot */ = {
@@ -45,6 +83,14 @@
 			path = LongshotUITests;
 			sourceTree = "<group>";
 		};
+		D0D0D00000000000000000C3 /* LongshotBroadcast */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D0D0D00000000000000000CE /* Exceptions for "LongshotBroadcast" folder in "LongshotBroadcast" target */,
+			);
+			path = LongshotBroadcast;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -52,6 +98,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D0D0D00000000000000000A3 /* StitchKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -69,6 +116,14 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D0D0D00000000000000000C5 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				D0D0D00000000000000000B3 /* StitchKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -78,6 +133,7 @@
 				B3CFC87E2FF912610078D068 /* Longshot */,
 				B3CFC88C2FF912620078D068 /* LongshotTests */,
 				B3CFC8962FF912620078D068 /* LongshotUITests */,
+				D0D0D00000000000000000C3 /* LongshotBroadcast */,
 				B3CFC87D2FF912610078D068 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -88,6 +144,7 @@
 				B3CFC87C2FF912610078D068 /* Longshot.app */,
 				B3CFC8892FF912620078D068 /* LongshotTests.xctest */,
 				B3CFC8932FF912620078D068 /* LongshotUITests.xctest */,
+				D0D0D00000000000000000C2 /* LongshotBroadcast.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -102,16 +159,19 @@
 				B3CFC8782FF912610078D068 /* Sources */,
 				B3CFC8792FF912610078D068 /* Frameworks */,
 				B3CFC87A2FF912610078D068 /* Resources */,
+				D0D0D00000000000000000CA /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				D0D0D00000000000000000CB /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				B3CFC87E2FF912610078D068 /* Longshot */,
 			);
 			name = Longshot;
 			packageProductDependencies = (
+				D0D0D00000000000000000A2 /* StitchKit */,
 			);
 			productName = Longshot;
 			productReference = B3CFC87C2FF912610078D068 /* Longshot.app */;
@@ -163,6 +223,29 @@
 			productReference = B3CFC8932FF912620078D068 /* LongshotUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
+		D0D0D00000000000000000C1 /* LongshotBroadcast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = D0D0D00000000000000000C7 /* Build configuration list for PBXNativeTarget "LongshotBroadcast" */;
+			buildPhases = (
+				D0D0D00000000000000000C4 /* Sources */,
+				D0D0D00000000000000000C5 /* Frameworks */,
+				D0D0D00000000000000000C6 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D0D0D00000000000000000C3 /* LongshotBroadcast */,
+			);
+			name = LongshotBroadcast;
+			packageProductDependencies = (
+				D0D0D00000000000000000B2 /* StitchKit */,
+			);
+			productName = LongshotBroadcast;
+			productReference = D0D0D00000000000000000C2 /* LongshotBroadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -184,6 +267,9 @@
 						CreatedOnToolsVersion = 26.5;
 						TestTargetID = B3CFC87B2FF912610078D068;
 					};
+					D0D0D00000000000000000C1 = {
+						CreatedOnToolsVersion = 26.5;
+					};
 				};
 			};
 			buildConfigurationList = B3CFC8772FF912610078D068 /* Build configuration list for PBXProject "Longshot" */;
@@ -195,12 +281,16 @@
 			);
 			mainGroup = B3CFC8732FF912610078D068;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				D0D0D00000000000000000A1 /* XCLocalSwiftPackageReference "StitchKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = B3CFC87D2FF912610078D068 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				B3CFC87B2FF912610078D068 /* Longshot */,
+				D0D0D00000000000000000C1 /* LongshotBroadcast */,
 				B3CFC8882FF912620078D068 /* LongshotTests */,
 				B3CFC8922FF912620078D068 /* LongshotUITests */,
 			);
@@ -223,6 +313,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		B3CFC8912FF912620078D068 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		D0D0D00000000000000000C6 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -253,6 +350,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		D0D0D00000000000000000C4 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -265,6 +369,11 @@
 			isa = PBXTargetDependency;
 			target = B3CFC87B2FF912610078D068 /* Longshot */;
 			targetProxy = B3CFC8942FF912620078D068 /* PBXContainerItemProxy */;
+		};
+		D0D0D00000000000000000CB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = D0D0D00000000000000000C1 /* LongshotBroadcast */;
+			targetProxy = D0D0D00000000000000000CC /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -390,6 +499,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Longshot/Longshot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PJBUF7JSHK;
@@ -398,6 +508,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Longshot saves your long screenshots to your photo library.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -416,15 +527,15 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lilikazine.Longshot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
+				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Debug;
@@ -434,6 +545,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Longshot/Longshot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = PJBUF7JSHK;
@@ -442,6 +554,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Longshot saves your long screenshots to your photo library.";
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -460,15 +573,15 @@
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lilikazine.Longshot;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
-				SDKROOT = auto;
+				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 6.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
 			name = Release;
@@ -486,14 +599,14 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lilikazine.LongshotTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
+				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Longshot.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Longshot";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
@@ -512,14 +625,14 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lilikazine.LongshotTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
+				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Longshot.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Longshot";
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
@@ -537,14 +650,14 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lilikazine.LongshotUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
+				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = Longshot;
 				XROS_DEPLOYMENT_TARGET = 26.5;
 			};
@@ -562,16 +675,72 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = io.github.lilikazine.LongshotUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
-				SDKROOT = auto;
+				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2,7";
+				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = Longshot;
 				XROS_DEPLOYMENT_TARGET = 26.5;
+			};
+			name = Release;
+		};
+		D0D0D00000000000000000C8 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = LongshotBroadcast/LongshotBroadcast.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PJBUF7JSHK;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LongshotBroadcast/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Longshot;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lilikazine.Longshot.Broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		D0D0D00000000000000000C9 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = LongshotBroadcast/LongshotBroadcast.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = PJBUF7JSHK;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LongshotBroadcast/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = Longshot;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.5;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = io.github.lilikazine.Longshot.Broadcast;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
 		};
@@ -614,7 +783,34 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		D0D0D00000000000000000C7 /* Build configuration list for PBXNativeTarget "LongshotBroadcast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				D0D0D00000000000000000C8 /* Debug */,
+				D0D0D00000000000000000C9 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		D0D0D00000000000000000A1 /* XCLocalSwiftPackageReference "StitchKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = StitchKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D0D0D00000000000000000A2 /* StitchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StitchKit;
+		};
+		D0D0D00000000000000000B2 /* StitchKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = StitchKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = B3CFC8742FF912610078D068 /* Project object */;
 }
