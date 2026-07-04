@@ -139,6 +139,25 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         self.bottomTrim = bottomTrim
     }
 
+    /// Custom decoding so fields added over time degrade gracefully. The manifest is written
+    /// incrementally and read across app/extension builds that may differ; a missing key must
+    /// default, not throw (which — via `SessionStore.loadAll`'s `try?` — would silently drop a
+    /// whole capture). Required structural fields are still mandatory.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        status = try c.decode(SessionStatus.self, forKey: .status)
+        deviceScale = try c.decode(Double.self, forKey: .deviceScale)
+        orientation = try c.decode(CaptureOrientation.self, forKey: .orientation)
+        colorSpaceName = try c.decodeIfPresent(String.self, forKey: .colorSpaceName)
+        keyframes = try c.decode([Keyframe].self, forKey: .keyframes)
+        seams = try c.decode([Seam].self, forKey: .seams)
+        segmentBreaks = try c.decode([SegmentBreak].self, forKey: .segmentBreaks)
+        topTrim = try c.decodeIfPresent(Int.self, forKey: .topTrim) ?? 0
+        bottomTrim = try c.decodeIfPresent(Int.self, forKey: .bottomTrim) ?? 0
+    }
+
     /// A session with fewer than two keyframes has nothing to stitch.
     public var hasStitchableContent: Bool { keyframes.count >= 2 }
 

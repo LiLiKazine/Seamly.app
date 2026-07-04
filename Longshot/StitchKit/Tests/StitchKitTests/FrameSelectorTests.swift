@@ -63,6 +63,16 @@ private func res(_ decision: TrackingDecision, maxY: Int, position: Int = 0, con
         #expect(s.evaluate(res(.segmentBreak(reason: .lostLock), maxY: 100, segment: 1), bandHeight: 100) == .commitKeyframe)
     }
 
+    @Test func finishDoesNotDuplicateAfterShortSecondSegment() {
+        var s = FrameSelector()
+        _ = s.evaluate(res(.appended(rows: 100), maxY: 100), bandHeight: 100)
+        _ = s.evaluate(res(.appended(rows: 400), maxY: 500), bandHeight: 100)   // long segment
+        // New segment starts and its only frame lands exactly on the commit.
+        #expect(s.evaluate(res(.segmentBreak(reason: .lostLock), maxY: 130, segment: 1), bandHeight: 100) == .commitKeyframe)
+        // finish() must NOT re-commit: the second segment's tail is already committed.
+        #expect(s.finish() == .ignore)
+    }
+
     @Test func finishCommitsTrailingFrame() {
         var s = FrameSelector()
         _ = s.evaluate(res(.appended(rows: 100), maxY: 100), bandHeight: 100)

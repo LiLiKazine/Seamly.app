@@ -69,6 +69,13 @@ final class LibraryModel {
             var sawEmpty = false
             for session in groupStore.loadAll() {
                 let source = groupStore.folder(for: session.id)
+                // Never touch a session the extension may still be writing. Import when it's
+                // cleanly finished, or when a `.recording` folder is stale enough that the
+                // broadcast clearly crashed (so partial captures are still recovered).
+                let manifest = groupStore.manifestURL(in: source)
+                let finalized = session.status == .complete || Self.isStale(manifest)
+                guard finalized else { continue }
+
                 if session.hasStitchableContent {
                     let dest = appStore.folder(for: session.id)
                     if !FileManager.default.fileExists(atPath: dest.path) {
@@ -83,6 +90,15 @@ final class LibraryModel {
             }
             return sawEmpty
         }.value
+    }
+
+    /// A `.recording` manifest untouched for a while means the broadcast crashed rather than
+    /// finished; such partial sessions are safe to import (and get badged incomplete).
+    nonisolated private static func isStale(_ manifest: URL, olderThan seconds: TimeInterval = 90) -> Bool {
+        guard let modified = try? FileManager.default.attributesOfItem(atPath: manifest.path)[.modificationDate] as? Date else {
+            return false
+        }
+        return Date().timeIntervalSince(modified) > seconds
     }
 
     private func reload() {

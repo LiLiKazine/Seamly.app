@@ -31,6 +31,12 @@ class SampleHandler: RPBroadcastSampleHandler {
     private var lastSegment = 0
     private var framesSinceCue = 1_000
 
+    // Most-recent processed frame, retained only so the trailing content below the last
+    // keyframe (and the final bottom chrome) can be committed in broadcastFinished().
+    private var lastImage: CGImage?
+    private var lastProfile: FrameProfile?
+    private var lastResult: TrackingResult?
+
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
         guard let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.io.github.lilikazine.Longshot") else {
             finishBroadcastWithError(NSError(domain: "Longshot", code: 1, userInfo: [NSLocalizedDescriptionKey: "App Group unavailable"]))
@@ -60,9 +66,19 @@ class SampleHandler: RPBroadcastSampleHandler {
         if selector.evaluate(result, bandHeight: profile.rowCount) == .commitKeyframe {
             commitKeyframe(image, profile: profile, result: result)
         }
+
+        lastImage = image
+        lastProfile = profile
+        lastResult = result
     }
 
     override func broadcastFinished() {
+        // Commit the trailing frame so content scrolled past the last keyframe (and the final
+        // bottom chrome) isn't dropped.
+        if selector.finish() == .commitKeyframe, let image = lastImage, let profile = lastProfile, let result = lastResult {
+            commitKeyframe(image, profile: profile, result: result)
+        }
+
         guard var session, let store else { return }
         session.status = .complete
         self.session = session

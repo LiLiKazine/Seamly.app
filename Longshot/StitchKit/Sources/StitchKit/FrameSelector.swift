@@ -40,6 +40,9 @@ public struct FrameSelector: Sendable {
         if result.segmentIndex != currentSegment {
             currentSegment = result.segmentIndex
             lastCommittedMaxY = result.maxY
+            // maxY resets per segment; keep the tail high-water mark per segment too, or
+            // finish() would compare across segments and over-commit a duplicate final frame.
+            highWaterMaxY = result.maxY
             return .commitKeyframe
         }
 

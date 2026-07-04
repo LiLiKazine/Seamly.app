@@ -33,9 +33,9 @@ submission, no force-push, no new worktree. On-device verifications are out of a
 | B3 | Capture-start + onboarding | done | 510602c |
 | B4 | Library home surface | done | 510602c |
 | B5 | Preview + edit + export | done | 510602c |
-| C1 | Broadcast extension target scaffold | done | (this) |
-| C2 | RPBroadcastSampleHandler wiring | done | (this) |
-| C3 | Whole-project build (review pending) | done | (this) |
+| C1 | Broadcast extension target scaffold | done | da4b8de |
+| C2 | RPBroadcastSampleHandler wiring | done | da4b8de |
+| C3 | Whole-project build + review | done | 66ef035 |
 
 ## Log
 (one line per completed task with commit range)

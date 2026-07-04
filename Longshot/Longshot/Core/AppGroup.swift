@@ -16,4 +16,23 @@ enum AppGroup {
     static var containerURL: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
     }
+
+    private static var isObservingFinish = false
+
+    /// Bridge the extension's Darwin "session finished" notification to a normal
+    /// `NotificationCenter` post, so a foregrounded app can refresh instantly (a scenePhase
+    /// change won't fire when the broadcast is stopped from Control Center). Idempotent.
+    static func startBroadcastFinishObserver() {
+        guard !isObservingFinish else { return }
+        isObservingFinish = true
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(), nil,
+            { _, _, _, _, _ in NotificationCenter.default.post(name: .longshotBroadcastFinished, object: nil) },
+            sessionFinishedNotification as CFString, nil, .deliverImmediately
+        )
+    }
+}
+
+extension Notification.Name {
+    static let longshotBroadcastFinished = Notification.Name(AppGroup.sessionFinishedNotification)
 }
