@@ -79,6 +79,8 @@ public struct Compositor: Sendable {
         let keep = image.height - t - b
         guard (t > 0 || b > 0), keep > 0 else { return image }
         // cropping is bottom-referenced: trimming `top` from the top means y = bottom trim.
+        // The rect is provably within bounds (keep > 0, full width), so `cropping` returns nil
+        // only for an impossible input; returning the untrimmed image is a safe last resort.
         return image.cropping(to: CGRect(x: 0, y: b, width: image.width, height: keep)) ?? image
     }
 
@@ -97,7 +99,7 @@ public struct Compositor: Sendable {
         ) else { throw CompositorError.contextFailure }
         ctx.interpolationQuality = .none
         for piece in pieces {
-            drawStrip(piece, srcRow: piece.srcY, height: piece.height, destY: piece.destY, in: ctx, images: images)
+            try drawStrip(piece, srcRow: piece.srcY, height: piece.height, destY: piece.destY, in: ctx, images: images)
         }
         guard let image = ctx.makeImage() else { throw CompositorError.contextFailure }
         return image
@@ -249,14 +251,16 @@ public struct Compositor: Sendable {
     /// reproduces a drawn CGImage upright, so drawing the whole image offset by
     /// `destY - srcRow` and clipping to the destination band places source rows exactly,
     /// side-stepping `cropping`'s bottom-referenced coordinate system.
-    private func drawStrip(_ piece: Piece, srcRow: Int, height: Int, destY: Int, in ctx: CGContext, images: (Keyframe) throws -> CGImage) {
+    private func drawStrip(_ piece: Piece, srcRow: Int, height: Int, destY: Int, in ctx: CGContext, images: (Keyframe) throws -> CGImage) throws {
         let clip = CGRect(x: 0, y: destY, width: ctx.width, height: height)
         guard let kf = piece.keyframe else {
             ctx.setFillColor(gray: 0.85, alpha: 1)
             ctx.fill(clip)
             return
         }
-        guard let img = try? images(kf) else { return }
+        // Propagate a load failure: silently skipping the strip would leave an invisible gap
+        // in the composite. Let the caller fail the whole assembly instead.
+        let img = try images(kf)
         ctx.saveGState()
         ctx.clip(to: clip)
         ctx.draw(img, in: CGRect(x: 0, y: destY - srcRow, width: img.width, height: img.height))

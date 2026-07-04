@@ -55,7 +55,8 @@ struct ExportView: View {
         Task {
             defer { busy = false }
             guard let image = await model.fullComposite(captureID) else { status = "Nothing to export."; return }
-            pngURL = try? Exporter.pngURL(image, name: "Longshot-\(captureID.uuidString)")
+            do { pngURL = try Exporter.pngURL(image, name: "Longshot-\(captureID.uuidString)") }
+            catch { status = error.localizedDescription }
         }
     }
 
