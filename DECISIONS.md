@@ -128,3 +128,138 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
   Compositor *reading* them (crops by contentBand instead), slice 6 migrates EditView and then
   deletes the now-unused fields. Keeps the package green after every slice.
 - Reversible: yes. Confidence: high.
+
+---
+
+# Real-Frame Stitching Fix (2026-07-05, branch fix/on-device-stitching-real-frames)
+
+## [iter 0] Pulled the real failing capture data off the device via devicectl
+- The three prior fix cycles all lacked a real-broadcast-frame oracle; the failing
+  manifests+keyframes were never captured. Pulled them directly with
+  `xcrun devicectl device copy from --domain-type appDataContainer --source "Library/Application Support"`
+  (the full-container copy aborts on a locked Library/SplashBoard .ktx; the subpath copy works).
+- Two real sessions recovered (884x1918 BGRA keyframes + manifest.json), staged in scratchpad:
+  - EA09E4FF — Baidu feed in Safari, 7 keyframes, clean overlapping DOWNWARD scroll.
+    Manifest: seams=[] (ZERO), 6 segmentBreaks (one per frame), all bands {0,0} lowConf → TOTAL SHATTER.
+  - 80DEBF70 — WeChat: kf0=home screen, kf1=app-launch animation, kf2..4=chat list.
+    Manifest: seam0 fromIndex0 dy=2124 (> frame height 1918 = zero overlap, GARBAGE) conf 0.54;
+    break after 1 (contentChanged) + after 2 (lostLock); seam fromIndex3 dy=0 conf 1.0
+    (matcher locked to static WeChat top/bottom bars = chrome-bias at dy=0).
+- Reversible: yes — data is read-only scratchpad; no repo change yet. Confidence: high (visually confirmed frames overlap).
+
+## [iter 0] Done-criteria for this run (confirmed with user)
+- Fix the core so real frames stitch; build a REAL-FRAME test oracle from these captures (not windowed screenshots).
+- "Done" = StitchKit + app + extension green AND a real-frame regression oracle green AND built/installed
+  to the connected iPhone with a one-tap verify flow, AND user confirms a fresh on-device capture is correct.
+- Hard-stop allowlist unchanged: no force-push, no new worktree, no App Store submit; the FINAL on-device
+  capture confirmation is the user's (I cannot perform a real scroll+broadcast).
+
+## [iter 1] ROOT CAUSE confirmed: grayscale conversion corrupts the match signal
+- Reproduced the on-device failure on the real keyframes via the actual StitchKit
+  OffsetMatcher/PositionTracker: on the clean Baidu downward scroll the matcher returns
+  the right MAGNITUDE but WRONG SIGN (e.g. kf01->02 true +750px, matcher -749px), so the
+  tracker treats every real forward scroll as backward -> skips/loses lock -> shatters (0 seams).
+- Isolated with full-resolution pixel MAD (decisive: +750px MAD 14 vs mirror 56, a 4x margin)
+  then a 4-way {mean+var, 2-D} x {manual BT.601 luma, CoreGraphics DeviceGray}:
+  * manual luma  -> CORRECT sign for BOTH mean+var and 2-D.
+  * CoreGraphics DeviceGray render -> WRONG sign for BOTH.
+- Root cause: `VerticalProfile.renderGray` draws the sRGB frame into a DeviceGray CGContext;
+  CoreGraphics' gamma-managed sRGB->gray distorts the per-row luma of real COLORED UI enough
+  to invert the correlation minimum. The matcher/threshold work from prior cycles was fine;
+  the signal feeding it was corrupted.
+- Why synthetic tests lied 3x: synthetic gray fixtures have no color/gamma to distort, so the
+  bug is invisible to them; real colored screens trigger it. This is the testing-gap meta-lesson,
+  finally pinned to a concrete mechanism.
+- Fix direction: compute per-row luma from RGB bytes with a fixed BT.601 weighting (no
+  DeviceGray gamma conversion). Keeps the validated mean+variance matcher.
+- Reversible: yes — localized to VerticalProfile rendering. Confidence: high (validated next).
+
+## [iter 1] Grayscale fix VALIDATED on real frames; two secondary issues scoped
+- Rebuilt FrameProfiles with manual BT.601 luma, fed the REAL OffsetMatcher+PositionTracker:
+  EA09 Baidu now matches 5/6 pairs with CORRECT sign+magnitude vs full-res ground truth
+  (+250,+112,+358,+284,+382 rows); shatter 7 segments -> ~3. The core inversion is fixed.
+- Remaining, secondary (partly keyframe-granularity artifacts, need live frames to fully judge):
+  * Issue B: matcher gives FALSE high-confidence matches between genuinely non-overlapping
+    frames (WeChat home-screen -> app-launch animation, conf 0.73). Pre-app junk corrupts tracking.
+    (The "recording started before the app was open" case.)
+  * Issue C: CORRECT-magnitude matches on low-overlap (~39%) pairs score low confidence and can
+    false-lostLock. Likely a keyframe-gap artifact (live frames overlap much more).
+- Decision: land the grayscale fix FIRST (primary, high-confidence, fully verifiable on real
+  keyframes), with the real keyframes bundled as the regression oracle. Then add a frame-trace
+  debug mode to the extension so the final on-device capture yields a LIVE frame sequence to build
+  a faithful oracle for Issues B/C, rather than guessing from sparse keyframes.
+- Reversible: yes. Confidence: grayscale fix high; B/C scoping medium (pending live frames).
+
+## [iter 2] CORRECTION + FINAL root cause: orientation + degenerate signal (supersedes the grayscale entry)
+- The iter-1 "grayscale is the cause" entry was CONFOUNDED: those scratch tools also toggled a
+  vertical flip. Disentangling {flip}x{grayscale} with one controlled render showed grayscale does
+  NOT affect the match sign; the FLIP does. Grayscale is not the fix.
+- With a DECISIVE 2-D row-signature signal, every real Baidu pair comes out consistently NEGATIVE
+  with the correct magnitude at the pipeline's flip orientation -> the flip is a true geometric
+  sign inversion. Real downward scroll -> negative dy -> tracker skips (never appends) -> shatter.
+- Why synthetic + wikipedia tests passed anyway (3 cycles of false green):
+  * PROBE: synthetic gradient content is decisive (conf 1.00); real feed content collapses to a
+    near-tie under the mean+variance reduction (degenerate). So synthetic fixtures never exercised
+    the degeneracy.
+  * RealFrameStitchTests builds "scroll" via `shot.cropping` which is BOTTOM-REFERENCED, so its
+    scroll runs OPPOSITE to a real top-down downward capture -- it accidentally validated the
+    inverted orientation. This is why the one "real screenshot" oracle still lied.
+- FINAL FIX (two coupled parts, both needed):
+  1. Correct profile ORIENTATION so a real captured (top-down) frame's downward scroll yields
+     POSITIVE dy (matching the extension's max(0,dy) seam convention + the compositor's positive
+     refinement search + top-down draw).
+  2. Replace the mean+variance match signal with PER-ROW LUMINANCE SIGNATURES (2-D MAD, variance-
+     weighted). Decisive on real content (proven ~5x margin at 64x640); kills the degeneracy that
+     made prior threshold-tuning fragile. ContentBandDetector keeps using per-row mean/variance
+     (fine for static-row chrome detection).
+- Oracle: bundle the real device keyframes (Baidu 7kf downward, WeChat 5kf) as the regression
+  fixture and assert correct-sign stitching; FIX the wikipedia test's bottom-ref orientation so it
+  models a real downward scroll.
+- Reversible: yes (all within StitchKit + tests). Confidence: HIGH — root cause reproduced and the
+  fix signal proven decisive on the real frames.
+
+## [iter 3] Fix implemented in core; synthetic test fixtures need re-orientation
+- Implemented: FrameProfile now carries per-row luminance SIGNATURES (dual init: mean-only init
+  synthesizes 1-col rows so array-built matcher tests are unchanged); OffsetMatcher does
+  variance-weighted 2-D MAD over signatures (rowDifference); VerticalProfile computes BT.601
+  luma from an sRGB RGBA render and NO LONGER FLIPS (the flip inverted real top-down frames).
+- Proven on the real oracle: with the bootstrap chrome mask (as PositionTracker uses it) ALL 6
+  Baidu pairs now recover correct POSITIVE (downward) offsets matching full-res ground truth.
+  Core bug fixed.
+- Consequence: the synthetic test fixtures were built UPSIDE-DOWN and compensated by the old VP
+  flip (two flips cancelled) — so real upright frames were always inverted/broken while synthetic
+  tests passed. Removing the VP flip exposes this: 12 tests fail because their fixture builders
+  (TestImages.make via makeImage; RealGeometryStitchTests.image via `dst=h-1-r`; RealFrameStitch
+  bottom-ref crop; ChromeStitchRepro; Compositor reference) encode the old inverted convention.
+- GROUND TRUTH for the fix (established empirically): new VerticalProfile maps CGImage data-row-0
+  -> profile row 0 (top-down), and real frames (CGImageSource/readRaw, status bar at data row 0)
+  stitch correctly downward=positive. Synthetic builders must be re-oriented to match: a frame's
+  visual TOP must be profile row 0, and a downward scroll (later frame shows lower doc content)
+  must yield positive dy — with NO compensating flip anywhere.
+- Reversible: yes. Confidence: HIGH on core fix; test re-orientation is mechanical-but-careful.
+
+## [iter 4] CAUGHT a false-green oracle via end-to-end visual check (critical)
+- The matcher fix is proven correct: with the bootstrap chrome mask, ALL 6 real Baidu pairs
+  recover correct POSITIVE offsets near ground truth. And the Compositor had a SECOND real bug:
+  drawStrip block-reversed multi-piece segments vertically (masked by single-frame/symmetric test
+  fixtures) — matching the field symptom "scrolled-to-top frame rendered below scrolled-down
+  (inverted order)". Both fixes landed; full unit suite green (74).
+- BUT compositing the real FULL-RES keyframes end-to-end still produced 3 stacked, DUPLICATED
+  frames (top third == middle third). The half-res fixtures passed the oracle falsely: 2 breaks
+  cleared the (relaxed) <=2 bound, 0 seams made the positive-seam check vacuous, and 3 stacked
+  frames happened to fall in the height band. Exactly the meta-lesson (false green) — caught only
+  by rendering the real output and looking at it.
+- Root oracle flaw: HALF-RES fixtures (rowScale 959/640=1.5) do not match real device geometry
+  (1918/640=3.0); the different downsample changes matching, so half-res passed while full-res
+  shattered. FIX: fixtures must be FULL RESOLUTION.
+- Deeper truth: the sparse keyframes from the *broken* capture have huge frame-to-frame gaps
+  (kf00->01 ~1165px, ~60% of a frame = a fast flick). On such gaps the correct match reads
+  low-confidence (feed periodicity) -> lostLock -> segment break. That is arguably correct
+  behavior (fast scroll -> segment); a normal-speed LIVE capture yields dense frames (small gaps,
+  high confidence) that stitch. So full end-to-end CANNOT be validated from these sparse keyframes
+  — it needs a live dense-frame capture (the frame-trace task + device capture).
+- Actions: (1) full-res fixtures; (2) keep the strong matcher-recovers-offsets oracle (faithful);
+  (3) make the pipeline test HONEST (assert positive seams + correct segment order; mark the ideal
+  "dense stitch, no duplication" as a withKnownIssue pending live dense-frame verification — do NOT
+  fake green); (4) add extension frame-trace so the user's capture produces the dense-frame oracle.
+- Reversible: yes. Confidence: matcher+compositor fixes HIGH; full end-to-end PENDING live capture.

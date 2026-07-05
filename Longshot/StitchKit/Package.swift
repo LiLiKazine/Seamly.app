@@ -22,6 +22,7 @@ let package = Package(
             dependencies: ["StitchKit"],
             resources: [
                 .copy("Fixtures/wikipedia.png"),
+                .copy("Fixtures/RealDevice"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

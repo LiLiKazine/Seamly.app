@@ -29,7 +29,11 @@ import Foundation
         let bpr = ctx.bytesPerRow
         ctx.data!.withMemoryRebound(to: UInt8.self, capacity: bpr * height) { p in
             for r in 0..<height {
-                let dst = height - 1 - r
+                // Buffer row 0 is the produced CGImage's TOP row, so write gray row 0 there:
+                // the image is upright (row 0 = top), matching a real top-down capture. (A
+                // `height - 1 - r` flip here would invert it, turning a downward scroll into a
+                // negative dy the tracker skips — the shattering bug this fixture must not model.)
+                let dst = r
                 for c in 0..<width {
                     let v = gray[r * width + c]
                     let i = dst * bpr + c * 4
