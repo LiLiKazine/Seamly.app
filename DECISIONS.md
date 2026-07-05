@@ -263,3 +263,13 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
   "dense stitch, no duplication" as a withKnownIssue pending live dense-frame verification — do NOT
   fake green); (4) add extension frame-trace so the user's capture produces the dense-frame oracle.
 - Reversible: yes. Confidence: matcher+compositor fixes HIGH; full end-to-end PENDING live capture.
+
+## [iter 5] Fixed app built + installed to the device; awaiting user's live capture
+- `xcodebuild ... -destination id=<iPhone>` device build SUCCEEDED (signed: Li Sheng Apple
+  Development); `devicectl device install` succeeded (bundleID io.github.lilikazine.Longshot).
+- The one remaining step is external and user-reserved ("I prep + you do final capture"): a real
+  ReplayKit broadcast scroll on device, which I cannot perform. Reached the agreed hand-back gate.
+- Round-1 capture guidance (to isolate the core fix from the secondary WeChat pre-app issue):
+  open the target app FIRST, then start the broadcast; scroll one direction at a normal reading
+  pace. I'll pull the resulting session via devicectl and inspect the stitched output.
+- Reversible: install is replaceable; no irreversible action taken.
