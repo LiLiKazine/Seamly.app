@@ -14,10 +14,19 @@ public struct VerticalProfile: Sendable {
     /// Downscaled column count. Small enough to keep per-frame work tiny (so ReplayKit
     /// doesn't throttle delivery), large enough to capture horizontal structure.
     public let targetWidth: Int
+    /// Cap on profile row count (vertical resolution). Height is decoupled from width: on a
+    /// tall device frame (~2556 px) this holds `rowScale ≈ 4 px/row`, fine enough that a normal
+    /// scroll of tens of px spans several rows and the matcher can resolve it. An aspect-locked
+    /// height (`rowScale = sourceWidth/64 ≈ 18`) collapsed a 60 px scroll into ~3 rows — below
+    /// the matcher's resolution — which is why real-screen stitching failed while 1:1-ish test
+    /// fixtures passed.
+    public let maxRows: Int
 
-    public init(targetWidth: Int = 64) {
+    public init(targetWidth: Int = 64, maxRows: Int = 640) {
         precondition(targetWidth > 0, "targetWidth must be positive")
+        precondition(maxRows > 0, "maxRows must be positive")
         self.targetWidth = targetWidth
+        self.maxRows = maxRows
     }
 
     /// Reduces `image` to a `FrameProfile`.
@@ -30,9 +39,11 @@ public struct VerticalProfile: Sendable {
         let sourceWidth = image.width
         let sourceHeight = image.height
         let width = min(targetWidth, sourceWidth)
-        // Preserve aspect ratio so profile rows map linearly back to source pixels,
-        // unless the caller pins the row count to full pixel resolution.
-        let height = forcingHeight ?? max(1, Int((Double(sourceHeight) * Double(width) / Double(sourceWidth)).rounded()))
+        // Uniform vertical downscale (capped at `maxRows`) keeps rows evenly spaced, so
+        // `rowScale` stays a single linear factor from profile row to source pixel — width and
+        // height scale independently. The caller can pin the row count to full pixel resolution
+        // (`forcingHeight`) for the app's pixel-exact seam refinement.
+        let height = forcingHeight ?? min(sourceHeight, maxRows)
 
         guard let (buffer, bytesPerRow) = renderGray(image, width: width, height: height) else {
             return FrameProfile(means: [], variances: [], sourceWidth: sourceWidth, sourceHeight: sourceHeight)
