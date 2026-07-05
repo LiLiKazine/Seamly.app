@@ -78,10 +78,11 @@ public struct Compositor: Sendable {
         let t = max(0, top), b = max(0, bottom)
         let keep = image.height - t - b
         guard (t > 0 || b > 0), keep > 0 else { return image }
-        // cropping is bottom-referenced: trimming `top` from the top means y = bottom trim.
-        // The rect is provably within bounds (keep > 0, full width), so `cropping` returns nil
-        // only for an impossible input; returning the untrimmed image is a safe last resort.
-        return image.cropping(to: CGRect(x: 0, y: b, width: image.width, height: keep)) ?? image
+        // `CGImage.cropping` is top-referenced (y = 0 is the top row), so trimming `top` rows from
+        // the top starts the kept rect at y = top. The rect is provably within bounds (keep > 0,
+        // full width), so `cropping` returns nil only for an impossible input; returning the
+        // untrimmed image is a safe last resort.
+        return image.cropping(to: CGRect(x: 0, y: t, width: image.width, height: keep)) ?? image
     }
 
     /// Render a set of pieces (destination Ys relative to the strip top) into one raster.
@@ -266,14 +267,20 @@ public struct Compositor: Sendable {
 
     // MARK: - Drawing
 
-    /// Draw source rows `[srcRow, srcRow+height)` of `piece` at output row `destY`.
+    /// Draw source rows `[srcRow, srcRow+height)` of `piece` at output row `destY` (top-down:
+    /// `destY = 0` is the output's top row).
     ///
-    /// Uses clip-and-draw rather than `CGImage.cropping` — an unflipped bitmap context
-    /// reproduces a drawn CGImage upright, so drawing the whole image offset by
-    /// `destY - srcRow` and clipping to the destination band places source rows exactly,
-    /// side-stepping `cropping`'s bottom-referenced coordinate system.
+    /// Uses clip-and-draw rather than `CGImage.cropping`. A bitmap context has a **bottom-left**
+    /// origin, so a top-down destination row `destY` sits at drawing-Y `ctx.height - destY - h`;
+    /// an unflipped `ctx.draw` renders the image upright (its row 0 at the top of the draw rect).
+    /// Placing the whole image at drawing-Y `ctx.height - img.height - destY + srcRow` puts source
+    /// row `srcRow` at output row `destY`, and clipping to the destination band keeps just that
+    /// strip. (Drawing at `destY - srcRow` with a top-left mental model — as this once did —
+    /// mirrored the destination axis, stacking multi-piece segments bottom-up: a full single frame
+    /// filled the context so it looked correct, but every real multi-keyframe stitch came out
+    /// vertically block-reversed.)
     private func drawStrip(_ piece: Piece, srcRow: Int, height: Int, destY: Int, in ctx: CGContext, images: (Keyframe) throws -> CGImage) throws {
-        let clip = CGRect(x: 0, y: destY, width: ctx.width, height: height)
+        let clip = CGRect(x: 0, y: ctx.height - destY - height, width: ctx.width, height: height)
         guard let kf = piece.keyframe else {
             ctx.setFillColor(gray: 0.85, alpha: 1)
             ctx.fill(clip)
@@ -284,7 +291,7 @@ public struct Compositor: Sendable {
         let img = try images(kf)
         ctx.saveGState()
         ctx.clip(to: clip)
-        ctx.draw(img, in: CGRect(x: 0, y: destY - srcRow, width: img.width, height: img.height))
+        ctx.draw(img, in: CGRect(x: 0, y: ctx.height - img.height - destY + srcRow, width: img.width, height: img.height))
         ctx.restoreGState()
     }
 
@@ -339,10 +346,13 @@ public struct Compositor: Sendable {
     private func columnMeans(_ image: CGImage, y: Int, rows: Int, targetWidth: Int = 64) -> [Float]? {
         let width = min(targetWidth, image.width)
         let cs = CGColorSpaceCreateDeviceGray()
-        // cropping is bottom-referenced; convert the genuine-top y.
-        let cropY = image.height - y - rows
-        guard cropY >= 0, let ctx = CGContext(data: nil, width: width, height: rows, bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.none.rawValue),
-              let crop = image.cropping(to: CGRect(x: 0, y: cropY, width: image.width, height: rows)) else { return nil }
+        // `CGImage.cropping` is top-referenced (y = 0 is the image's top row), so the genuine-top
+        // y maps straight through. (This previously used `image.height - y - rows`, which cropped
+        // the vertically-mirrored band — so the compared A/B bands covered non-overlapping content
+        // and no horizontal drift could ever be measured.)
+        guard y >= 0, y + rows <= image.height,
+              let ctx = CGContext(data: nil, width: width, height: rows, bitsPerComponent: 8, bytesPerRow: 0, space: cs, bitmapInfo: CGImageAlphaInfo.none.rawValue),
+              let crop = image.cropping(to: CGRect(x: 0, y: y, width: image.width, height: rows)) else { return nil }
         ctx.interpolationQuality = .none
         ctx.draw(crop, in: CGRect(x: 0, y: 0, width: width, height: rows))
         guard let data = ctx.data else { return nil }

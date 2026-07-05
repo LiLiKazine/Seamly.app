@@ -38,8 +38,9 @@ private func rgb(_ image: CGImage, x: Int, y: Int) -> (r: Int, g: Int, b: Int) {
     let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
     ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
     let p = ctx.data!.bindMemory(to: UInt8.self, capacity: w * h * 4)
-    // This bitmap readback is bottom-first; flip y so callers can sample top-down.
-    let i = (h - 1 - y) * w * 4 + x * 4
+    // Buffer row 0 is the image's TOP row (an unflipped bitmap readback reproduces image
+    // order), so a top-down row `y` reads straight from buffer row `y`.
+    let i = y * w * 4 + x * 4
     return (Int(p[i]), Int(p[i + 1]), Int(p[i + 2]))
 }
 
@@ -47,9 +48,10 @@ private func keyframe(_ index: Int, height: Int, width: Int) -> Keyframe {
     Keyframe(filename: "kf-\(index).heic", pixelWidth: width, pixelHeight: height, index: index)
 }
 
-/// Crop genuine-top rows `[top, top+height)` — `CGImage.cropping` is bottom-referenced.
+/// Crop genuine-top rows `[top, top+height)`. `CGImage.cropping` is top-referenced (y = 0 is
+/// the image's top row), so a top-down `top` maps straight through.
 private func topCrop(_ image: CGImage, x: Int = 0, top: Int, width: Int, height: Int) -> CGImage {
-    image.cropping(to: CGRect(x: x, y: image.height - top - height, width: width, height: height))!
+    image.cropping(to: CGRect(x: x, y: top, width: width, height: height))!
 }
 
 @Suite struct CompositorTests {
