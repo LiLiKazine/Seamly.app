@@ -1,5 +1,6 @@
 import Testing
 import CoreGraphics
+import CoreImage
 import ImageIO
 import Foundation
 @testable import StitchKit
@@ -43,6 +44,41 @@ import Foundation
         ctx.draw(content, in: CGRect(x: 0, y: Self.topChromeH, width: W, height: Self.contentWindow))
         ctx.draw(bottom, in: CGRect(x: 0, y: Self.topChromeH + Self.contentWindow, width: W, height: Self.bottomChromeH))
         return ctx.makeImage()!
+    }
+
+    /// A frame whose **top bar is translucent**: the real content beneath it, blurred, with the
+    /// real status bar composited semi-transparently on top. Because different content scrolls
+    /// under the bar each frame, the chrome band's pixels change frame-to-frame — the case that
+    /// defeats static-row chrome detection (the known open gap).
+    private func translucentFrame(from shot: CGImage, scroll s: Int) -> CGImage {
+        let W = shot.width
+        let content = shot.cropping(to: CGRect(x: 0, y: Self.topChromeH + s, width: W, height: Self.contentWindow))!
+        let bottomY = shot.height - Self.bottomChromeH
+        let bottom = shot.cropping(to: CGRect(x: 0, y: bottomY, width: W, height: Self.bottomChromeH))!
+        let statusBar = shot.cropping(to: CGRect(x: 0, y: 0, width: W, height: Self.topChromeH))!
+        // Content sitting directly under the bar (the top slice of this frame's content), blurred.
+        let behind = content.cropping(to: CGRect(x: 0, y: 0, width: W, height: Self.topChromeH))!
+        let behindBlur = gaussianBlur(behind, radius: 16)
+
+        let frameH = Self.topChromeH + Self.contentWindow + Self.bottomChromeH
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(data: nil, width: W, height: frameH, bitsPerComponent: 8, bytesPerRow: 0,
+                            space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.translateBy(x: 0, y: CGFloat(frameH)); ctx.scaleBy(x: 1, y: -1)
+        ctx.draw(content, in: CGRect(x: 0, y: Self.topChromeH, width: W, height: Self.contentWindow))
+        ctx.draw(bottom, in: CGRect(x: 0, y: Self.topChromeH + Self.contentWindow, width: W, height: Self.bottomChromeH))
+        // Translucent top bar: blurred scrolling content, then the real bar at 55% opacity.
+        ctx.draw(behindBlur, in: CGRect(x: 0, y: 0, width: W, height: Self.topChromeH))
+        ctx.setAlpha(0.55)
+        ctx.draw(statusBar, in: CGRect(x: 0, y: 0, width: W, height: Self.topChromeH))
+        ctx.setAlpha(1)
+        return ctx.makeImage()!
+    }
+
+    private func gaussianBlur(_ img: CGImage, radius: Double) -> CGImage {
+        let ci = CIImage(cgImage: img)
+        let filtered = ci.applyingGaussianBlur(sigma: radius).cropped(to: ci.extent)
+        return CIContext().createCGImage(filtered, from: ci.extent) ?? img
     }
 
     private func scrollPositions(contentDocH: Int) -> [Int] {
@@ -113,5 +149,49 @@ import Foundation
         #expect(abs(band.bottomChrome - Self.bottomChromeH) <= 60, "bottom chrome \(band.bottomChrome) vs ~\(Self.bottomChromeH)")
         // 3. Capture stayed a single segment (no thrashing/relocalize breaks on real content).
         #expect(session.segmentBreaks.count == 0, "expected one clean segment, got breaks: \(session.segmentBreaks.count)")
+    }
+
+    /// Translucent top bar: content scrolls under a blurred bar, so the chrome band's pixels
+    /// change every frame and static-row detection can't lock it. This documents the current
+    /// contract and the known gap.
+    ///
+    /// **Contract that must hold** (hard-asserted): the scrolling content is never lost and the
+    /// capture isn't shattered into many segments — undetected chrome degrades to "the bar
+    /// repeats", never to "content disappears" (the project's surface-don't-mask error policy).
+    ///
+    /// **Known gap** (`withKnownIssue`): the band can't lock on a translucent bar, so chrome/
+    /// segment repetition inflates the height. Pixel-only translucent detection is unsolved
+    /// (see 2026-07-05-01 log); when it's addressed this block will start passing and should be
+    /// promoted to a hard assertion.
+    @Test func stitchesRealScreenshotWithTranslucentChrome() throws {
+        let shot = try loadFixture()
+        let contentDocH = shot.height - Self.topChromeH - Self.bottomChromeH
+        let frames = scrollPositions(contentDocH: contentDocH).map { translucentFrame(from: shot, scroll: $0) }
+
+        let (session, images) = buildSession(frames)
+        let out = try Compositor().composite(session) { images[$0.index]! }
+
+        let expected = Self.topChromeH + contentDocH + Self.bottomChromeH
+        let band = session.contentBand(forSegment: 0)
+        print("── REAL screenshot stitch (TRANSLUCENT top bar)")
+        print("   frames=\(frames.count) keyframes=\(session.keyframes.count) seams=\(session.seams.count) breaks=\(session.segmentBreaks.count) segments=\(session.contentBands.count)")
+        print("   band seg0: top=\(band.topChrome) bottom=\(band.bottomChrome) lowConf=\(band.isLowConfidence)")
+        print("   output=\(out.height)px expected≈\(expected)px ratio=\(String(format: "%.2f", Double(out.height)/Double(expected)))")
+
+        // Contract: content survives (never lost, never catastrophically stacked) and the capture
+        // stays roughly whole rather than shattering frame-by-frame.
+        #expect(Double(out.height) >= Double(expected) * 0.85,
+                "content collapsed — capture lost (output \(out.height)px vs \(expected)px)")
+        #expect(Double(out.height) <= Double(expected) * 2.0,
+                "content badly stacked — merge corrupted (output \(out.height)px vs \(expected)px)")
+        #expect(session.segmentBreaks.count <= 2,
+                "translucent chrome should not shatter the capture: \(session.segmentBreaks.count) breaks")
+
+        // Known gap: ideal behavior is a locked band and no chrome/segment repetition.
+        withKnownIssue("pixel-only translucent-chrome detection is unsolved (see docs/logs/2026-07-05-01)") {
+            #expect(!band.isLowConfidence, "band should lock even under a translucent bar")
+            #expect(abs(band.topChrome - Self.topChromeH) <= 60)
+            #expect(Double(out.height) <= Double(expected) * 1.12, "no chrome/segment repetition")
+        }
     }
 }
