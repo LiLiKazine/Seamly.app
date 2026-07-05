@@ -45,36 +45,41 @@ public struct VerticalProfile: Sendable {
         // (`forcingHeight`) for the app's pixel-exact seam refinement.
         let height = forcingHeight ?? min(sourceHeight, maxRows)
 
-        guard let (buffer, bytesPerRow) = renderGray(image, width: width, height: height) else {
-            return FrameProfile(means: [], variances: [], sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+        guard let (buffer, bytesPerRow) = renderRGBA(image, width: width, height: height) else {
+            return FrameProfile(rows: [], variances: [], sourceWidth: sourceWidth, sourceHeight: sourceHeight)
         }
 
-        var means = [Float](repeating: 0, count: height)
+        var rows = [[Float]](repeating: [], count: height)
         var variances = [Float](repeating: 0, count: height)
-        var rowFloats = [Float](repeating: 0, count: width)
 
         buffer.withUnsafeBytes { raw in
             let base = raw.bindMemory(to: UInt8.self).baseAddress!
             for row in 0..<height {
                 let rowPtr = base + row * bytesPerRow
-                vDSP.convertElements(of: UnsafeBufferPointer(start: rowPtr, count: width), to: &rowFloats)
-                // Normalize 0...255 -> 0...1.
-                var scaled = [Float](repeating: 0, count: width)
-                vDSP.divide(rowFloats, 255.0, result: &scaled)
-                let mean = vDSP.mean(scaled)
-                let meanSquare = vDSP.meanSquare(scaled)
-                means[row] = mean
+                // Fixed BT.601 luma from the RGBA samples. We compute luminance ourselves
+                // rather than letting CoreGraphics convert to `DeviceGray`, whose gamma-managed
+                // sRGB→gray conversion is unnecessary here and keeps the signal a plain,
+                // predictable function of the source pixels.
+                var signature = [Float](repeating: 0, count: width)
+                for c in 0..<width {
+                    let p = rowPtr + c * 4   // RGBA, 8-bit
+                    let r = Float(p[0]), g = Float(p[1]), b = Float(p[2])
+                    signature[c] = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+                }
+                let mean = vDSP.mean(signature)
+                let meanSquare = vDSP.meanSquare(signature)
+                rows[row] = signature
                 variances[row] = max(0, meanSquare - mean * mean)
             }
         }
 
-        return FrameProfile(means: means, variances: variances, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
+        return FrameProfile(rows: rows, variances: variances, sourceWidth: sourceWidth, sourceHeight: sourceHeight)
     }
 
-    /// Draws `image` into an 8-bit device-gray bitmap with a top-left origin and returns
-    /// the pixel buffer plus its (possibly padded) bytes-per-row.
-    private func renderGray(_ image: CGImage, width: Int, height: Int) -> (Data, Int)? {
-        let cs = CGColorSpaceCreateDeviceGray()
+    /// Draws `image` into an 8-bit RGBA bitmap (sRGB) with a top-left origin and returns the
+    /// pixel buffer plus its (possibly padded) bytes-per-row. The caller derives per-row luma.
+    private func renderRGBA(_ image: CGImage, width: Int, height: Int) -> (Data, Int)? {
+        let cs = CGColorSpace(name: CGColorSpace.sRGB)!
         guard let ctx = CGContext(
             data: nil,
             width: width,
@@ -82,12 +87,15 @@ public struct VerticalProfile: Sendable {
             bitsPerComponent: 8,
             bytesPerRow: 0,
             space: cs,
-            bitmapInfo: CGImageAlphaInfo.none.rawValue
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         ) else { return nil }
 
-        // Flip so buffer row 0 is the top of the image (content-space top-down).
-        ctx.translateBy(x: 0, y: CGFloat(height))
-        ctx.scaleBy(x: 1, y: -1)
+        // A CoreGraphics bitmap context has a bottom-left origin, so drawing a top-down CGImage
+        // straight in already lands buffer row 0 at the image's TOP row (`makeImage`/readback
+        // maps buffer row 0 to image row 0). No flip: an extra flip would invert profile row
+        // order, turning a real downward scroll into an apparent upward one — which negated the
+        // matched `dy`, so the tracker read every forward scroll as a back-scroll and skipped
+        // it, shattering real captures while (differently-constructed) synthetic fixtures passed.
         // Nearest-neighbor: a low/linear filter blends adjacent rows, and the blend phase
         // differs between a crop and its parent image — which would make a keyframe's
         // profile disagree with the same region of another frame and defeat pixel-exact

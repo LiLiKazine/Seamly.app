@@ -36,9 +36,11 @@ import Foundation
         let bpr = ctx.bytesPerRow
         ctx.data!.withMemoryRebound(to: UInt8.self, capacity: bpr * height) { p in
             for r in 0..<height {
-                // Bitmap row 0 is the context's *bottom*; write gray row 0 to the top so the
-                // produced CGImage is upright (row 0 = top), like a real ReplayKit frame.
-                let dst = height - 1 - r
+                // Buffer row 0 is the produced CGImage's TOP row, so write gray row 0 there and
+                // the image is upright (row 0 = top), like a real ReplayKit frame. (A
+                // `height - 1 - r` flip here would invert it — a downward scroll would read as a
+                // negative dy the tracker skips, the shattering bug this fixture must not model.)
+                let dst = r
                 for c in 0..<width {
                     let v = gray[r * width + c]
                     let i = dst * bpr + c * 4

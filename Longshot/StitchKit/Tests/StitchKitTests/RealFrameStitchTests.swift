@@ -30,19 +30,25 @@ import Foundation
     /// `s`, fixed bottom chrome — all real pixels cropped from the source screenshot.
     private func frame(from shot: CGImage, scroll s: Int) -> CGImage {
         let W = shot.width
+        // `CGImage.cropping` is top-referenced: y = 0 is the shot's top row, so these crops take
+        // the real status bar (top), the scrolled content window, and the Safari bar (bottom).
         let top = shot.cropping(to: CGRect(x: 0, y: 0, width: W, height: Self.topChromeH))!
         let bottomY = shot.height - Self.bottomChromeH
         let bottom = shot.cropping(to: CGRect(x: 0, y: bottomY, width: W, height: Self.bottomChromeH))!
         let content = shot.cropping(to: CGRect(x: 0, y: Self.topChromeH + s, width: W, height: Self.contentWindow))!
 
         let frameH = Self.topChromeH + Self.contentWindow + Self.bottomChromeH
+        // Assemble in an *unflipped* context. Drawing a CGImage into a flipped context mirrors
+        // it vertically, which would scramble each band's content (and read a downward scroll as
+        // upward). Unflipped, an image drawn at `y = frameH - top - height` lands upright with its
+        // top at buffer row `top` — buffer row 0 being the produced image's TOP row.
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = CGContext(data: nil, width: W, height: frameH, bitsPerComponent: 8, bytesPerRow: 0,
                             space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.translateBy(x: 0, y: CGFloat(frameH)); ctx.scaleBy(x: 1, y: -1)   // top-left origin
-        ctx.draw(top, in: CGRect(x: 0, y: 0, width: W, height: Self.topChromeH))
-        ctx.draw(content, in: CGRect(x: 0, y: Self.topChromeH, width: W, height: Self.contentWindow))
-        ctx.draw(bottom, in: CGRect(x: 0, y: Self.topChromeH + Self.contentWindow, width: W, height: Self.bottomChromeH))
+        ctx.interpolationQuality = .none
+        ctx.draw(top, in: CGRect(x: 0, y: frameH - Self.topChromeH, width: W, height: Self.topChromeH))
+        ctx.draw(content, in: CGRect(x: 0, y: Self.bottomChromeH, width: W, height: Self.contentWindow))
+        ctx.draw(bottom, in: CGRect(x: 0, y: 0, width: W, height: Self.bottomChromeH))
         return ctx.makeImage()!
     }
 
@@ -61,16 +67,17 @@ import Foundation
         let behindBlur = gaussianBlur(behind, radius: 16)
 
         let frameH = Self.topChromeH + Self.contentWindow + Self.bottomChromeH
+        // Unflipped assembly (see `frame`): drawing into a flipped context would mirror each band.
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = CGContext(data: nil, width: W, height: frameH, bitsPerComponent: 8, bytesPerRow: 0,
                             space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
-        ctx.translateBy(x: 0, y: CGFloat(frameH)); ctx.scaleBy(x: 1, y: -1)
-        ctx.draw(content, in: CGRect(x: 0, y: Self.topChromeH, width: W, height: Self.contentWindow))
-        ctx.draw(bottom, in: CGRect(x: 0, y: Self.topChromeH + Self.contentWindow, width: W, height: Self.bottomChromeH))
+        ctx.interpolationQuality = .none
+        ctx.draw(content, in: CGRect(x: 0, y: Self.bottomChromeH, width: W, height: Self.contentWindow))
+        ctx.draw(bottom, in: CGRect(x: 0, y: 0, width: W, height: Self.bottomChromeH))
         // Translucent top bar: blurred scrolling content, then the real bar at 55% opacity.
-        ctx.draw(behindBlur, in: CGRect(x: 0, y: 0, width: W, height: Self.topChromeH))
+        ctx.draw(behindBlur, in: CGRect(x: 0, y: frameH - Self.topChromeH, width: W, height: Self.topChromeH))
         ctx.setAlpha(0.55)
-        ctx.draw(statusBar, in: CGRect(x: 0, y: 0, width: W, height: Self.topChromeH))
+        ctx.draw(statusBar, in: CGRect(x: 0, y: frameH - Self.topChromeH, width: W, height: Self.topChromeH))
         ctx.setAlpha(1)
         return ctx.makeImage()!
     }

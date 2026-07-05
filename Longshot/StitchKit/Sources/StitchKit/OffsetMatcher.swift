@@ -35,7 +35,7 @@ public struct OffsetMatcher: Sendable {
     /// offset that aligns the *most* content wins and sets the confidence baseline.
     public let overlapPenalty: Float
 
-    public init(minimumOverlap: Int = 8, minimumOverlapFraction: Double = 0.25, valleyProminence: Float = 0.5, overlapPenalty: Float = 1.0) {
+    public init(minimumOverlap: Int = 8, minimumOverlapFraction: Double = 0.25, valleyProminence: Float = 0.5, overlapPenalty: Float = 0.8) {
         self.minimumOverlap = minimumOverlap
         self.minimumOverlapFraction = minimumOverlapFraction
         self.valleyProminence = valleyProminence
@@ -114,7 +114,7 @@ public struct OffsetMatcher: Sendable {
                 guard ai < rowMask.count, k < rowMask.count, rowMask[ai], rowMask[k] else { continue }
             }
             let weight = (a.variances[ai] + b.variances[k]) * 0.5
-            weightedSum += weight * abs(a.means[ai] - b.means[k])
+            weightedSum += weight * rowDifference(a.rows[ai], b.rows[k])
             weightTotal += weight
             counted += 1
         }
@@ -124,6 +124,18 @@ public struct OffsetMatcher: Sendable {
         // partial-overlap alignment can't tie the full-overlap true offset on the raw average.
         let overlapFraction = Float(counted) / Float(referenceRows)
         return (weightedSum / weightTotal) * (1 + overlapPenalty * (1 - overlapFraction))
+    }
+
+    /// Mean absolute difference between two row luminance signatures. With single-value
+    /// signatures this is just `abs(meanA - meanB)`; with the profiler's multi-column
+    /// signatures it compares the whole horizontal structure, which is what disambiguates a
+    /// real scroll from its mirror (a per-row mean alone is near-degenerate on feed content).
+    private func rowDifference(_ a: [Float], _ b: [Float]) -> Float {
+        let n = min(a.count, b.count)
+        guard n > 0 else { return 0 }
+        var sum: Float = 0
+        for c in 0..<n { sum += abs(a[c] - b[c]) }
+        return sum / Float(n)
     }
 
     /// Maps how far the best score sits below the runner-up into `0...1`. A best score far

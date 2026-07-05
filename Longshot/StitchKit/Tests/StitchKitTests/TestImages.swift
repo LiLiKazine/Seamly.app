@@ -6,12 +6,16 @@ import Foundation
 /// stitching primitives recover exactly what we put in.
 enum TestImages {
     /// An RGB image built by filling rectangles, described in the image's own
-    /// top-left origin coordinate space (row 0 = top).
+    /// **top-left** origin coordinate space (row 0 = top), matching how real captured frames
+    /// (from `CGImageSource`/`KeyframeIO.readRaw`) are oriented.
     ///
-    /// A CGBitmapContext stores buffer row 0 at device `y = 0`, and `makeImage()` maps
-    /// buffer rows straight to CGImage rows (row 0 = image top). So filling at device
-    /// `y = 0` already lands at the image top — no flip needed here; `VerticalProfile`
-    /// applies the one flip that keeps profile row 0 aligned with the image top.
+    /// A CGBitmapContext has a bottom-left origin, so we flip it: after the flip, filling at
+    /// `y = 0` lands at the image's TOP row. This makes synthetic fixtures share the real
+    /// frames' orientation, so `VerticalProfile` (which does not flip) maps a fixture's visual
+    /// top to profile row 0 — the same as a real screenshot. (Previously `make` drew unflipped
+    /// and `VerticalProfile` flipped to compensate; that double-flip agreed for synthetic
+    /// fixtures but inverted real top-down frames, which is why on-device captures stitched
+    /// upside-down / shattered.)
     static func make(width: Int, height: Int, _ draw: (CGContext) -> Void) -> CGImage {
         let cs = CGColorSpace(name: CGColorSpace.sRGB)!
         let ctx = CGContext(
@@ -23,6 +27,8 @@ enum TestImages {
             space: cs,
             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
         )!
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: 1, y: -1)
         draw(ctx)
         return ctx.makeImage()!
     }
@@ -68,8 +74,10 @@ enum TestImages {
         }
     }
 
-    /// Crop a sub-rectangle in top-left coordinates.
+    /// Crop a sub-rectangle in **top-left** coordinates (`y = 0` is the image top), matching
+    /// `make`'s top-down orientation. `CGImage.cropping` is itself top-referenced (`y = 0` is the
+    /// image's top row), so the top-down `y` maps straight through — no conversion.
     static func crop(_ image: CGImage, x: Int, y: Int, width: Int, height: Int) -> CGImage {
-        image.cropping(to: CGRect(x: x, y: y, width: width, height: height))!
+        return image.cropping(to: CGRect(x: x, y: y, width: width, height: height))!
     }
 }
