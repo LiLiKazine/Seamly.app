@@ -89,8 +89,14 @@ enough vertical resolution to resolve normal scrolls.
   local aliasing but its interaction with synthetic content flipped results to under-capture;
   with real content the default nearest-neighbor downscale stitches fine, so the change was
   unjustified. Left as a candidate if device testing shows phase noise.
-- **Open / not yet covered:** the real-frame fixture holds chrome **static**. Real iOS bars are
-  translucent (content scrolls under them), which may defeat static-row detection → the band
-  falls back to `0` (chrome repeats but content is not lost, per the error-handling policy;
-  editor override still applies). A translucent-chrome fixture is the next target. Ultimate
-  confirmation is a real capture through the ReplayKit broadcast on device.
+- **Translucent chrome — reproduced, now a tracked known gap.** Added
+  `stitchesRealScreenshotWithTranslucentChrome`: the real content is composited under a blurred,
+  semi-transparent bar so the chrome band's pixels change every frame. Result: the band **can't
+  lock** (`0/0`, low-confidence) and chrome/segment repetition inflates the output to ~1.64×.
+  This is the design's stated fallback (surface-don't-mask): content is **not lost** and the
+  segment is flagged low-confidence for the editor override — but automatic cropping doesn't
+  happen. Encoded as `withKnownIssue` (hard-asserting only the must-hold contract: content not
+  lost, capture not shattered) so CI stays green and auto-flags if translucent detection is later
+  solved. Pixel-only translucent detection is genuinely unsolved (DOM-based tools hide
+  `position:fixed`; that signal is unavailable from ReplayKit pixels) — a distinct future effort.
+- **Ultimate confirmation** is still a real capture through the ReplayKit broadcast on device.
