@@ -20,6 +20,9 @@ let package = Package(
         .testTarget(
             name: "StitchKitTests",
             dependencies: ["StitchKit"],
+            resources: [
+                .copy("Fixtures/wikipedia.png"),
+            ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
