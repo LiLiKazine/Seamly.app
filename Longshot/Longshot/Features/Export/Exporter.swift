@@ -50,9 +50,16 @@ enum Exporter {
     static func saveToPhotos(_ image: CGImage) async throws {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else { throw ExportError.photosDenied }
-        let uiImage = UIImage(cgImage: image)
-        try await PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAsset(from: uiImage)
+        // Encode here (on the caller's actor) to a `Data`, then hand PhotoKit a **`@Sendable`**
+        // change block. The module defaults to `@MainActor` isolation, so a plain closure would
+        // inherit main-actor isolation — but `performChanges` runs the block on its own private
+        // queue, and the injected main-actor executor check then traps (EXC_BREAKPOINT on
+        // com.apple.PHPhotoLibrary.changes). A `@Sendable` closure is non-isolated, so it runs
+        // safely off-main; capturing `Data` (Sendable) keeps the non-Sendable image out of it.
+        let data = try encode(image, as: .png)
+        try await PHPhotoLibrary.shared().performChanges { @Sendable in
+            let request = PHAssetCreationRequest.forAsset()
+            request.addResource(with: .photo, data: data, options: nil)
         }
     }
 
