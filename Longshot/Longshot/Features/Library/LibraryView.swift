@@ -93,7 +93,14 @@ struct CaptureRow: View {
     @ViewBuilder
     private var thumbnail: some View {
         if let proxy = capture.proxy {
-            Image(decorative: proxy, scale: 1).resizable().scaledToFill().clipped()
+            // A long screenshot is very tall; a center `scaledToFill` crop shows a confusing
+            // middle slice that reads as "not stitched". Fill the width and anchor to the top so
+            // the recognizable start of the capture (status bar / first content) is what shows.
+            Image(decorative: proxy, scale: 1)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 48, height: 64, alignment: .top)
+                .clipped()
         } else {
             Image(systemName: "photo").foregroundStyle(.secondary)
         }
