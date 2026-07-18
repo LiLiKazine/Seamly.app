@@ -23,6 +23,7 @@ let package = Package(
             resources: [
                 .copy("Fixtures/wikipedia.png"),
                 .copy("Fixtures/RealDevice"),
+                .copy("Fixtures/Example"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
