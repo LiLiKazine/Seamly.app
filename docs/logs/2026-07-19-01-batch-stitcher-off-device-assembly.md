@@ -1,6 +1,6 @@
 # 2026-07-19-01: BatchStitcher — re-derive stitch geometry in the app, not the extension
 
-**Status:** Implemented (Step 1 of 2)
+**Status:** Implemented (Step 1 app-side + Step 2 extension); end-to-end device capture pending
 
 ## Context
 
@@ -78,3 +78,28 @@ manual edits (trim/band/offset) — the user still edits a normal manifest.
 - Step 2 (simplify the extension to dumb "commit a keyframe every ~half-screen" capture,
   retiring the real-time tracker) is deferred until a device capture validates Step 1 and
   shows what the current extension actually captures.
+
+## Step 2 — extension capture (implemented)
+
+On device the capture produced *nothing* (empty Library) — the app never received keyframes.
+Since Step 1 proved the app stitches whatever keyframes exist (verified in the simulator by
+injecting a session into the App Group, and via `BatchAssemblyTests`), the remaining failure is
+capture-side: the streaming `PositionTracker`/`FrameSelector` that drove keyframe selection could
+lose lock and never commit.
+
+**Change:** new `StitchKit.KeyframeSelector` — a dumb capture policy that keeps only the last
+committed frame's profile and commits when the view has scrolled ≥ `commitFraction` (default 0.5)
+of a frame since then, using the static-chrome mask + downward-only search so fixed bars can't pin
+scroll to zero. `SampleHandler` now uses it instead of `PositionTracker` + `FrameSelector`, and
+writes a **keyframes-only** manifest (no seams/segments/bands) — the app re-derives geometry with
+`BatchStitcher` at import (Step 1). Trailing frame committed at `broadcastFinished` only when
+`hasUncommittedMotion` (avoids banking a near-duplicate tail the app would read as a gap).
+
+**Discovered / open:**
+- The app already handles the new manifest shape: `BatchAssemblyTests` feeds a *scrambled,
+  seam-less* keyframe set (harder than the extension's scroll-order output) and stitches correctly.
+- Selection must use the chrome mask: without it, a static status/nav bar pins measured scroll to
+  zero and the extension would never commit — a plausible cause of the empty capture.
+- Still device-gated: whether the extension reliably banks keyframes during a real broadcast
+  (memory ceiling, ReplayKit delivery) can only be confirmed on device. The diagnostics trace now
+  logs `commit=/overlap=/kf=` per traced frame to make the next device run diagnosable.

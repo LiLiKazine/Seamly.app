@@ -7,10 +7,13 @@ import Darwin
 import Foundation
 import StitchKit
 
-/// Receives live screen frames from ReplayKit and runs only the lightweight StitchKit steps —
-/// profiling, position tracking, keyframe selection, chrome detection, and the safety cue —
-/// streaming selected keyframes plus an incremental manifest to the App Group. It does **no**
-/// compositing; the app assembles everything afterward.
+/// Receives live screen frames from ReplayKit and does only the minimum real-time work:
+/// profile each frame and, via `KeyframeSelector`, bank a keyframe whenever the view has
+/// scrolled far enough. It builds **no** geometry (order/seams/segments/bands) and does no
+/// compositing — the app re-derives all of that from the captured keyframes with
+/// `BatchStitcher`. Keeping the extension's job to "save overlapping keyframes + a keyframe list"
+/// is what makes capture robust; the fragile streaming tracker used to lose lock and produce
+/// nothing.
 ///
 /// Memory discipline (the ~50 MB extension ceiling): hold at most one full frame at a time,
 /// copy out what's needed and release the pixel buffer immediately, and keep everything else
@@ -20,23 +23,21 @@ class SampleHandler: RPBroadcastSampleHandler {
     // pays the GPU CIContext's memory baseline that was pushing the extension past its ceiling.
     private lazy var ciContext = CIContext(options: [.useSoftwareRenderer: false])
     private let profiler = VerticalProfile()
-    private var tracker = PositionTracker()
-    private var selector = FrameSelector()
+    private var selector = KeyframeSelector()
+    /// Overlap fraction with the last keyframe below which the safety cue fires.
+    private let safetyMargin = 0.4
 
     private var store: SessionStore?
     private var folder: URL?
     private var session: StitchSession?
 
     private var keyframeIndex = 0
-    private var lastKeyframeRow = 0
-    private var lastSegment = 0
     private var framesSinceCue = 1_000
 
-    // Most-recent processed frame, retained only so the trailing content below the last
-    // keyframe (and the final bottom chrome) can be committed in broadcastFinished().
+    // Most-recent processed frame, retained only so content scrolled past the last committed
+    // keyframe can be committed as the trailing keyframe in broadcastFinished().
     private var lastImage: CGImage?
     private var lastProfile: FrameProfile?
-    private var lastResult: TrackingResult?
 
     // MARK: - Diagnostic trace
     // The extension can't present UI and its App Group container isn't reliably pullable over USB,
@@ -125,26 +126,24 @@ class SampleHandler: RPBroadcastSampleHandler {
             if trace { dlog("frame \(frameCount): decoded \(image.width)x\(image.height) mem=\(memoryFootprintMB())MB") }
 
             let profile = profiler.profile(image)
-            let result = tracker.process(profile)
-            if trace { dlog("frame \(frameCount): processed decision=\(result.decision) seg=\(result.segmentIndex) mem=\(memoryFootprintMB())MB") }
+            let result = selector.evaluate(profile)
+            if trace { dlog("frame \(frameCount): commit=\(result.commit) overlap=\(String(format: "%.2f", result.overlapFraction)) kf=\(keyframeIndex) mem=\(memoryFootprintMB())MB") }
 
-            if result.needsSafetyCue { fireSafetyCue() } else { framesSinceCue += 1 }
+            if result.overlapFraction < safetyMargin { fireSafetyCue() } else { framesSinceCue += 1 }
 
-            if selector.evaluate(result, bandHeight: profile.rowCount) == .commitKeyframe {
-                commitKeyframe(image, profile: profile, result: result)
-            }
+            if result.commit { commitKeyframe(image, profile: profile) }
 
             lastImage = image
             lastProfile = profile
-            lastResult = result
         }
     }
 
     override func broadcastFinished() {
-        // Commit the trailing frame so content scrolled past the last keyframe (and the final
-        // bottom chrome) isn't dropped.
-        if selector.finish() == .commitKeyframe, let image = lastImage, let profile = lastProfile, let result = lastResult {
-            commitKeyframe(image, profile: profile, result: result)
+        // Commit the trailing frame so content scrolled past the last keyframe isn't dropped —
+        // but only if there's real uncommitted motion, so a near-duplicate tail isn't banked
+        // (which the app would read as a non-overlapping gap).
+        if let image = lastImage, let profile = lastProfile, selector.hasUncommittedMotion(profile) {
+            commitKeyframe(image, profile: profile)
         }
         dlog("broadcastFinished: frames=\(frameCount) keyframes=\(keyframeIndex)")
 
@@ -167,7 +166,10 @@ class SampleHandler: RPBroadcastSampleHandler {
 
     // MARK: - Keyframe commit
 
-    private func commitKeyframe(_ image: CGImage, profile: FrameProfile, result: TrackingResult) {
+    /// Bank one keyframe: write the raw frame and append it to the manifest's keyframe list.
+    /// No order/seams/segments/bands are recorded here — the app re-derives all geometry from
+    /// the keyframes with `BatchStitcher`, so the extension only needs to preserve the frames.
+    private func commitKeyframe(_ image: CGImage, profile: FrameProfile) {
         guard var session, let folder, let store else { return }
 
         if keyframeIndex == 0 {
@@ -189,28 +191,6 @@ class SampleHandler: RPBroadcastSampleHandler {
 
         dlog("keyframe \(keyframeIndex) written (\(image.width)x\(image.height))")
         session.keyframes.append(Keyframe(filename: filename, pixelWidth: image.width, pixelHeight: image.height, index: keyframeIndex))
-
-        if case .segmentBreak(let reason) = result.decision, keyframeIndex > 0 {
-            session.segmentBreaks.append(SegmentBreak(afterKeyframeIndex: keyframeIndex - 1, reason: reason))
-        } else if keyframeIndex > 0, result.segmentIndex == lastSegment {
-            let dyRows = max(0, result.position - lastKeyframeRow)
-            let dyPixels = Int(Double(dyRows) * profile.rowScale)
-            session.seams.append(Seam(
-                fromIndex: keyframeIndex - 1,
-                provisionalDy: dyPixels,
-                confidence: result.confidence,
-                isLowConfidence: result.confidence < 0.4
-            ))
-        }
-
-        // Record/refresh this segment's content band. It locks mid-segment via consensus, so
-        // the last write per segment carries the settled band (or `.unlocked` if none locked).
-        let seg = result.segmentIndex
-        while session.contentBands.count <= seg { session.contentBands.append(.unlocked) }
-        session.contentBands[seg] = result.contentBand
-
-        lastKeyframeRow = result.position
-        lastSegment = result.segmentIndex
         keyframeIndex += 1
         self.session = session
         // Best-effort incremental checkpoint: the next keyframe writes the manifest again and
