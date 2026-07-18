@@ -38,10 +38,14 @@ final class LibraryModel {
 
     private let appStore: SessionStore
     private let groupStore: SessionStore?
+    private let groupContainer: URL?
+    private let diag: Diagnostics
 
     init(appContainer: URL = LibraryModel.appContainerURL(), groupContainer: URL? = AppGroup.containerURL) {
         self.appStore = SessionStore(containerURL: appContainer)
         self.groupStore = groupContainer.map { SessionStore(containerURL: $0) }
+        self.groupContainer = groupContainer
+        self.diag = Diagnostics(containerURL: groupContainer, category: .app)
     }
 
     /// App-owned storage under Application Support.
@@ -61,8 +65,10 @@ final class LibraryModel {
     /// Import finished captures from the App Group, then reload and assemble. Called on launch
     /// and every foreground — the scan, not the Darwin notification, is the source of truth.
     func refresh() async {
+        diag.log("refresh: begin (group=\(groupContainer != nil ? "resolved" : "NIL"))")
         lastPickupWasEmpty = await importFromGroup()
         reload()
+        diag.log("refresh: \(captures.count) capture(s) after import; \(captures.filter { $0.phase == .processing }.count) to assemble")
         for capture in captures where capture.proxy == nil && capture.phase == .processing {
             await assemble(capture.id)
         }
@@ -71,8 +77,9 @@ final class LibraryModel {
     /// Move stitchable sessions out of the shared container into app storage; discard the
     /// empty/no-scroll ones. Returns true if at least one imported session had nothing to stitch.
     private func importFromGroup() async -> Bool {
-        guard let groupStore else { return false }
+        guard let groupStore else { diag.log("import: no group store (App Group unavailable)"); return false }
         let appStore = self.appStore
+        let diag = self.diag
         return await Task.detached {
             let fm = FileManager.default
             var sawEmpty = false
@@ -83,43 +90,72 @@ final class LibraryModel {
             } catch {
                 // Without this directory no import can succeed; there's no per-session recovery, so
                 // log and bail rather than silently loop doing nothing.
-                print("Longshot: could not create app sessions directory: \(error)")
+                diag.log("import: FAILED to create app sessions dir: \(error.localizedDescription)")
                 return false
             }
-            for session in groupStore.loadAll() {
+            let sessions = groupStore.loadAll()
+            diag.log("import: \(sessions.count) readable session(s) in group")
+            for session in sessions {
                 let source = groupStore.folder(for: session.id)
                 // Never touch a session the extension may still be writing. Import when it's
                 // cleanly finished, or when a `.recording` folder is stale enough that the
                 // broadcast clearly crashed (so partial captures are still recovered).
                 let manifest = groupStore.manifestURL(in: source)
                 let finalized = session.status == .complete || Self.isStale(manifest)
-                guard finalized else { continue }
+                let shortID = session.id.uuidString.prefix(8)
+                diag.log("import: \(shortID) status=\(session.status.rawValue) keyframes=\(session.keyframes.count) finalized=\(finalized) stitchable=\(session.hasStitchableContent)")
+                guard finalized else {
+                    diag.log("import: \(shortID) SKIPPED (not finalized — still recording and not yet stale)")
+                    continue
+                }
 
                 do {
                     if session.hasStitchableContent {
                         let dest = appStore.folder(for: session.id)
                         if fm.fileExists(atPath: dest.path) {
                             try fm.removeItem(at: source)   // already imported; drop the duplicate
+                            diag.log("import: \(shortID) duplicate dropped (already in app storage)")
                         } else {
                             try fm.moveItem(at: source, to: dest)
+                            diag.log("import: \(shortID) IMPORTED into app storage")
+                            // Resolve scroll order + geometry once, now, so the manifest the app
+                            // composites (and the user edits) is correct. The extension's live
+                            // order/seams/bands are unreliable; re-derive from the keyframes.
+                            do {
+                                let resolved = try StitchAssembler.resolveGeometry(session, in: dest)
+                                try appStore.writeManifest(resolved)
+                                diag.log("import: \(shortID) geometry resolved (\(resolved.keyframes.count) kf, \(resolved.seams.count) seams, \(resolved.segmentBreaks.count) breaks)")
+                            } catch {
+                                // Non-fatal: keep the extension's manifest so the capture still
+                                // imports (it may stitch imperfectly) rather than being lost.
+                                diag.log("import: \(shortID) geometry resolve FAILED, keeping extension manifest: \(error.localizedDescription)")
+                            }
                         }
                     } else {
                         sawEmpty = true
                         try fm.removeItem(at: source)   // nothing to stitch; discard
+                        diag.log("import: \(shortID) discarded (no stitchable content)")
                     }
                 } catch {
                     // Skip this one session but keep importing the rest; a stuck session that
                     // silently disappears is exactly the failure we're guarding against.
-                    print("Longshot: failed to import session \(session.id): \(error)")
+                    diag.log("import: \(shortID) FAILED to import: \(error.localizedDescription)")
                 }
             }
             return sawEmpty
         }.value
     }
 
-    /// A `.recording` manifest untouched for a while means the broadcast crashed rather than
-    /// finished; such partial sessions are safe to import (and get badged incomplete).
-    nonisolated private static func isStale(_ manifest: URL, olderThan seconds: TimeInterval = 90) -> Bool {
+    /// A `.recording` manifest untouched for a while means the broadcast ended without a clean
+    /// `broadcastFinished` (the extension is often killed under its ~50 MB memory ceiling before
+    /// it can finalize), so such partial sessions are imported anyway and badged incomplete.
+    ///
+    /// The window is a trade-off: too long and a killed capture sits invisible (the 90 s we used
+    /// to have meant an 11-minute wait in practice); too short and we could move a folder out from
+    /// under an extension that's merely paused mid-scroll. The extension checkpoints its manifest
+    /// on every keyframe, and the app only ever scans while *foregrounded* (i.e. after the user has
+    /// left the recorded app), so ~20 s of no writes is a confident "the broadcast is over" signal.
+    nonisolated private static func isStale(_ manifest: URL, olderThan seconds: TimeInterval = 20) -> Bool {
         // A missing or unreadable manifest can't be judged stale — treat it as not-stale so we
         // never import a folder that isn't a crashed recording. The throw here is expected
         // (e.g. the folder vanished mid-scan), so swallowing it is intentional.
@@ -159,6 +195,7 @@ final class LibraryModel {
             captures[index].proxy = proxy
             captures[index].phase = .ready
         case .failure(let error):
+            diag.log("assemble: \(id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
             captures[index].phase = .failed(error.localizedDescription)
         }
     }
@@ -167,11 +204,12 @@ final class LibraryModel {
     func fullComposite(_ id: UUID) async -> CGImage? {
         guard let capture = captures.first(where: { $0.id == id }) else { return nil }
         let session = capture.session, folder = capture.folder
+        let diag = self.diag
         return await Task.detached {
             do {
                 return try StitchAssembler.composite(session, in: folder)
             } catch {
-                print("Longshot: full composite failed for \(session.id): \(error)")
+                diag.log("fullComposite: \(session.id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
                 return nil
             }
         }.value
@@ -181,13 +219,14 @@ final class LibraryModel {
     func exportPDF(_ id: UUID) async -> URL? {
         guard let capture = captures.first(where: { $0.id == id }) else { return nil }
         let session = capture.session, folder = capture.folder
+        let diag = self.diag
         return await Task.detached {
             let url = FileManager.default.temporaryDirectory.appendingPathComponent("Longshot-\(session.id.uuidString).pdf")
             do {
                 try StitchAssembler.writePDF(session, in: folder, to: url)
                 return url
             } catch {
-                print("Longshot: PDF export failed for \(session.id): \(error)")
+                diag.log("exportPDF: \(session.id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
                 return nil
             }
         }.value
@@ -199,7 +238,7 @@ final class LibraryModel {
         } catch {
             // Still drop it from the UI, but log: an undeletable folder would otherwise
             // reappear on the next scan as a silent ghost.
-            print("Longshot: could not delete session \(id): \(error)")
+            diag.log("delete: \(id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
         }
         captures.removeAll { $0.id == id }
     }
@@ -214,7 +253,7 @@ final class LibraryModel {
         } catch {
             // The in-memory capture still updates and re-assembles below, but the edit won't
             // survive relaunch if this write fails. Log rather than silently lose it.
-            print("Longshot: could not persist edited manifest for \(session.id): \(error)")
+            diag.log("update: \(session.id.uuidString.prefix(8)) manifest persist FAILED: \(error.localizedDescription)")
         }
         captures[index] = Capture(session: session, folder: folder, phase: .processing, proxy: captures[index].proxy)
         await assemble(session.id)
