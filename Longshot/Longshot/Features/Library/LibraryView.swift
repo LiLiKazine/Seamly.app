@@ -11,6 +11,7 @@ struct LibraryView: View {
     @State private var showOnboarding = false
     @State private var showCapture = false
     @State private var showEmptyNudge = false
+    @State private var showDiagnostics = false
 
     var body: some View {
         NavigationStack {
@@ -41,6 +42,9 @@ struct LibraryView: View {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Help", systemImage: "questionmark.circle") { showOnboarding = true }
                 }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Diagnostics", systemImage: "stethoscope") { showDiagnostics = true }
+                }
             }
         }
         .task {
@@ -54,6 +58,7 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: .longshotBroadcastFinished)) { _ in
             Task { await model.refresh(); showEmptyNudge = model.lastPickupWasEmpty }
         }
+        .sheet(isPresented: $showDiagnostics) { DiagnosticsView() }
         .sheet(isPresented: $showOnboarding) { OnboardingView() }
         .sheet(isPresented: $showCapture) {
             CaptureStartView { showOnboarding = true }
