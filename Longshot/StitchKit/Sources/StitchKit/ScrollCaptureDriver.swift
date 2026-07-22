@@ -13,7 +13,9 @@ import Foundation
 /// It does NOT touch ReplayKit, disk, or haptics: the adapter (`SampleHandler`) writes the
 /// returned image's bytes, appends the metadata to the manifest, throttles + plays the cue, and
 /// maps the first keyframe's image to the session's orientation/color space. This extraction is
-/// behaviour-preserving — the commit decisions are exactly what `SampleHandler` produced before.
+/// behaviour-preserving for every *commit decision* — the same frames get banked at the same
+/// points. One intentional divergence: `keyframeIndex` numbering (see below) can leave a gap on
+/// a write failure, where the old inline code reused the number on the next attempt instead.
 public struct ScrollCaptureDriver: Sendable {
 
     /// One committed keyframe: the image whose bytes the adapter writes, plus its manifest entry.
@@ -34,6 +36,13 @@ public struct ScrollCaptureDriver: Sendable {
     /// Overlap fraction with the last keyframe below which the safety cue should fire.
     private let safetyMargin: Double
 
+    // Advances on the commit *decision*, not after the adapter's disk write succeeds — this
+    // struct never touches disk, so it can't know whether the write lands. On the rare
+    // write-failure path (adapter skips the keyframe; see SampleHandler.commitKeyframe) this
+    // leaves a permanent gap in kf-NNNN numbering and in session.keyframes[].index, instead of
+    // the old inline behaviour of reusing the number on the next attempt. That's inert:
+    // downstream (Compositor) looks keyframes up by `index` value — a dictionary keyed by index,
+    // plus a sort by index — and never assumes the indices are contiguous.
     private var keyframeIndex = 0
     // Most-recent processed frame, retained only so content scrolled past the last committed
     // keyframe can be banked as the trailing keyframe in finish().
@@ -60,7 +69,7 @@ public struct ScrollCaptureDriver: Sendable {
         var captured: CapturedKeyframe?
         if result.commit {
             captured = CapturedKeyframe(image: image, metadata: makeMetadata(for: image))
-            keyframeIndex += 1
+            keyframeIndex += 1   // advances on the decision, not the write — see property comment
         }
         lastImage = image
         lastProfile = profile
@@ -74,7 +83,7 @@ public struct ScrollCaptureDriver: Sendable {
         guard let image = lastImage, let profile = lastProfile,
               selector.hasUncommittedMotion(profile) else { return nil }
         let captured = CapturedKeyframe(image: image, metadata: makeMetadata(for: image))
-        keyframeIndex += 1
+        keyframeIndex += 1   // advances on the decision, not the write — see property comment
         return captured
     }
 
