@@ -131,12 +131,27 @@ one-time offline trim; the committed fixture is the trimmed clip. Registered in
 **Assertions (sanity — fuzzy ground truth):**
 - Every frame decodes (0 `PixelBufferImage` failures) — locks in the real decode path.
 - Capture is **non-empty** and consecutive overlaps sit in a sane band (≈ 0.4–0.6).
-- Closed loop: `BatchStitcher` recovers a monotonic order. The **segment-break-after-2**
-  shatter is recorded with `withKnownIssue` (mirroring `RealFrameStitchTests`), attributed
-  to the `edgeConfidence`-on-image-content gap — so the suite stays honest without turning
-  red over a separate, documented assembly issue.
+- Closed loop: `BatchStitcher` recovers a monotonic order **and stitches into a single
+  continuous segment** (no break after kf2). Before the `edgeConfidence` fix (§4) this
+  reproduces the shatter and is RED — it *drives* the fix; after the fix it is the
+  regression guard. This tier is the acceptance test for §4.
 
 Both tiers drive the same extracted driver, so they prove the real production path.
+
+### 4. Fix the `edgeConfidence` edge-acceptance gate (folded in)
+
+The spike proved the absolute `edgeConfidence = 0.45` gate rejects a *real* overlap
+(kf2↔kf3, same Witcher 3 card in both) because the boundary is image-heavy / low horizontal
+texture, so the vertical-profile correlation scores below 0.45. Replace the absolute
+threshold with an **adaptive / relative-confidence** acceptance: accept the best downward
+offset when it stands out confidently from the alternatives (a relative gap between the top
+candidate and the runner-up / background), rather than requiring a fixed absolute score.
+The exact criterion is for the implementation plan; candidates include a relative-gap test,
+a content-adaptive threshold keyed on profile variance, or normalizing correlation by the
+pair's texture. Success criterion: the video tier stitches into one continuous segment while
+the existing `BatchStitcherTests` (Example, baidu, wechat) do not regress — the non-overlap
+pairs that *should* break must still break. This is a scoped `BatchStitcher` change, not a
+rewrite of the matcher.
 
 ## Deliverables
 
@@ -151,18 +166,21 @@ Both tiers drive the same extracted driver, so they prove the real production pa
 ## Non-goals
 
 - Reproducing ReplayKit delivery or the memory ceiling (device-only).
-- **Changing `KeyframeSelector` behaviour** or tuning `edgeConfidence` / assembly constants.
-  The `ScrollCaptureDriver` extraction is behaviour-preserving; the `edgeConfidence`
-  image-content gap the spike surfaced is real but is a **separate follow-up**, tracked via
-  the `withKnownIssue` in the video tier.
+- **Changing `KeyframeSelector` behaviour.** The `ScrollCaptureDriver` extraction is
+  behaviour-preserving.
+- Rewriting the `OffsetMatcher` / profile pipeline. The `edgeConfidence` fix (§4) is a
+  scoped change to the edge-acceptance criterion, not a matcher rewrite.
 
 ## Risks / open points
 
 - The faithful-viewport scenario yields only ~3 keyframes; the long-scroll scenario carries
   the cadence/fling/jitter coverage. Accepted.
-- Video-tier ground truth is fuzzy, so its assembly assertion is a documented known issue,
-  not a hard gate. The hard guarantees it locks in are capture-side (decode, non-empty,
-  cadence) — which is the half under test.
+- Video-tier ground truth is fuzzy for exact geometry, so its numeric assertions stay
+  tolerant; its structural assertions (0 decode failures, non-empty, sane overlap band, and
+  — after §4 — single continuous segment) are hard gates. The single-segment gate is what
+  makes this tier the acceptance test for the `edgeConfidence` fix.
+- The `edgeConfidence` fix must not regress the pairs that *should* break (baidu/wechat
+  non-overlap, the Example non-overlapping pair). Guarded by the existing `BatchStitcherTests`.
 - Fixture size: the committed clip is trimmed to ~6 s to bound the repo binary.
 - The extraction touches `SampleHandler`; behaviour preservation is reviewed by inspection
   and confirmed on the next device capture (device-gated).
