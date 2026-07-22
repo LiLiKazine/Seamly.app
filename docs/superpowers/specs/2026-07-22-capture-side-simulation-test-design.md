@@ -1,137 +1,168 @@
-# Design — Capture-Side Simulation Test
+# Design — Capture-Side Isolation & Simulation Test
 
 **Date:** 2026-07-22
 **Branch:** `fix/on-device-stitching-real-frames` (continuation)
-**Status:** Approved direction (option B); ready for implementation planning.
+**Status:** Approved direction; ready for implementation planning.
 
 ## Problem
 
-The record→scroll→auto-stitch flow was split into two isolatable halves:
+The record→scroll→auto-stitch flow splits into two isolatable halves:
 
 - **Assembly** (`BatchStitcher`) — recovers order + geometry from a fixed keyframe set.
-  Isolated off-device and verified against real fixtures; proven correct on a densely
-  overlapping set (Example: order `[2,0,1]`, one segment, 5978 px continuous). Confirmed
-  again by running it directly on the `RealDevice` sets, which shatter into segments only
-  because their keyframes are sparse fast-flicks with no overlap for the matcher to lock.
-- **Capture** (`KeyframeSelector` driven through `VerticalProfile`, as `SampleHandler`
-  wires them) — decides, per live frame, whether to bank a keyframe. This is the half that
-  produced the on-device **empty capture** (Library received nothing). It has *not* been
-  isolated and tested the way assembly was.
+  Already isolated off-device and verified: correct on a densely overlapping set (Example:
+  order `[2,0,1]`, one segment, 5978 px continuous), and its failure modes reproduce
+  cleanly (baidu/wechat shatter because those captures are sparse fast-flicks).
+- **Capture** (`KeyframeSelector` driven through `VerticalProfile`) — decides, per live
+  frame, whether to bank a keyframe. This is the half that produced the on-device **empty
+  capture**. Its *decision* lives in a pure type (`KeyframeSelector`), but its
+  *orchestration* — the loop that turns a frame stream into the committed keyframe set —
+  is trapped inside `SampleHandler`, an `RPBroadcastSampleHandler` subclass that imports
+  ReplayKit and cannot run off-device.
 
-The existing `KeyframeSelectorTests` feed synthetic ramp `FrameProfile`s. They verify the
-commit *arithmetic* but never exercise the real failure path: real image frames through the
-real `VerticalProfile`, with a fixed status/nav bar that can pin measured scroll to zero.
-Per the dev log (`docs/logs/2026-07-19-01`), a static bar pinning scroll to zero is a
-plausible cause of the empty capture — and it is exactly what today's tests cannot catch.
+Two gaps follow:
 
-Assembly quality is bounded by capture: dense overlapping keyframes stitch; sparse gappy
-ones shatter. So the capture policy must be proven to commit dense-enough overlapping
-keyframes from a realistic scroll — including the adversarial conditions (static chrome,
-fast flick, jittery finger speed) — before the device round-trip can be trusted.
+1. **No isolated capture entry point.** Assembly has `BatchStitcher.plan([CGImage]) -> Plan`
+   — frames in, decision out, fully testable. Capture has no equivalent; the per-frame
+   profiling, the safety-cue decision, the `broadcastFinished` trailing commit, and the
+   keyframe-metadata construction are all inside the untestable `SampleHandler`.
+2. **Existing tests are profile-only.** `KeyframeSelectorTests` feed synthetic ramp
+   `FrameProfile`s. They verify the commit arithmetic but never exercise real image frames
+   through the real `VerticalProfile`, nor the fixed status/nav bar that can pin measured
+   scroll to zero — the very condition the dev log (`docs/logs/2026-07-19-01`) names as a
+   plausible cause of the empty capture.
+
+Assembly quality is bounded by capture: dense overlapping keyframes stitch; sparse or gappy
+ones shatter. So the capture policy must be proven — against real frames, under adversarial
+conditions — and it must be the *real production code* that is proven, not a re-implementation.
 
 ## What can and cannot be tested off-device
 
-- **Cannot** (device-only, out of scope): ReplayKit frame delivery cadence, the ~50 MB
-  broadcast-extension jetsam ceiling, real codec/compression artifacts.
-- **Can** (this design): the *decision policy*. `KeyframeSelector` depends only on the
-  content of the frames it sees. If we synthesize the frame stream a scroll delivers, the
-  real selector code runs and its commit decisions are fully reproducible.
+- **Cannot** (device-only, out of scope): ReplayKit delivery cadence, the ~50 MB
+  broadcast-extension jetsam ceiling.
+- **Can** (this design): the decision policy and its orchestration. Both depend only on the
+  content of the frames. Given a synthesized or decoded frame stream, the real capture code
+  runs and its commit decisions are fully reproducible.
+
+## Feasibility spike (reproduced, not theorized)
+
+A throwaway scratchpad spike decoded the real screen recording
+(`ScreenRecording_07-22-2026 23-16-50_1.MP4`, 1320×2868 HEVC, 11.2 s, 671 frames) with
+`AVAssetReader` → `PixelBufferImage.makeCGImage` → the exact `VerticalProfile` +
+`KeyframeSelector` pipeline `SampleHandler` uses, then reconstructed with `BatchStitcher`.
+Results:
+
+- **671 frames decoded, 0 decode failures.** The real pixel-buffer decode path
+  (`PixelBufferImage`, 32BGRA) handles every HEVC frame.
+- **4 keyframes committed** at frames 1 / 143 / 237 / 320, overlaps **1.00, 0.49, 0.47,
+  0.49** — textbook ~0.5 spacing for `commitFraction 0.5`. **Not an empty capture; no safety
+  cue fired.** The capture policy works on real frames.
+- **Assembly shattered:** order `[0,1,2,3]` recovered, but a **segment break after kf 2**
+  (stitch 8732 px vs. 11472 stacked). kf2↔kf3 genuinely overlap (the same Witcher 3 card is
+  in both, matching the selector's 0.49), yet the boundary is image-heavy (Witcher/Skyrim
+  art, low horizontal texture) so `BatchStitcher`'s `edgeConfidence = 0.45` gate rejects a
+  real edge.
+
+The spike proves the video tier is feasible off-device **and** immediately surfaced a real
+**capture↔assembly disagreement** — exactly the `edgeConfidence`-on-image-content risk the
+dev log flagged. This is the bug class the closed-loop test exists to catch.
 
 ## Approach
 
-Fake a scroll off-device: take a tall real oracle image, slide a fixed-height window down
-it to synthesize the CGImage frame stream a scroll would deliver, and run that stream
-through the exact pipeline `SampleHandler` uses. Then close the loop by feeding the
-committed keyframes into `BatchStitcher` and reconstructing the page.
+### 1. Extract `ScrollCaptureDriver` (StitchKit, pure) — the capture parallel to `BatchStitcher`
 
-This mirrors, for capture, what `ChromeStitchRepro`/`BatchStitcher` isolation did for
-assembly: drive the *real* code path on controlled inputs, off-device, deterministically.
+A pure, `Sendable` type owning the whole picking loop:
 
-### Component: `CaptureSimulator` (test helper in `StitchKitTests`)
+```
+mutating func ingest(_ image: CGImage) -> Step   // Step { keyframe: Keyframe?, fireSafetyCue: Bool }
+mutating func finish() -> Keyframe?              // the broadcastFinished trailing commit
+```
 
-Test scaffolding, not product code — it stands in for ReplayKit, so it lives with the
-tests (peer to the fixture-driven test helpers), not in the shipping library.
+It holds `VerticalProfile` + `KeyframeSelector` + the state currently in `SampleHandler`:
+last profile/image, keyframe index, and the orientation/color-space captured on the first
+frame. It decides commits, the safety cue (`overlap < safetyMargin`), and builds `Keyframe`
+metadata. It does **not** touch ReplayKit, disk, or haptics.
 
-Pure and deterministic (no `Date`, no `Math.random` — a seeded LCG for jitter and a fixed
-fling index), so runs are reproducible on CI. Given:
+`SampleHandler` becomes a dumb adapter: decode pixel buffer → `driver.ingest` → if a
+keyframe is returned, write its raw bytes + append to the manifest; if `fireSafetyCue`, fire
+the cue; `driver.finish()` at `broadcastFinished`. Platform specifics (ReplayKit, App Group,
+`KeyframeIO`, haptics) stay in the adapter.
 
-- `oracle: CGImage` — a tall real page (our stitched Chrome page ≈ 5978 px; baidu as a
-  second oracle),
-- `viewportHeight: Int` — the height of the sliding window (the frame height the extension
-  would receive); a stated modeling parameter,
-- a **scroll script** — per-frame top-offset advancing by ~a few % of the viewport with
-  seeded jitter, plus one **fling gap** (a single large jump) at a fixed index,
-- `chromeHeight: Int` — a **static top-chrome overlay**: the top `chromeHeight` px of the
-  first window, composited onto every emitted frame (the fixed status/nav bar),
+This is behaviour-preserving. Because `SampleHandler` is device-gated, only the thin
+adapter's on-device behaviour stays unverified; all the picking logic it delegates becomes
+fully testable.
 
-it returns `[CGImage]` — each frame the `[offset, offset+viewportHeight)` crop of the
-oracle with the static chrome band drawn on top.
+### 2. Test tier — synthetic (`CaptureSimulator`, deterministic, no fixture)
 
-### Pipeline under test (exact `SampleHandler` mirror)
+Test scaffolding in `StitchKitTests` (stands in for ReplayKit). Pure and deterministic (no
+`Date`/random — seeded LCG for jitter, fixed fling index). Given a tall real oracle (our
+stitched Chrome page ≈ 5978 px), a viewport height, a scroll script (per-frame offset with
+seeded jitter + one fling gap), and a static top-chrome overlay height, it slides the window
+down the oracle and composites the fixed chrome bar onto each emitted `CGImage`. Frames feed
+the **real `ScrollCaptureDriver`**.
 
-Using stock `VerticalProfile()` and `KeyframeSelector()` (defaults; `commitFraction 0.5`),
-for each synthesized frame:
+Two scenarios (approved option B):
 
-1. `let profile = profiler.profile(frame)`
-2. `let result = selector.evaluate(profile)`
-3. if `result.commit`, record the frame as a committed keyframe (and its profile).
+1. **Faithful viewport (~2868 px)**, static chrome, gentle jitter — short scroll (~3
+   keyframes). Primary purpose: prove capture is non-empty and chrome does not pin scroll.
+2. **Long-scroll viewport (~1400 px)**, static chrome, jitter + one fling — richer scroll
+   (~6–7 keyframes) exercising cadence, fast-flick recovery, and finger jitter.
 
-After the stream, mirror `broadcastFinished`: if `selector.hasUncommittedMotion(lastProfile)`,
-commit the trailing frame and `markCommitted`.
+**Assertions (precise — known ground truth):**
+- Committed keyframes ≫ 1 despite the static bar (empty-capture regression guard).
+- Consecutive overlaps ≈ `1 − commitFraction` within tolerance; no near-duplicate commit,
+  no lost-overlap skip.
+- Across the fling, the selector still commits; the downstream segment outcome is asserted
+  explicitly.
+- Closed loop: committed keyframes → `BatchStitcher().plan` recovers monotonic order, a
+  single segment for the recoverable scenario, height within tolerance, chrome band cropped.
 
-The committed keyframes are the exact set the extension would have banked.
+### 3. Test tier — video (`VideoFrameSource`, highest fidelity)
 
-### Closed loop
+`AVAssetReader` decodes a committed real screen recording to `CVPixelBuffer`s (requested
+32BGRA) → `PixelBufferImage.makeCGImage` → the **same `ScrollCaptureDriver`**. This is the
+only test exercising the real decode path and real scroll dynamics/chrome/codec.
 
-Feed the committed keyframe images into `BatchStitcher().plan(_:)` and `stitch(_:)`.
+**Fixture:** the user's real recording, committed under
+`StitchKitTests/Fixtures/RealDevice/`. To keep the binary reasonable it is **trimmed to the
+useful window (~6 s)** — the spike showed commits only through ~frame 320 (~5.3 s) — via a
+one-time offline trim; the committed fixture is the trimmed clip. Registered in
+`Package.swift` test resources.
 
-## Test scenarios (`CaptureSimulationTests`, peer to `BatchStitcherTests`)
+**Assertions (sanity — fuzzy ground truth):**
+- Every frame decodes (0 `PixelBufferImage` failures) — locks in the real decode path.
+- Capture is **non-empty** and consecutive overlaps sit in a sane band (≈ 0.4–0.6).
+- Closed loop: `BatchStitcher` recovers a monotonic order. The **segment-break-after-2**
+  shatter is recorded with `withKnownIssue` (mirroring `RealFrameStitchTests`), attributed
+  to the `edgeConfidence`-on-image-content gap — so the suite stays honest without turning
+  red over a separate, documented assembly issue.
 
-Both scenarios use real content (the stitched Chrome oracle). Per the approved option B,
-both viewport sizes are covered:
-
-1. **Faithful viewport (~2868 px), static chrome, gentle jitter.**
-   A short real scroll (~3 keyframes). Primary purpose: prove capture is not empty and the
-   chrome bar does not pin scroll to zero.
-
-2. **Long-scroll viewport (~1400 px), static chrome, jitter + one fling.**
-   A richer scroll (~6–7 keyframes). Exercises commit cadence, fast-flick recovery, and
-   finger-speed jitter.
-
-### Assertions
-
-1. **Not empty / chrome doesn't pin scroll** — committed keyframes ≫ 1 despite the static
-   bar. This is the empty-capture regression guard.
-2. **Cadence** — consecutive committed keyframes overlap ≈ `1 − commitFraction` (within a
-   stated tolerance): no near-duplicate commits (dy too small), no lost-overlap skips.
-3. **Fling** — across the fling gap the selector still commits; whether the downstream
-   `BatchStitcher` keeps one segment or splits there is asserted explicitly (documented
-   behavior, not left implicit).
-4. **Closed loop** — committed keyframes → `BatchStitcher().plan` recovers a monotonic
-   scroll order, a single segment for the recoverable (non-fling) scenario, a stitched
-   height within tolerance of the oracle, and crops the injected chrome band. Proves
-   capture + assembly compose.
+Both tiers drive the same extracted driver, so they prove the real production path.
 
 ## Deliverables
 
-- `CaptureSimulator` test helper + `CaptureSimulationTests` suite, committed alongside the
-  other StitchKit tests; registered in `Package.swift` if new resources are needed (none
-  expected — oracles are built at runtime from existing fixtures).
-- A `capture` subcommand added to the scratchpad harness (not committed) to render the
-  committed-keyframe filmstrip and the reconstructed page for visual inspection.
+- `ScrollCaptureDriver` in `StitchKit/Sources/StitchKit/`, with `SampleHandler` refactored
+  to a dumb adapter over it.
+- `CaptureSimulator` helper + `CaptureSimulationTests` (synthetic tier) in `StitchKitTests`.
+- `VideoFrameSource` helper + video-tier test; trimmed `.mov` fixture committed and
+  registered in `Package.swift`.
+- A `video`/`capture` subcommand on the scratchpad harness (not committed) for visual
+  inspection of the committed-keyframe filmstrip and reconstruction.
 
 ## Non-goals
 
-- Reproducing ReplayKit delivery, memory ceiling, or codec artifacts (device-only).
-- Changing `KeyframeSelector` / `SampleHandler` behavior. This is a test-only addition; if
-  a scenario reveals a real defect, that fix is a separate, follow-up change.
-- Tuning `edgeConfidence` or other assembly constants (tracked separately).
+- Reproducing ReplayKit delivery or the memory ceiling (device-only).
+- **Changing `KeyframeSelector` behaviour** or tuning `edgeConfidence` / assembly constants.
+  The `ScrollCaptureDriver` extraction is behaviour-preserving; the `edgeConfidence`
+  image-content gap the spike surfaced is real but is a **separate follow-up**, tracked via
+  the `withKnownIssue` in the video tier.
 
 ## Risks / open points
 
-- The faithful-viewport scenario yields only ~3 keyframes; option B's long-scroll scenario
-  is what carries the cadence/fling/jitter coverage. Accepted.
-- Oracle realism: the stitched Chrome page has chrome already cropped at its internal
-  seams, so re-adding a synthetic static bar is what recreates the fixed-chrome condition.
-  The synthetic bar is a faithful stand-in for a real status/nav bar for the purpose of the
-  chrome mask, but is not pixel-identical to any specific app's chrome.
+- The faithful-viewport scenario yields only ~3 keyframes; the long-scroll scenario carries
+  the cadence/fling/jitter coverage. Accepted.
+- Video-tier ground truth is fuzzy, so its assembly assertion is a documented known issue,
+  not a hard gate. The hard guarantees it locks in are capture-side (decode, non-empty,
+  cadence) — which is the half under test.
+- Fixture size: the committed clip is trimmed to ~6 s to bound the repo binary.
+- The extraction touches `SampleHandler`; behaviour preservation is reviewed by inspection
+  and confirmed on the next device capture (device-gated).
