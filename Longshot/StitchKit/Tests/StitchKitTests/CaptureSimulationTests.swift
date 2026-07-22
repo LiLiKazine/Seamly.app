@@ -23,8 +23,16 @@ import Foundation
         return try BatchStitcher().stitch(images)
     }
 
-    /// Consecutive overlap fractions between committed keyframes, measured the same way capture
-    /// does (downward masked/plain match, taking the more confident) — for asserting cadence.
+    /// Consecutive overlap fractions between committed keyframes, measured the way
+    /// `BatchStitcher`'s *blind* pairwise matcher does (`downwardMatch`: masked-vs-plain, taking
+    /// the more confident) — i.e. what `plan()`/`segmentBreaks` see, NOT the driver's own
+    /// capture-time decision (`KeyframeSelector.evaluate` uses the masked match only). This is
+    /// what lets the assertions below reason about cadence *and* about `plan()`'s segment breaks
+    /// with the same yardstick.
+    ///
+    /// NOTE: `ContentBandDetector()`'s default tolerances (0.02/0.02) must stay in sync with
+    /// `BatchStitcher`'s default `chromeTolerance` (also 0.02) — if either drifts, this helper
+    /// stops measuring what `plan()` actually measured.
     private func overlaps(_ kfs: [ScrollCaptureDriver.CapturedKeyframe]) -> [Double] {
         let profiler = VerticalProfile()
         let matcher = OffsetMatcher()
@@ -74,7 +82,7 @@ import Foundation
         // regular commits — hence its own, looser band. Observed: [0.5, 0.49375, 0.921875].
         let o = overlaps(kfs)
         for i in 0..<(o.count - 1) {
-            #expect(o[i] > 0.30 && o[i] < 0.75, "overlap[\(i)] = \(o[i]) outside the sane cadence band")
+            #expect(o[i] > 0.40 && o[i] < 0.60, "overlap[\(i)] = \(o[i]) outside the sane cadence band")
         }
         #expect(o.last! > 0.30 && o.last! < 0.95, "trailing overlap = \(o.last!) outside the tail-commit band")
 
@@ -98,9 +106,16 @@ import Foundation
     /// real oracle's Discover-feed content occasionally starves `BatchStitcher`'s blind pairwise
     /// matcher of enough structure for a confident (≥0.45) edge on one adjacent pair, and/or
     /// confuses the very first (top-of-page, low-structure nav chrome) keyframe's global
-    /// ordering — both independent of the fling (reproduced with `flingAtFrame: nil` during
-    /// calibration). At content ≈1400px this stabilizes: order recovers correctly and only one
+    /// ordering. At content ≈1400px this stabilizes: order recovers correctly and only one
     /// low-confidence internal edge remains (see the `segmentBreaks` assertion below).
+    ///
+    /// The fling's own contribution here is *zero* extra breaks: disabling it during calibration
+    /// (`flingAtFrame: nil`, everything else unchanged) reproduced the exact same single break,
+    /// just at a shifted index — so the break is a `BatchStitcher` blind-matching confidence
+    /// limit on this stretch of real content, not something the fling causes. What this test
+    /// actually proves about fling handling is carried by the capture-side assertions below (7
+    /// keyframes banked, monotonic indices, in-band overlaps spanning the fling frame) plus
+    /// `plan.order` recovering correctly — not the absolute `segmentBreaks` count.
     @Test func longScrollViewportCapturesCadenceAcrossJitterAndFling() throws {
         let oracle = try chromeOracle()
         let sim = CaptureSimulator(
@@ -125,7 +140,7 @@ import Foundation
         // trailing `finish()` commit (see scenario 1), banded slightly looser for the same reason.
         let o = overlaps(kfs)
         for i in 0..<(o.count - 1) {
-            #expect(o[i] > 0.30 && o[i] < 0.70, "overlap[\(i)] = \(o[i]) outside the sane band")
+            #expect(o[i] > 0.40 && o[i] < 0.60, "overlap[\(i)] = \(o[i]) outside the sane band")
         }
         #expect(o.last! > 0.30 && o.last! < 0.80, "trailing overlap = \(o.last!) outside the tail-commit band")
 
@@ -134,15 +149,16 @@ import Foundation
         let plan = try BatchStitcher().plan(kfs.map { $0.image })
         #expect(plan.order == Array(0..<kfs.count), "captured order should already be scroll order")
 
-        // ...but one internal edge (kf 3→4, independent of the fling — reproduced identically with
-        // `flingAtFrame: nil` during calibration, just at a shifted index) falls under
-        // `BatchStitcher`'s default 0.45 edge-confidence floor: this stretch of the real Discover
-        // feed has less differentiated structure than its neighbours, which is a genuine limit of
-        // *blind* (order-unaware) pairwise re-matching on real content at this keyframe density —
-        // not a capture defect (the driver still committed a correctly-overlapping keyframe here;
-        // `overlaps` above confirms its measured overlap sits in the normal cadence band). This is
-        // the documented fallback per the calibration decision: assert the break explicitly rather
-        // than tune indefinitely for an oracle-content coincidence.
+        // ...but one internal edge (kf 3→4) falls under `BatchStitcher`'s default 0.45
+        // edge-confidence floor: this stretch of the real Discover feed has less differentiated
+        // structure than its neighbours, which is a genuine limit of *blind* (order-unaware)
+        // pairwise re-matching on real content at this keyframe density. This is NOT the fling's
+        // doing — disabling `flingAtFrame` during calibration reproduced the identical single
+        // break (just at a shifted index), and it is not a capture defect either: the driver
+        // still committed a correctly-overlapping keyframe here (`overlaps` above confirms its
+        // measured overlap sits in the normal cadence band). This is the documented fallback per
+        // the calibration decision: assert the one known break explicitly, with its real cause,
+        // rather than tune indefinitely for an oracle-content coincidence.
         #expect(plan.session.segmentBreaks.count == 1, "expected exactly the one known low-confidence internal edge, got \(plan.session.segmentBreaks)")
         #expect(plan.session.segmentBreaks.first?.reason == .lostLock)
     }
