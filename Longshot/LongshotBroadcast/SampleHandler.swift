@@ -178,6 +178,9 @@ class SampleHandler: RPBroadcastSampleHandler {
 
         dlog("keyframe \(meta.index) written (\(image.width)x\(image.height))")
         session.keyframes.append(meta)
+        // Mirrors the driver's monotonic index (not "count of keyframes written"): a write
+        // failure above returns before this line, so a dropped keyframe leaves a gap here too
+        // rather than reusing the number — safe, since downstream looks keyframes up by index.
         keyframeIndex = meta.index + 1
         self.session = session
         // Best-effort incremental checkpoint: the next keyframe rewrites the manifest and
