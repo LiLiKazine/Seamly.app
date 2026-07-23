@@ -30,8 +30,10 @@ import Foundation
     @Test func captureIsNonEmptyWithSaneOverlaps() throws {
         var driver = ScrollCaptureDriver()
         let r = try VideoFrameSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver)
-        // Observed: 5 keyframes.
-        #expect(r.keyframes.count >= 4, "capture should bank several keyframes, got \(r.keyframes.count)")
+        // Observed: 5 keyframes. `try #require` (not `#expect`): the loop below indexes
+        // 0..<(profiles.count - 1), so a 0/1-keyframe regression must fail here, not trap on a
+        // negative range down there.
+        try #require(r.keyframes.count >= 4, "capture should bank several keyframes, got \(r.keyframes.count)")
         #expect(r.keyframes.map { $0.metadata.index } == Array(0..<r.keyframes.count))
 
         // Consecutive overlaps sit in a sane band (observed 0.469–0.536; spike measured ≈ 0.47–0.49
@@ -57,9 +59,11 @@ import Foundation
         var driver = ScrollCaptureDriver()
         let r = try VideoFrameSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver)
         let plan = try BatchStitcher().plan(r.keyframes.map { $0.image })
-        // A single forward scroll: recovered order is the capture order. (Segment breaks are
-        // expected on current code — that's the known bug Task 4's `edgeConfidence` fix addresses;
-        // not asserted here.)
+        // A single forward scroll: recovered order is the capture order. Segment breaks occur on
+        // current code — an assembly-side BatchStitcher limitation deferred to a follow-up (see
+        // docs/logs/2026-07-23-01-batch-stitcher-direction-on-image-heavy-content.md). NOT the
+        // originally-planned edgeConfidence-threshold fix, which a measurement pass disproved. The
+        // withKnownIssue block below tracks the intended end-state.
         #expect(plan.order == Array(0..<r.keyframes.count), "expected monotonic scroll order, got \(plan.order)")
 
         // IDEAL end-state: a single continuous downward scroll should re-stitch into ONE segment.
