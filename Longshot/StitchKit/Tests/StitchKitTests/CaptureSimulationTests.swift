@@ -159,6 +159,10 @@ import Foundation
         // measured overlap sits in the normal cadence band). This is the documented fallback per
         // the calibration decision: assert the one known break explicitly, with its real cause,
         // rather than tune indefinitely for an oracle-content coincidence.
+        //
+        // This is the same assembly-side direction-scoring class documented in
+        // docs/logs/2026-07-23-01-batch-stitcher-direction-on-image-heavy-content.md. Revisit this
+        // assertion (likely flips to `segmentBreaks.isEmpty`) once that follow-up fix lands.
         #expect(plan.session.segmentBreaks.count == 1, "expected exactly the one known low-confidence internal edge, got \(plan.session.segmentBreaks)")
         #expect(plan.session.segmentBreaks.first?.reason == .lostLock)
     }
