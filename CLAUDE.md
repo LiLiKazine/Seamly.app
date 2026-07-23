@@ -95,8 +95,8 @@ level down in `Longshot/`.
 
 ## Gotchas
 
-- **Deployment target is iOS 26.5** (not iOS 17 as the README states). The README's
-  minimum is aspirational; the project is pinned to 26.5.
+- **Deployment target is iOS 26.0** (not iOS 17 as the README states). The README's
+  minimum is aspirational; the project is pinned to 26.0.
 - **Test targets are still on `SWIFT_VERSION = 5.0`** while the app target is 6.0.
   Only the app gets strict concurrency checking today.
 - **No shared schemes** are checked in — `xcodebuild` relies on the auto-generated

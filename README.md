@@ -103,7 +103,7 @@ never feathered.
 | Export | Photos (PNG/JPEG), PDFKit/Core Graphics (PDF), share sheet, clipboard |
 | Color | Source-preserving (Display P3-aware) end-to-end |
 | Testing | Swift Testing (`import Testing`) |
-| Minimum target | iOS 26.5 |
+| Minimum target | iOS 26.0 |
 
 ## Project Structure
 
@@ -143,8 +143,8 @@ Longshot/
 
 ### Requirements
 
-- Xcode 26+ (iOS 26.5 SDK)
-- iOS 26.5 deployment target
+- Xcode 26+ (iOS 26.0 SDK)
+- iOS 26.0 deployment target
 - No third-party dependencies (100% first-party frameworks)
 - A device for real capture — the broadcast picker and system broadcast are best
   exercised on hardware
