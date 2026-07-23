@@ -61,5 +61,20 @@ import Foundation
         // expected on current code — that's the known bug Task 4's `edgeConfidence` fix addresses;
         // not asserted here.)
         #expect(plan.order == Array(0..<r.keyframes.count), "expected monotonic scroll order, got \(plan.order)")
+
+        // IDEAL end-state: a single continuous downward scroll should re-stitch into ONE segment.
+        // It currently does NOT — this is an assembly-side (BatchStitcher) limitation, deferred to
+        // a follow-up (see docs/logs/2026-07-23-01-batch-stitcher-direction-on-image-heavy-content.md).
+        // Root cause: on image-heavy / low-horizontal-texture frames the matcher scores a spurious
+        // "no-scroll" (dy=1) reverse match higher than the real downward scroll, so BatchStitcher
+        // discards the real edge for pairs 2-3 and 3-4 and breaks the stitch. Capture is correct here
+        // (overlaps ~0.5, order recovered above); the defect is purely in re-assembly. When the
+        // stitcher is fixed this block starts passing and should be promoted to a hard assertion.
+        withKnownIssue("BatchStitcher mis-scores scroll direction on image-heavy content; assembly-side fix deferred (see docs/logs/2026-07-23-01)") {
+            #expect(plan.session.segmentBreaks.isEmpty,
+                    "real single scroll should re-stitch into one continuous segment, got breaks \(plan.session.segmentBreaks.map { $0.afterKeyframeIndex })")
+            #expect(plan.session.seams.count == r.keyframes.count - 1,
+                    "expected \(r.keyframes.count - 1) seams for one segment, got \(plan.session.seams.count)")
+        }
     }
 }
