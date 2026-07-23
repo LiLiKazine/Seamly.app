@@ -37,6 +37,8 @@ enum VideoFrameSource {
         var frames = 0, decodeFailures = 0
         var committed: [ScrollCaptureDriver.CapturedKeyframe] = []
         while reader.status == .reading, let sample = output.copyNextSampleBuffer() {
+            // Not a decode failure of our pipeline — a video sample with no image buffer
+            // (unreachable for a 32BGRA track output); skip it.
             guard let pb = CMSampleBufferGetImageBuffer(sample) else { continue }
             autoreleasepool {
                 guard let image = PixelBufferImage.makeCGImage(from: pb) else { decodeFailures += 1; return }

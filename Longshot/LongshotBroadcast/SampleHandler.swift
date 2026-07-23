@@ -181,6 +181,11 @@ class SampleHandler: RPBroadcastSampleHandler {
         // Mirrors the driver's monotonic index (not "count of keyframes written"): a write
         // failure above returns before this line, so a dropped keyframe leaves a gap here too
         // rather than reusing the number — safe, since downstream looks keyframes up by index.
+        // Consequence for first-keyframe metadata: the orientation/colorSpace capture above is
+        // gated on `meta.index == 0`, so if the very first keyframe's write fails (index 0 never
+        // successfully commits), session orientation/colorSpace stay at their defaults
+        // (`.portrait` / `nil`) — a benign edge, since it only bites on a first-frame write
+        // failure and those fallbacks are safe.
         keyframeIndex = meta.index + 1
         self.session = session
         // Best-effort incremental checkpoint: the next keyframe rewrites the manifest and
