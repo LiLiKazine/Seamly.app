@@ -122,7 +122,7 @@ final class LibraryModel {
                             // composites (and the user edits) is correct. The extension's live
                             // order/seams/bands are unreliable; re-derive from the keyframes.
                             do {
-                                let resolved = try StitchAssembler.resolveGeometry(session, in: dest)
+                                let resolved = try StitchAssembler.resolveGeometry(session, in: dest, strategy: .recover)
                                 try appStore.writeManifest(resolved)
                                 diag.log("import: \(shortID) geometry resolved (\(resolved.keyframes.count) kf, \(resolved.seams.count) seams, \(resolved.segmentBreaks.count) breaks)")
                             } catch {

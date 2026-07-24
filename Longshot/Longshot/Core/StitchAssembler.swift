@@ -2,6 +2,17 @@ import CoreGraphics
 import Foundation
 import StitchKit
 
+/// How `resolveGeometry` decides scroll order.
+enum OrderStrategy {
+    /// Recover order from pixel overlap; never fall back. Behaviour-preserving for broadcast.
+    case recover
+    /// Recover; if the result isn't one clean, confident chain, fall back to the input (pick)
+    /// order and mark `orderAssumed`. Used by "From Photos".
+    case recoverOrInputOrder
+    /// Trust the input order verbatim (capture/temporal order). Used by "From Video".
+    case inputOrder
+}
+
 /// Runs the heavy pixel compositing off the main actor. Pure, `Sendable` inputs/outputs so it
 /// can hop threads freely.
 enum StitchAssembler {
@@ -18,19 +29,38 @@ enum StitchAssembler {
         session.colorSpaceName.flatMap { CGColorSpace(name: $0 as CFString) }
     }
 
-    /// Re-derive scroll order and geometry for a freshly captured session with `BatchStitcher`,
-    /// returning a corrected manifest. Run **once at import**: the extension's live-tracked order,
-    /// seams, and bands are unreliable (the whole on-device failure), so we recover them from the
-    /// keyframes themselves — reordering the keyframes into scroll order and replacing the seams,
-    /// segment breaks, and content bands. All user-facing fields (trims, color space, status, id,
-    /// timestamps) are preserved, so the corrected manifest still composites and edits normally.
+    /// Re-derive scroll order and geometry for a session with `BatchStitcher`, using `strategy`
+    /// to decide how much to trust the input order, and returning a corrected manifest. Run
+    /// **once at import**: the extension's live-tracked order, seams, and bands are unreliable
+    /// (the whole on-device failure), so we recover them from the keyframes themselves —
+    /// reordering the keyframes into scroll order and replacing the seams, segment breaks, and
+    /// content bands. All user-facing fields (trims, color space, status, id, timestamps) are
+    /// preserved, so the corrected manifest still composites and edits normally.
     /// A session with fewer than two keyframes has nothing to reorder and is returned unchanged.
-    nonisolated static func resolveGeometry(_ session: StitchSession, in folder: URL, stitcher: BatchStitcher = BatchStitcher()) throws -> StitchSession {
+    nonisolated static func resolveGeometry(_ session: StitchSession, in folder: URL, strategy: OrderStrategy = .recover, stitcher: BatchStitcher = BatchStitcher()) throws -> StitchSession {
         guard session.keyframes.count > 1 else { return session }
         let ordered = session.keyframes.sorted { $0.index < $1.index }
         let cs = colorSpace(for: session)
         let images = try ordered.map { try loadKeyframe($0, in: folder, colorSpace: cs) }
-        let plan = try stitcher.plan(images)
+        let identity = Array(0..<images.count)
+
+        let plan: BatchStitcher.Plan
+        var orderAssumed = false
+        switch strategy {
+        case .recover:
+            plan = try stitcher.plan(images)
+        case .inputOrder:
+            plan = try stitcher.plan(images, assumingOrder: identity)
+        case .recoverOrInputOrder:
+            let recovered = try stitcher.plan(images)
+            let clean = recovered.session.segmentBreaks.isEmpty && recovered.session.seams.allSatisfy { !$0.isLowConfidence }
+            if clean {
+                plan = recovered
+            } else {
+                plan = try stitcher.plan(images, assumingOrder: identity)
+                orderAssumed = true
+            }
+        }
 
         var resolved = session
         // Reorder the real keyframes into scroll order, reindexing to match the recovered seams
@@ -43,6 +73,7 @@ enum StitchAssembler {
         resolved.seams = plan.session.seams
         resolved.segmentBreaks = plan.session.segmentBreaks
         resolved.contentBands = plan.session.contentBands
+        resolved.orderAssumed = orderAssumed
         return resolved
     }
 
