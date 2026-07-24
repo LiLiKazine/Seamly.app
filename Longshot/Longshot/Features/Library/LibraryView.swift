@@ -17,7 +17,7 @@ struct LibraryView: View {
         NavigationStack {
             Group {
                 if model.captures.isEmpty {
-                    ScrollView { CaptureStartView { showOnboarding = true }.frame(maxWidth: .infinity).padding(.top, 60) }
+                    ScrollView { CaptureStartView(model: model, showHelp: { showOnboarding = true }).frame(maxWidth: .infinity).padding(.top, 60) }
                 } else {
                     List {
                         ForEach(model.captures) { capture in
@@ -61,13 +61,27 @@ struct LibraryView: View {
         .sheet(isPresented: $showDiagnostics) { DiagnosticsView() }
         .sheet(isPresented: $showOnboarding) { OnboardingView() }
         .sheet(isPresented: $showCapture) {
-            CaptureStartView { showOnboarding = true }
+            CaptureStartView(model: model, showHelp: { showOnboarding = true }, onStarted: { showCapture = false })
                 .presentationDetents([.medium])
         }
         .alert("Nothing to stitch", isPresented: $showEmptyNudge) {
             Button("OK", role: .cancel) {}
         } message: {
             Text("That capture had no scrolling to stitch — did you scroll the other app?")
+        }
+        .overlay(alignment: .bottom) {
+            if let p = model.importProgress {
+                VStack(spacing: 6) {
+                    ProgressView(value: p) { Text("Reading video…") }
+                    Text("\(Int(p * 100))%").font(.caption).foregroundStyle(.secondary)
+                }
+                .padding().background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12)).padding()
+            }
+        }
+        .alert("Import failed", isPresented: Binding(get: { model.importError != nil }, set: { if !$0 { model.clearImportError() } })) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.importError ?? "")
         }
     }
 }
@@ -117,6 +131,7 @@ struct CaptureRow: View {
             HStack(spacing: 8) {
                 if capture.isIncomplete { Label("Incomplete", systemImage: "exclamationmark.circle").foregroundStyle(.orange) }
                 if capture.flaggedSeamCount > 0 { Label("\(capture.flaggedSeamCount)", systemImage: "flag") }
+                if capture.orderAssumed { Label("Order assumed", systemImage: "arrow.up.arrow.down").foregroundStyle(.orange) }
                 Text("Ready").foregroundStyle(.secondary)
             }
             .font(.caption)
