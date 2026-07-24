@@ -61,38 +61,20 @@ public struct BatchStitcher: Sendable {
         guard !images.isEmpty else { throw StitchError.empty }
         let profiles = images.map { profiler.profile($0) }
         let (order, segmentOfSlot) = layout(profiles)
+        return buildPlan(profiles: profiles, order: order, segmentOfSlot: segmentOfSlot)
+    }
 
-        var session = StitchSession(
-            createdAt: Date(timeIntervalSince1970: 0),
-            status: .complete,
-            deviceScale: 1,
-            orientation: .portrait
-        )
-        for (slot, src) in order.enumerated() {
-            session.keyframes.append(Keyframe(filename: "kf-\(slot)", pixelWidth: profiles[src].sourceWidth, pixelHeight: profiles[src].sourceHeight, index: slot))
-        }
-
-        // Seam between adjacent slots in the same segment; a break where the segment changes.
-        for slot in 0..<max(0, order.count - 1) {
-            if segmentOfSlot[slot] == segmentOfSlot[slot + 1] {
-                let a = profiles[order[slot]], b = profiles[order[slot + 1]]
-                let m = downwardMatch(a, b)
-                let dyPx = Int((Double(m.dy) * a.rowScale).rounded())
-                session.seams.append(Seam(fromIndex: slot, provisionalDy: dyPx, confidence: m.confidence, isLowConfidence: m.confidence < 0.4))
-            } else {
-                session.segmentBreaks.append(SegmentBreak(afterKeyframeIndex: slot, reason: .lostLock))
-            }
-        }
-
-        // One content band per segment, measured from the segment's adjacent pairs.
-        let segmentCount = (segmentOfSlot.max() ?? 0) + (order.isEmpty ? 0 : 1)
-        for seg in 0..<segmentCount {
-            let slots = order.indices.filter { segmentOfSlot[$0] == seg }
-            let pairs = zip(slots, slots.dropFirst()).map { (profiles[order[$0]], profiles[order[$1]]) }
-            session.contentBands.append(chromeBand(pairs, rowScale: profiles[order[slots[0]]].rowScale))
-        }
-
-        return Plan(order: order, session: session)
+    /// Build the stitch manifest assembling along `order` verbatim (no re-sort). Consecutive
+    /// frames stay in one segment while they overlap; the first non-overlapping neighbour starts
+    /// a new segment. Used when the caller's order is trusted (video capture order) or assumed
+    /// (photos pick-order fallback).
+    public func plan(_ images: [CGImage], assumingOrder order: [Int]) throws -> Plan {
+        guard !images.isEmpty else { throw StitchError.empty }
+        precondition(order.count == images.count && Set(order) == Set(0..<images.count),
+                     "assumingOrder must be a permutation of 0..<images.count")
+        let profiles = images.map { profiler.profile($0) }
+        let segmentOfSlot = segmentsAlong(order, profiles)
+        return buildPlan(profiles: profiles, order: order, segmentOfSlot: segmentOfSlot)
     }
 
     /// Recover order and composite to a single long image.
@@ -165,6 +147,51 @@ public struct BatchStitcher: Sendable {
             for src in comp { order.append(src); segmentOfSlot.append(seg) }
         }
         return (order, segmentOfSlot)
+    }
+
+    /// Segment index per ordered slot when the order is fixed: increment at the first consecutive
+    /// pair that does not clear the overlap gate.
+    private func segmentsAlong(_ order: [Int], _ profiles: [FrameProfile]) -> [Int] {
+        guard !order.isEmpty else { return [] }
+        var segmentOfSlot = [0]
+        for slot in 1..<order.count {
+            let a = profiles[order[slot - 1]], b = profiles[order[slot]]
+            let m = downwardMatch(a, b)
+            let overlaps = m.confidence >= edgeConfidence && m.dy >= minEdgeDy
+            segmentOfSlot.append(overlaps ? segmentOfSlot[slot - 1] : segmentOfSlot[slot - 1] + 1)
+        }
+        return segmentOfSlot
+    }
+
+    /// Shared manifest assembly from a resolved (order, segmentOfSlot). Extracted verbatim from the
+    /// original `plan` body so recovered and assumed-order paths build identical structures.
+    private func buildPlan(profiles: [FrameProfile], order: [Int], segmentOfSlot: [Int]) -> Plan {
+        var session = StitchSession(
+            createdAt: Date(timeIntervalSince1970: 0),
+            status: .complete,
+            deviceScale: 1,
+            orientation: .portrait
+        )
+        for (slot, src) in order.enumerated() {
+            session.keyframes.append(Keyframe(filename: "kf-\(slot)", pixelWidth: profiles[src].sourceWidth, pixelHeight: profiles[src].sourceHeight, index: slot))
+        }
+        for slot in 0..<max(0, order.count - 1) {
+            if segmentOfSlot[slot] == segmentOfSlot[slot + 1] {
+                let a = profiles[order[slot]], b = profiles[order[slot + 1]]
+                let m = downwardMatch(a, b)
+                let dyPx = Int((Double(m.dy) * a.rowScale).rounded())
+                session.seams.append(Seam(fromIndex: slot, provisionalDy: dyPx, confidence: m.confidence, isLowConfidence: m.confidence < 0.4))
+            } else {
+                session.segmentBreaks.append(SegmentBreak(afterKeyframeIndex: slot, reason: .lostLock))
+            }
+        }
+        let segmentCount = (segmentOfSlot.max() ?? 0) + (order.isEmpty ? 0 : 1)
+        for seg in 0..<segmentCount {
+            let slots = order.indices.filter { segmentOfSlot[$0] == seg }
+            let pairs = zip(slots, slots.dropFirst()).map { (profiles[order[$0]], profiles[order[$1]]) }
+            session.contentBands.append(chromeBand(pairs, rowScale: profiles[order[slots[0]]].rowScale))
+        }
+        return Plan(order: order, session: session)
     }
 
     // MARK: - Matching
