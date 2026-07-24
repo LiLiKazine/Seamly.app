@@ -779,7 +779,7 @@ Expose `importPhotos` / `importVideo` on the model (heavy work off-main, video p
 - Produces (on `@MainActor final class LibraryModel`):
   - `private(set) var importProgress: Double?` (nil when idle; 0…1 during a video decode)
   - `func importPhotos(_ images: [CGImage]) async` — strategy `.recoverOrInputOrder`, source `.photos`; sets `importError` on failure.
-  - `func importVideo(_ url: URL) async` — decode via `VideoKeyframeSource` (targetFPS 12) with progress, then `MediaImporter` strategy `.inputOrder`, source `.video`.
+  - `func importVideo(_ url: URL) async` — decode via `VideoKeyframeSource` (targetFPS 30 — the validated cadence from Task 3) with progress, then `MediaImporter` strategy `.inputOrder`, source `.video`.
   - `private(set) var importError: String?`
   - On `Capture`: `var orderAssumed: Bool { session.orderAssumed }`
 - Consumes: `MediaImporter` (Task 5), `VideoKeyframeSource` (Task 3), existing `appStore`, `reload()`, `assemble(_:)`.
@@ -836,7 +836,7 @@ func importPhotos(_ images: [CGImage]) async {
 }
 
 /// Import one screen recording as a new capture: decode it into keyframes through the real
-/// capture driver (sampled ~12 fps), then stitch in capture order.
+/// capture driver (sampled 30 fps — the validated cadence from Task 3), then stitch in capture order.
 func importVideo(_ url: URL) async {
     importProgress = 0
     let diag = self.diag
@@ -848,7 +848,7 @@ func importVideo(_ url: URL) async {
         do {
             var driver = ScrollCaptureDriver()
             let r = try await VideoKeyframeSource.decodeCommittedKeyframes(
-                url: url, driver: &driver, targetFPS: 12, progress: sink
+                url: url, driver: &driver, targetFPS: 30, progress: sink
             )
             diag.log("importVideo: \(r.frames) frames, \(r.decodeFailures) decode failures, \(r.keyframes.count) keyframes")
             return .success(r.keyframes.map { $0.image })
@@ -1186,5 +1186,5 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 - **Spec coverage:** Three peer buttons (Task 7) ✓; From Photos recover+pick-order fallback+badge (Tasks 1,4,6,7) ✓; From Video decode+throttle+capture-order trust (Tasks 3,4,5,6) ✓; shared `MediaImporter` into existing pipeline (Task 5) ✓; `resolveGeometry` shared `orderTrust`/strategy (Task 4) ✓; timestamp-throttle + fixture re-validation gate (Task 3) ✓; error handling / no-silent-swallow (Tasks 5,6,7) ✓; processing/progress/empty states (Tasks 6,7) ✓; testing tiers (all tasks) ✓.
 - **Deviation from spec §Testing:** photo import is tested with **synthetic** sliced images (Task 4/5/6) rather than a bundled screenshot fixture set — matches the established `BatchAssemblyTests`/`TestImages` pattern (deterministic, no new bundle resources) and is CI-friendlier. The real 3-image `Example` fixture already covers `assumingOrder` in StitchKit (Task 1).
-- **`targetFPS = 12`** is the initial cadence; Task 3 Step 4 makes the fixture the arbiter and instructs raising it if the bands break. Keep the value in `VideoImportButton`→`importVideo` and the test comment in sync.
+- **`targetFPS = 30`** is the validated cadence (Task 3 arbitrated against the fixture: 12 and 20 fps produced out-of-band / degenerate keyframe sets by interacting with the deferred image-heavy matcher limitation; 30 fps reproduces the full-rate 5-keyframe set with ~2.7x less profiling). Kept in sync between `LibraryModel.importVideo` and the `throttledCadenceKeepsKeyframesHealthy` test.
 - **Type consistency:** `resolveGeometry(_:in:strategy:stitcher:)`, `MediaImporter.write(images:into:strategy:source:)`, `OrderStrategy.{recover,recoverOrInputOrder,inputOrder}`, `VideoKeyframeSource.decodeCommittedKeyframes(url:driver:targetFPS:progress:)`, `StitchSession.orderAssumed`, `Capture.orderAssumed`, `LibraryModel.{importPhotos,importVideo,importProgress,importError,clearImportError}` used consistently across tasks.
