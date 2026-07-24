@@ -1,11 +1,11 @@
-# Longshot
+# Seamly
 
-**Capture beyond the screen.** Longshot turns a scroll into a single, seamless long
+**Capture beyond the screen.** Seamly turns a scroll into a single, seamless long
 screenshot — of *any* app. Start a capture, scroll through the content you want, stop,
-and Longshot stitches everything you revealed into one continuous image.
+and Seamly stitches everything you revealed into one continuous image.
 
 iOS doesn't natively support scrolling screenshots outside of Safari's full-page PDF
-export. Longshot fills that gap for every app.
+export. Seamly fills that gap for every app.
 
 > **Status: early stage.** The project is currently a fresh SwiftUI app scaffold — the
 > capture pipeline and stitching engine below are the roadmap, not yet shipped. The
@@ -17,23 +17,23 @@ export. Longshot fills that gap for every app.
 Because iOS only lets an app see *another* app's screen through **ReplayKit system
 broadcast**, capture works like a screen recording you drive yourself:
 
-1. Open Longshot and tap **Capture**. Choose *Longshot* in the system sheet; after a
+1. Open Seamly and tap **Capture**. Choose *Seamly* in the system sheet; after a
    short countdown the red recording indicator appears.
-2. Switch to the app you want and **scroll steadily**. Longshot tracks your position and
+2. Switch to the app you want and **scroll steadily**. Seamly tracks your position and
    captures the union of everything you reveal — scrolling **back up is always safe**, it
    never duplicates. If you scroll too fast, you'll feel a **buzz** — just ease up.
-3. Stop the broadcast (from the red indicator / Control Center) and return to Longshot.
+3. Stop the broadcast (from the red indicator / Control Center) and return to Seamly.
 4. Your capture is waiting in the **Library**, already stitched. Review it, fine-tune any
    flagged seam, and export.
 
-Capture is *process-after-stop*: Longshot is backgrounded while you scroll another app, so
+Capture is *process-after-stop*: Seamly is backgrounded while you scroll another app, so
 the stitched result is assembled when you come back — not shown live. (A broadcast
 extension can't draw on screen, so mid-capture guidance is a sound/haptic cue, never a
 banner that would land in your capture.)
 
 ## Features _(planned)_
 
-- 📜 **Scroll to capture** — no manual screenshotting; scroll the target app and Longshot
+- 📜 **Scroll to capture** — no manual screenshotting; scroll the target app and Seamly
   grabs the frames automatically via a screen broadcast
 - 🧭 **Position-aware stitching** — tracks your absolute scroll position and captures the
   union of everything you reveal, so scrolling up, down, or re-reading is all safe
@@ -71,17 +71,17 @@ Three build products plus a shared container:
 | Piece | Role |
 |---|---|
 | **`StitchKit`** (local Swift package) | Pure, testable core — vertical-offset matching, absolute-position tracking + relocalization, per-seam chrome detection, frame selection, and compositing. Accelerate + Core Graphics only. Imported by both the app and the extension. |
-| **`Longshot`** (app target, SwiftUI) | Capture-start + onboarding, the Library, the scrollable preview (downscaled proxy) with confidence flags + manual editing, pixel-exact seam refinement, and export. Does the heavy compositing. |
-| **`LongshotBroadcast`** (Broadcast Upload Extension) | `RPBroadcastSampleHandler` that receives live frames, runs only lightweight tracking + frame selection + the safety cue, and streams keyframes + an incremental manifest to disk. Holds one frame at a time; does no compositing (stays under the ~50 MB extension memory limit). |
+| **`Seamly`** (app target, SwiftUI) | Capture-start + onboarding, the Library, the scrollable preview (downscaled proxy) with confidence flags + manual editing, pixel-exact seam refinement, and export. Does the heavy compositing. |
+| **`SeamlyBroadcast`** (Broadcast Upload Extension) | `RPBroadcastSampleHandler` that receives live frames, runs only lightweight tracking + frame selection + the safety cue, and streams keyframes + an incremental manifest to disk. Holds one frame at a time; does no compositing (stays under the ~50 MB extension memory limit). |
 | **App Group container** | Shared handoff — the extension writes lossless keyframes + a manifest; the app reads them after the broadcast stops. |
 
-**Capture model.** Longshot tracks the user's absolute scroll position and appends only
+**Capture model.** Seamly tracks the user's absolute scroll position and appends only
 content past the deepest point seen, so back-and-forth scrolling is free and never
 duplicates. A fling that outruns the frame rate is detected, cued, and (if content is
 truly lost) turned into a labeled segment break rather than a garbled image.
 
 **Stitching approach.** Adjacent frames differ by a pure integer *vertical* shift, and
-overlap pixels are *identical* — so Longshot does **not** use Vision's
+overlap pixels are *identical* — so Seamly does **not** use Vision's
 `VNTranslationalImageRegistrationRequest` (its global registration is corrupted by the
 fixed chrome and isn't pixel-exact). Instead it reduces each frame to a 1-D grayscale
 profile and finds the offset by minimizing mean-absolute-difference with **Accelerate
@@ -110,25 +110,25 @@ never feathered.
 Current (Xcode scaffold):
 
 ```
-Longshot/                     # repo root (README, CLAUDE.md, docs/)
-└── Longshot/
-    ├── Longshot.xcodeproj
-    ├── Longshot/             # app sources — LongshotApp.swift, ContentView.swift, Assets
-    ├── LongshotTests/        # unit tests (Swift Testing)
-    └── LongshotUITests/      # UI tests
+Seamly/                     # repo root (README, CLAUDE.md, docs/)
+└── Seamly/
+    ├── Seamly.xcodeproj
+    ├── Seamly/             # app sources — SeamlyApp.swift, ContentView.swift, Assets
+    ├── SeamlyTests/        # unit tests (Swift Testing)
+    └── SeamlyUITests/      # UI tests
 ```
 
 Intended, as the design lands:
 
 ```
-Longshot/
+Seamly/
 ├── StitchKit/                # local Swift package (pure core, Swift Testing)
 │   ├── Sources/StitchKit/    # VerticalProfile, OffsetMatcher, PositionTracker,
 │   │                         #   ChromeDetector, FrameSelector, Compositor, StitchSession
 │   └── Tests/StitchKitTests/ # synthetic-fixture TDD
-└── Longshot/
-    ├── Longshot.xcodeproj
-    ├── Longshot/             # app target
+└── Seamly/
+    ├── Seamly.xcodeproj
+    ├── Seamly/             # app target
     │   ├── App/              # entry point, root navigation
     │   ├── Features/
     │   │   ├── Capture/      # broadcast start UI, onboarding, capture status
@@ -136,7 +136,7 @@ Longshot/
     │   │   ├── Preview/      # scrollable proxy preview, confidence flags, manual editing
     │   │   └── Export/       # Photos / PDF / share / clipboard
     │   └── Shared/           # App Group paths, session store
-    └── LongshotBroadcast/    # Broadcast Upload Extension (RPBroadcastSampleHandler)
+    └── SeamlyBroadcast/    # Broadcast Upload Extension (RPBroadcastSampleHandler)
 ```
 
 ## Getting Started
@@ -152,13 +152,13 @@ Longshot/
 ### Build
 
 ```bash
-git clone https://github.com/<your-org>/longshot.git
-cd longshot
-open Longshot/Longshot.xcodeproj
+git clone https://github.com/<your-org>/seamly.git
+cd seamly
+open Seamly/Seamly.xcodeproj
 ```
 
 Set your development team under *Signing & Capabilities* (both the app and the
-`LongshotBroadcast` extension need signing, and both must share the same **App Group**),
+`SeamlyBroadcast` extension need signing, and both must share the same **App Group**),
 select a device, and hit ⌘R. No API keys or configuration needed.
 
 ### Testing
@@ -173,14 +173,14 @@ compositing are verified deterministically and offline.
 swift test --package-path StitchKit
 
 # App/UI tests
-xcodebuild test -project Longshot/Longshot.xcodeproj -scheme Longshot \
+xcodebuild test -project Seamly/Seamly.xcodeproj -scheme Seamly \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
 ## Privacy
 
-Longshot processes all images on-device. During a capture, the ReplayKit broadcast sees
-your screen only for the duration of the session you start, and Longshot only ever keeps
+Seamly processes all images on-device. During a capture, the ReplayKit broadcast sees
+your screen only for the duration of the session you start, and Seamly only ever keeps
 the frames it stitches. It requests write access to your photo library only when you
 export. Nothing ever leaves your phone.
 

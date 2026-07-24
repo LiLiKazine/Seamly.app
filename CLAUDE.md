@@ -1,4 +1,4 @@
-# Longshot
+# Seamly
 
 An iOS app that stitches multiple overlapping screenshots into a single seamless long
 screenshot — filling the gap where iOS has no scrolling-screenshot capture outside
@@ -63,26 +63,26 @@ handling is wrong.
 
 ```bash
 # Build (simulator)
-xcodebuild -project Longshot/Longshot.xcodeproj -scheme Longshot \
+xcodebuild -project Seamly/Seamly.xcodeproj -scheme Seamly \
   -destination 'platform=iOS Simulator,name=iPhone 17' build
 
 # Test (Swift Testing)
-xcodebuild -project Longshot/Longshot.xcodeproj -scheme Longshot \
+xcodebuild -project Seamly/Seamly.xcodeproj -scheme Seamly \
   -destination 'platform=iOS Simulator,name=iPhone 17' test
 ```
 
-Day-to-day: open `Longshot/Longshot.xcodeproj` in Xcode, select the `Longshot`
+Day-to-day: open `Seamly/Seamly.xcodeproj` in Xcode, select the `Seamly`
 scheme, set your development team under *Signing & Capabilities*, ▶ Run. No API keys
 or configuration needed.
 
 ## Key locations
 
-- App sources: `Longshot/Longshot/` (`LongshotApp.swift`, `ContentView.swift`)
-- Unit tests: `Longshot/LongshotTests/` · UI tests: `Longshot/LongshotUITests/`
-- Xcode project: `Longshot/Longshot.xcodeproj`
+- App sources: `Seamly/Seamly/` (`SeamlyApp.swift`, `ContentView.swift`)
+- Unit tests: `Seamly/SeamlyTests/` · UI tests: `Seamly/SeamlyUITests/`
+- Xcode project: `Seamly/Seamly.xcodeproj`
 
 Note the nested layout — the repo root holds `README.md`; the Xcode project lives one
-level down in `Longshot/`.
+level down in `Seamly/`.
 
 ## Testing
 
@@ -100,6 +100,6 @@ level down in `Longshot/`.
 - **Test targets are still on `SWIFT_VERSION = 5.0`** while the app target is 6.0.
   Only the app gets strict concurrency checking today.
 - **No shared schemes** are checked in — `xcodebuild` relies on the auto-generated
-  `Longshot` scheme. If a fresh checkout can't find it, open the project in Xcode once
+  `Seamly` scheme. If a fresh checkout can't find it, open the project in Xcode once
   (or share the scheme) before scripting builds.
-- **Bundle id is `io.github.lilikazine.Longshot`** — signing needs your own team.
+- **Bundle id is `io.github.lilikazine.Seamly`** — signing needs your own team.
