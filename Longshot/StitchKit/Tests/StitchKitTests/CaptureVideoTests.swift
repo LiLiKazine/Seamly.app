@@ -19,17 +19,17 @@ import Foundation
                      "missing trimmed video fixture (see plan Task 3 Step 1)")
     }
 
-    @Test func everyFrameDecodesThroughTheRealPath() throws {
+    @Test func everyFrameDecodesThroughTheRealPath() async throws {
         var driver = ScrollCaptureDriver()
-        let r = try VideoFrameSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver)
+        let r = try await VideoKeyframeSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver)
         // Observed: 362 frames. Floor well below that so a slightly shorter re-trim still passes.
         #expect(r.frames > 300, "expected a real frame stream, got \(r.frames)")
         #expect(r.decodeFailures == 0, "real BGRA decode path must handle every HEVC frame")
     }
 
-    @Test func captureIsNonEmptyWithSaneOverlaps() throws {
+    @Test func captureIsNonEmptyWithSaneOverlaps() async throws {
         var driver = ScrollCaptureDriver()
-        let r = try VideoFrameSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver)
+        let r = try await VideoKeyframeSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver)
         // Observed: 5 keyframes. `try #require` (not `#expect`): the loop below indexes
         // 0..<(profiles.count - 1), so a 0/1-keyframe regression must fail here, not trap on a
         // negative range down there.
@@ -55,9 +55,9 @@ import Foundation
         }
     }
 
-    @Test func batchStitcherRecoversMonotonicOrder() throws {
+    @Test func batchStitcherRecoversMonotonicOrder() async throws {
         var driver = ScrollCaptureDriver()
-        let r = try VideoFrameSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver)
+        let r = try await VideoKeyframeSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver)
         let plan = try BatchStitcher().plan(r.keyframes.map { $0.image })
         // A single forward scroll: recovered order is the capture order. Segment breaks occur on
         // current code — an assembly-side BatchStitcher limitation deferred to a follow-up (see
@@ -79,6 +79,42 @@ import Foundation
                     "real single scroll should re-stitch into one continuous segment, got breaks \(plan.session.segmentBreaks.map { $0.afterKeyframeIndex })")
             #expect(plan.session.seams.count == r.keyframes.count - 1,
                     "expected \(r.keyframes.count - 1) seams for one segment, got \(plan.session.seams.count)")
+        }
+    }
+
+    /// Re-validation gate: at the production sampling cadence (30 fps by timestamp) the driver must
+    /// still bank the same handful of keyframes with sane overlaps as full-rate decode. If this ever
+    /// fails, the cadence is too coarse — raise targetFPS until it holds, then pin the new value here
+    /// and in LibraryModel.importVideo.
+    ///
+    /// Cadence tuning history on this fixture: 12 fps left the trailing finish() pair at overlap
+    /// 0.666 (just over the 0.65 band); 20 fps shifted the banked set enough to produce a
+    /// near-duplicate pair (overlap 0.998). Coarse sampling gives the matcher fewer chances to
+    /// measure scroll, so a single mis-scored intermediate frame shifts commit timing — the same
+    /// image-heavy matcher limitation deferred in batchStitcherRecoversMonotonicOrder. 30 fps is the
+    /// coarsest cadence that reproduces the full-rate 5-keyframe set with all pairs in band, still
+    /// ~2.7x less profiling work than full rate.
+    @Test func throttledCadenceKeepsKeyframesHealthy() async throws {
+        var driver = ScrollCaptureDriver()
+        let r = try await VideoKeyframeSource.decodeCommittedKeyframes(url: try fixtureURL(), driver: &driver, targetFPS: 30)
+        #expect(r.decodeFailures == 0)
+        try #require(r.keyframes.count >= 4, "throttled decode should still bank several keyframes, got \(r.keyframes.count)")
+        #expect(r.keyframes.count <= 6, "throttled decode should not over-bank, got \(r.keyframes.count)")
+
+        let profiler = VerticalProfile()
+        let matcher = OffsetMatcher()
+        let detector = ContentBandDetector()
+        let profiles = r.keyframes.map { profiler.profile($0.image) }
+        for i in 0..<(profiles.count - 1) {
+            let a = profiles[i], b = profiles[i + 1]
+            let n = min(a.rowCount, b.rowCount)
+            let bound = max(1, n - matcher.minimumOverlap)
+            let mask = detector.staticMask(a, b)
+            let masked = matcher.match(a, b, searchRange: 1...bound, rowMask: mask)
+            let plain = matcher.match(a, b, searchRange: 1...bound)
+            let m = masked.confidence >= plain.confidence ? masked : plain
+            let overlap = Double(n - min(max(0, m.dy), n)) / Double(n)
+            #expect(overlap > 0.35 && overlap < 0.65, "throttled overlap[\(i)] = \(overlap) outside sane band")
         }
     }
 }
