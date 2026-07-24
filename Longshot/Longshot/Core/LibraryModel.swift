@@ -24,6 +24,8 @@ struct Capture: Identifiable {
     /// Segments whose chrome band didn't lock confidently — composited whole-frame (chrome may
     /// repeat) and awaiting an editor override. Surfaced so the failure isn't silent.
     var lowConfidenceBandCount: Int { session.contentBands.filter(\.isLowConfidence).count }
+    /// Scroll order was assumed from input order (pick-order fallback), not confidently recovered.
+    var orderAssumed: Bool { session.orderAssumed }
 }
 
 /// The Library is the app's home surface and the source of truth for captures. It scans the
@@ -35,6 +37,10 @@ final class LibraryModel {
     private(set) var captures: [Capture] = []
     /// Set when the most recent pickup produced nothing stitchable, for a friendly nudge.
     private(set) var lastPickupWasEmpty = false
+    /// 0…1 while a video import decodes; nil when idle. Drives a determinate progress view.
+    private(set) var importProgress: Double?
+    /// Set when the most recent import failed, for a user-visible message.
+    private(set) var importError: String?
 
     private let appStore: SessionStore
     private let groupStore: SessionStore?
@@ -71,6 +77,75 @@ final class LibraryModel {
         diag.log("refresh: \(captures.count) capture(s) after import; \(captures.filter { $0.phase == .processing }.count) to assemble")
         for capture in captures where capture.proxy == nil && capture.phase == .processing {
             await assemble(capture.id)
+        }
+    }
+
+    /// Clear a previously surfaced import error (e.g. once the user has seen/dismissed it).
+    func clearImportError() {
+        importError = nil
+    }
+
+    /// Import picked screenshots as a new capture. Recovers scroll order from overlap, falling back
+    /// to the pick order (badged) when recovery can't confidently chain them.
+    func importPhotos(_ images: [CGImage]) async {
+        await runImport { store in
+            try MediaImporter.write(images: images, into: store, strategy: .recoverOrInputOrder, source: .photos)
+        }
+    }
+
+    /// Import one screen recording as a new capture: decode it into keyframes through the real
+    /// capture driver (sampled 30 fps — the validated cadence from Task 3), then stitch in capture order.
+    func importVideo(_ url: URL) async {
+        importProgress = 0
+        let diag = self.diag
+        // A `@Sendable` sink that hops each fraction back to the main actor to update UI state.
+        let sink: @Sendable (Double) -> Void = { [weak self] frac in
+            Task { @MainActor in self?.importProgress = frac }
+        }
+        let decoded: Result<[CGImage], Error> = await Task.detached {
+            do {
+                var driver = ScrollCaptureDriver()
+                let r = try await VideoKeyframeSource.decodeCommittedKeyframes(
+                    url: url, driver: &driver, targetFPS: 30, progress: sink
+                )
+                diag.log("importVideo: \(r.frames) frames, \(r.decodeFailures) decode failures, \(r.keyframes.count) keyframes")
+                return .success(r.keyframes.map { $0.image })
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        importProgress = nil
+        switch decoded {
+        case .failure(let error):
+            importError = error.localizedDescription
+            diag.log("importVideo: decode FAILED: \(error.localizedDescription)")
+        case .success(let images):
+            await runImport { store in
+                try MediaImporter.write(images: images, into: store, strategy: .inputOrder, source: .video)
+            }
+        }
+    }
+
+    /// Shared tail: run a `MediaImporter.write` off-main, then reload + assemble the new capture, or
+    /// record a user-visible error. `.notEnoughContent` maps to the friendly empty nudge.
+    private func runImport(_ body: @escaping @Sendable (SessionStore) throws -> UUID) async {
+        let store = appStore
+        let diag = self.diag
+        let result: Result<UUID, Error> = await Task.detached {
+            do { return .success(try body(store)) }
+            catch { return .failure(error) }
+        }.value
+        switch result {
+        case .success(let id):
+            reload()
+            await assemble(id)
+        case .failure(let error):
+            if case MediaImporter.ImportError.notEnoughContent = error {
+                lastPickupWasEmpty = true
+            } else {
+                importError = error.localizedDescription
+            }
+            diag.log("import: FAILED: \(error.localizedDescription)")
         }
     }
 
