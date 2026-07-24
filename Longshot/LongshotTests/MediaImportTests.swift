@@ -107,4 +107,22 @@ struct MediaImportTests {
             try MediaImporter.write(images: one, into: store, strategy: .recoverOrInputOrder, source: .photos)
         }
     }
+
+    @Test func importPhotosProducesReadyCapture() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = root.appendingPathComponent("app")
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: app, withIntermediateDirectories: true)
+
+        let model = LibraryModel(appContainer: app, groupContainer: nil)
+        // Pick order is the true scroll order → clean recovery, no badge.
+        await model.importPhotos(Self.slices(count: 3, width: 120, sliceH: 360, dy: 140))
+
+        #expect(model.captures.count == 1)
+        let capture = try #require(model.captures.first)
+        #expect(capture.phase == .ready)
+        #expect(capture.orderAssumed == false)
+        #expect(try #require(capture.proxy).width == 120)
+    }
 }
