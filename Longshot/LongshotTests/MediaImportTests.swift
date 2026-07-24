@@ -75,4 +75,36 @@ struct MediaImportTests {
         #expect(resolved.orderAssumed == true)
         #expect(resolved.keyframes.map(\.index) == [0, 1])   // kept pick order in the fallback
     }
+
+    @Test func mediaImporterWritesResolvableSession() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let store = SessionStore(containerURL: root)
+        let imgs = Self.slices(count: 3, width: 120, sliceH: 360, dy: 140)
+
+        let id = try MediaImporter.write(images: imgs, into: store, strategy: .inputOrder, source: .video)
+        let session = try store.readManifest(for: id)
+        #expect(session.keyframes.count == 3)
+        #expect(session.status == .complete)
+        #expect(session.segmentBreaks.isEmpty)
+        #expect(session.orderAssumed == false)
+        // The raw files exist and are readable at the manifest's dims.
+        let folder = store.folder(for: id)
+        for kf in session.keyframes {
+            let img = try KeyframeIO.readRaw(from: folder.appendingPathComponent(kf.filename), width: kf.pixelWidth, height: kf.pixelHeight)
+            #expect(img.width == 120)
+        }
+    }
+
+    @Test func mediaImporterRejectsSingleImage() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        let store = SessionStore(containerURL: root)
+        let one = Self.slices(count: 1, width: 120, sliceH: 360, dy: 140)
+        #expect(throws: MediaImporter.ImportError.self) {
+            try MediaImporter.write(images: one, into: store, strategy: .recoverOrInputOrder, source: .photos)
+        }
+    }
 }
