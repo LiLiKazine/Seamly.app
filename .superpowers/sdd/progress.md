@@ -241,3 +241,7 @@ Branch: feat/video-and-photo-import. Base: 06825c3.
 1. MediaImporter `source:` param accepted but never used (reserved per plan) — keep/wire-to-diagnostics/drop.
 2. LibraryModel.importVideo: late progress-hop could rewrite importProgress after the nil reset (pre-approved per plan; benign).
 3. PhotoImportButton/VideoImportButton: selection not reset on failure paths (re-pick-same-item dead until a different pick).
+- Task 8: automated verification COMPLETE.
+  - StitchKit `swift test`: 101 tests / 18 suites, exit 0, 7 expected known-issue xfails (RealFrameStitch×3, RealDeviceStitch×2, CaptureVideo×2 — all pre-existing documented deferrals; +1 test vs prior 100 = new throttledCadenceKeepsKeyframesHealthy, passing).
+  - App + UI `xcodebuild test`: TEST SUCCEEDED (exit 0); app+extension built. (One transient FBSOpenApplication UI-runner launch error, recovered by retry.)
+  - PENDING (manual, non-autonomous): Task 8 Step 4 smoke — seed simulator Photos with a screenshot set + a scroll screen recording, exercise From Photos / From Video / order-assumed badge / video progress bar on device or sim.
