@@ -114,6 +114,10 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
     /// non-destructive manifest edit, so it re-composites instantly from the keyframes.
     public var topTrim: Int
     public var bottomTrim: Int
+    /// True when scroll order was *assumed* from input order rather than confidently recovered
+    /// from pixel overlap (the photos pick-order fallback). Drives an "order assumed" badge.
+    /// Never set for confidently recovered order or for trusted capture order (video/broadcast).
+    public var orderAssumed: Bool
 
     public init(
         id: UUID = UUID(),
@@ -127,7 +131,8 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         segmentBreaks: [SegmentBreak] = [],
         contentBands: [ContentBand] = [],
         topTrim: Int = 0,
-        bottomTrim: Int = 0
+        bottomTrim: Int = 0,
+        orderAssumed: Bool = false
     ) {
         self.id = id
         self.createdAt = createdAt
@@ -141,6 +146,7 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         self.contentBands = contentBands
         self.topTrim = topTrim
         self.bottomTrim = bottomTrim
+        self.orderAssumed = orderAssumed
     }
 
     /// Custom decoding so fields added over time degrade gracefully. The manifest is written
@@ -161,6 +167,7 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
         contentBands = try c.decodeIfPresent([ContentBand].self, forKey: .contentBands) ?? []
         topTrim = try c.decodeIfPresent(Int.self, forKey: .topTrim) ?? 0
         bottomTrim = try c.decodeIfPresent(Int.self, forKey: .bottomTrim) ?? 0
+        orderAssumed = try c.decodeIfPresent(Bool.self, forKey: .orderAssumed) ?? false
     }
 
     /// A session with fewer than two keyframes has nothing to stitch.
