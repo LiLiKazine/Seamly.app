@@ -82,4 +82,26 @@ import Foundation
         #expect(plan.session.keyframes.count == 1)
         #expect(plan.session.seams.isEmpty)
     }
+
+    /// Assembling in a supplied order keeps that order verbatim (no re-sort), and a truly
+    /// in-scroll-order set still stitches into one continuous segment with the right seam count.
+    @Test func assumingOrderKeepsGivenOrderForOverlappingSet() throws {
+        // names are spatial mid, bottom, top; true top→bottom is [2, 0, 1].
+        let images = try [Self.names[2], Self.names[0], Self.names[1]].map { try load($0) }  // already top→bottom
+        let plan = try BatchStitcher().plan(images, assumingOrder: [0, 1, 2])
+        #expect(plan.order == [0, 1, 2])
+        #expect(plan.session.segmentBreaks.isEmpty)
+        #expect(plan.session.seams.count == 2)
+        #expect(plan.session.seams.allSatisfy { $0.provisionalDy > 0 })
+    }
+
+    /// A wrong supplied order is NOT silently corrected — the whole point of the fallback is to
+    /// trust the caller's order. Non-overlapping consecutive pairs become segment breaks.
+    @Test func assumingOrderDoesNotReorderAndBreaksNonOverlappingNeighbours() throws {
+        // Supplied order bottom, top, mid: neighbours (bottom,top) don't overlap → a break.
+        let images = try [Self.names[1], Self.names[2], Self.names[0]].map { try load($0) }
+        let plan = try BatchStitcher().plan(images, assumingOrder: [0, 1, 2])
+        #expect(plan.order == [0, 1, 2])
+        #expect(!plan.session.segmentBreaks.isEmpty)
+    }
 }
