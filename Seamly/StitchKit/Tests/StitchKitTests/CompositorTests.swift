@@ -195,4 +195,65 @@ private func topCrop(_ image: CGImage, x: Int = 0, top: Int, width: Int, height:
         let refined = try compositor.refineSeams(session) { $0.index == 0 ? a : b }
         #expect(refined[0].isLowConfidence)
     }
+
+    /// An implausible band must not be clamped into a plausible-looking collapse.
+    ///
+    /// Before the guard, `band = max(1, h - top - bottom)` degraded to 1 and every seam was
+    /// clamped to a 1px advance, so four 300px frames at dy=200 composited to 302px instead of
+    /// 900 — with no throw, no log, and a manifest that still read as healthy. Refusing the band
+    /// crops nothing instead: the chrome repeats, which is visible, rather than the content
+    /// disappearing, which isn't.
+    @Test func implausibleContentBandIsRefusedRatherThanCollapsingTheStitch() throws {
+        let W = 120, H = 300
+        let reference = noise(width: W, height: 900)
+        var frames: [Int: CGImage] = [:]
+        var keyframes: [Keyframe] = []
+        var seams: [Seam] = []
+        for (i, pos) in [0, 200, 400, 600].enumerated() {
+            frames[i] = topCrop(reference, top: pos, width: W, height: H)
+            keyframes.append(keyframe(i, height: H, width: W))
+            if i > 0 { seams.append(Seam(fromIndex: i - 1, provisionalDy: 200, confidence: 0.8)) }
+        }
+        // Absurd: 290 of 300 rows declared chrome, leaving a 10px content band.
+        let session = StitchSession(createdAt: Date(timeIntervalSince1970: 0), deviceScale: 3, orientation: .portrait,
+                                    keyframes: keyframes, seams: seams,
+                                    contentBands: [ContentBand(topChrome: 290, bottomChrome: 0)])
+
+        let out = try compositor.composite(session) { frames[$0.index]! }
+        // Cropping nothing reproduces the full scroll extent, exactly as `.unlocked` would.
+        #expect(out.height == 900)
+        #expect(out.width == W)
+    }
+
+    /// The ceiling is a floor for *rejection*, not a crop budget: a large-but-credible band is
+    /// still honoured, so the guard can't quietly disable chrome cropping on real captures.
+    @Test func largeButPlausibleContentBandIsStillCropped() throws {
+        let W = 120, H = 300, T = 60, B = 40   // 100 of 300 rows = 33%, under the 50% ceiling
+        let reference = noise(width: W, height: 900)
+        var frames: [Int: CGImage] = [:]
+        var keyframes: [Keyframe] = []
+        var seams: [Seam] = []
+        for (i, pos) in [0, 200, 400, 600].enumerated() {
+            frames[i] = topCrop(reference, top: pos, width: W, height: H)
+            keyframes.append(keyframe(i, height: H, width: W))
+            if i > 0 { seams.append(Seam(fromIndex: i - 1, provisionalDy: 200, confidence: 0.8)) }
+        }
+        let session = StitchSession(createdAt: Date(timeIntervalSince1970: 0), deviceScale: 3, orientation: .portrait,
+                                    keyframes: keyframes, seams: seams,
+                                    contentBands: [ContentBand(topChrome: T, bottomChrome: B)])
+
+        let out = try compositor.composite(session) { frames[$0.index]! }
+        // First strip keeps top chrome and drops bottom chrome, each later strip advances dy,
+        // and the final bottom chrome is re-added once.
+        #expect(out.height == (H - B) + 3 * 200 + B)
+    }
+
+    @Test func bandPlausibilityRejectsOnlyBandsThatLeaveNoContent() {
+        #expect(ContentBand(topChrome: 20, bottomChrome: 20).isPlausible(forFrameHeight: 300))
+        #expect(ContentBand(topChrome: 150, bottomChrome: 0).isPlausible(forFrameHeight: 300))   // exactly at the ceiling
+        #expect(!ContentBand(topChrome: 151, bottomChrome: 0).isPlausible(forFrameHeight: 300))
+        #expect(!ContentBand(topChrome: 361, bottomChrome: 0).isPlausible(forFrameHeight: 360))  // the observed collapse
+        #expect(ContentBand.unlocked.isPlausible(forFrameHeight: 300))
+        #expect(!ContentBand(topChrome: 0, bottomChrome: 0).isPlausible(forFrameHeight: 0))      // no frame, no verdict
+    }
 }

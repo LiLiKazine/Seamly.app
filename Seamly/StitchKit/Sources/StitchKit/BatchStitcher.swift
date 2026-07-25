@@ -232,6 +232,15 @@ public struct BatchStitcher: Sendable {
         }
         var top = 0; while top < n, staticAll(top) { top += 1 }
         var bottom = 0; while bottom < n - top, staticAll(n - 1 - bottom) { bottom += 1 }
+        // A band that eats most of the frame means the static test matched nearly every row —
+        // "no content found anywhere", which is a measurement failure, not a very large bar.
+        // Believing it collapses the stitch (every seam clamps to a 1px advance) while the
+        // manifest still looks healthy, so degrade to `.unlocked`: crop nothing, flag the
+        // segment, let the editor override. Checked in profile rows, the space it was measured
+        // in, so no rounding can slip a rejected band back under the ceiling.
+        guard Double(top + bottom) <= Double(n) * ContentBand.maxChromeFraction else {
+            return .unlocked
+        }
         return ContentBand(
             topChrome: sourcePixels(top, rowScale: rowScale),
             bottomChrome: sourcePixels(bottom, rowScale: rowScale),

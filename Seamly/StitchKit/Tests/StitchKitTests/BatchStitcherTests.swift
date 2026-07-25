@@ -104,4 +104,40 @@ import Foundation
         #expect(plan.order == [0, 1, 2])
         #expect(!plan.session.segmentBreaks.isEmpty)
     }
+
+    /// Content whose horizontal pattern repeats identically row to row, over a gentle vertical
+    /// ramp, defeats the translucency test: the ramp's mean shift lands under
+    /// `translucencyMeanCeiling` while the shared `sin(x)` structure keeps the centered
+    /// difference under `structureTolerance`, so **every** row reads as translucent chrome.
+    ///
+    /// Measured before the guard, on exactly these frames: `topChrome` came back as 361 on a
+    /// 360px frame — a band taller than the image — flagged `isLowConfidence: false`, which
+    /// collapsed a 640px stitch to 362px. The detector cannot be tuned out of this (the doc on
+    /// `translucencyMeanCeiling` records why the shape test alone is insufficient), so the fix
+    /// is to refuse the measurement rather than believe it.
+    @Test func allStaticMeasurementIsRefusedInsteadOfCroppingTheWholeFrame() throws {
+        let W = 120, H = 360, D = 140
+        let source = TestImages.make(width: W, height: H + 2 * D) { ctx in
+            for y in 0..<(H + 2 * D) {
+                for x in 0..<W {
+                    let v = 60.0 + Double(y) * (120.0 / Double(H + 2 * D))
+                        + 50 * sin(Double(x) * 0.35) + 25 * sin(Double(y) * 0.2 + Double(x) * 0.15)
+                    ctx.setFillColor(gray: CGFloat(max(0, min(255, v)) / 255), alpha: 1)
+                    ctx.fill(CGRect(x: x, y: y, width: 1, height: 1))
+                }
+            }
+        }
+        let images = (0..<3).map { source.cropping(to: CGRect(x: 0, y: $0 * D, width: W, height: H))! }
+
+        let plan = try BatchStitcher().plan(images, assumingOrder: [0, 1, 2])
+        let band = try #require(plan.session.contentBands.first)
+        // Refused, not believed: nothing cropped, and flagged so the editor can override.
+        #expect(band.topChrome == 0)
+        #expect(band.bottomChrome == 0)
+        #expect(band.isLowConfidence)
+
+        // And the stitch keeps its full extent rather than collapsing to ~one frame.
+        let out = try Compositor().composite(plan.session) { images[plan.order[$0.index]] }
+        #expect(abs(out.height - (H + 2 * D)) <= 24)
+    }
 }
