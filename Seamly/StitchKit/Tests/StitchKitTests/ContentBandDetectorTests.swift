@@ -37,7 +37,7 @@ private func scrollingFrames(count: Int, top: Int, bottom: Int, total: Int, step
 
     @Test func staticMaskExcludesChromeAndKeepsContent() {
         let frames = scrollingFrames(count: 2, top: 10, bottom: 8, total: 100, step: 20)
-        var detector = ContentBandDetector()
+        let detector = ContentBandDetector()
         let mask = detector.staticMask(frames[0], frames[1])
         let m = try! #require(mask)
         #expect(m.count == 100)
@@ -50,64 +50,7 @@ private func scrollingFrames(count: Int, top: Int, bottom: Int, total: Int, step
     @Test func staticMaskIsNilForPreScrollStillFrames() {
         // Two identical frames: everything static, no content moved -> caller matches unmasked.
         let f = framed(top: 10, bottom: 8, total: 100) { Float($0) / 100 }
-        var detector = ContentBandDetector()
+        let detector = ContentBandDetector()
         #expect(detector.staticMask(f, f) == nil)
-    }
-
-    // MARK: - Consensus lock
-
-    @Test func doesNotLockBeforeEnoughMovingFrames() {
-        let frames = scrollingFrames(count: 2, top: 10, bottom: 8, total: 100, step: 20)
-        var detector = ContentBandDetector(minMovingFrames: 3)
-        detector.observe(frames[0], frames[1], dy: 20)
-        #expect(detector.lockedBand == nil)
-    }
-
-    @Test func locksStableBandAfterConsensus() {
-        let frames = scrollingFrames(count: 6, top: 10, bottom: 8, total: 100, step: 20)
-        var detector = ContentBandDetector(minMovingFrames: 3)
-        for i in 1..<frames.count {
-            detector.observe(frames[i - 1], frames[i], dy: 20)
-        }
-        let band = try! #require(detector.lockedBand)
-        #expect(band.top == 10)
-        #expect(band.bottom == 8)
-    }
-
-    @Test func consensusIsRobustToOneNoisyPair() {
-        // Inject a single pair whose "content" happens to sit still (a paused frame): the
-        // per-row vote accumulation must not let that one pair inflate the chrome band.
-        var frames = scrollingFrames(count: 6, top: 10, bottom: 8, total: 100, step: 20)
-        frames[3] = frames[2]   // a duplicate/paused frame in the middle
-        var detector = ContentBandDetector(minMovingFrames: 3)
-        for i in 1..<frames.count {
-            let dy = (i == 3) ? 0 : 20   // the paused pair reports no motion
-            detector.observe(frames[i - 1], frames[i], dy: dy)
-        }
-        let band = try! #require(detector.lockedBand)
-        #expect(band.top == 10)
-        #expect(band.bottom == 8)
-    }
-
-    // MARK: - Sharp change (segment break signal)
-
-    @Test func bandChangedSharplyFlagsCollapsedHeader() {
-        let frames = scrollingFrames(count: 6, top: 10, bottom: 8, total: 100, step: 20)
-        var detector = ContentBandDetector(minMovingFrames: 3)
-        for i in 1..<frames.count { detector.observe(frames[i - 1], frames[i], dy: 20) }
-        #expect(detector.lockedBand != nil)
-
-        // Header collapsed from 10 -> 2 static top rows: a sharp change.
-        let collapsed = scrollingFrames(count: 2, top: 2, bottom: 8, total: 100, step: 20)
-        #expect(detector.bandChangedSharply(collapsed[0], collapsed[1]) == true)
-    }
-
-    @Test func bandUnchangedForSteadyState() {
-        let frames = scrollingFrames(count: 8, top: 10, bottom: 8, total: 100, step: 20)
-        var detector = ContentBandDetector(minMovingFrames: 3)
-        for i in 1..<6 { detector.observe(frames[i - 1], frames[i], dy: 20) }
-        #expect(detector.lockedBand != nil)
-        // A later steady-state pair with the same chrome must not be flagged.
-        #expect(detector.bandChangedSharply(frames[6], frames[7]) == false)
     }
 }

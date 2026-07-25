@@ -134,62 +134,7 @@ import Foundation
         return out
     }
 
-    // MARK: - Faithful mirror of SampleHandler's capture → session pipeline
-
-    private func buildSession(frames: [CGImage]) -> (StitchSession, [Int: CGImage]) {
-        let profiler = VerticalProfile()
-        var tracker = PositionTracker()
-        var selector = FrameSelector()
-        var session = StitchSession(createdAt: Date(), status: .recording, deviceScale: 1, orientation: .portrait)
-        var images: [Int: CGImage] = [:]
-
-        var keyframeIndex = 0
-        var lastKeyframeRow = 0
-        var lastSegment = 0
-
-        func commit(_ image: CGImage, _ profile: FrameProfile, _ result: TrackingResult) {
-            if keyframeIndex == 0 {
-                session.orientation = image.width > image.height ? .landscape : .portrait
-                session.colorSpaceName = image.colorSpace?.name as String?
-            }
-            session.keyframes.append(Keyframe(filename: "kf-\(keyframeIndex)", pixelWidth: image.width, pixelHeight: image.height, index: keyframeIndex))
-            images[keyframeIndex] = image
-
-            if case .segmentBreak(let reason) = result.decision, keyframeIndex > 0 {
-                session.segmentBreaks.append(SegmentBreak(afterKeyframeIndex: keyframeIndex - 1, reason: reason))
-            } else if keyframeIndex > 0, result.segmentIndex == lastSegment {
-                let dyRows = max(0, result.position - lastKeyframeRow)
-                let dyPixels = Int(Double(dyRows) * profile.rowScale)
-                session.seams.append(Seam(
-                    fromIndex: keyframeIndex - 1,
-                    provisionalDy: dyPixels,
-                    confidence: result.confidence,
-                    isLowConfidence: result.confidence < 0.4
-                ))
-            }
-            let seg = result.segmentIndex
-            while session.contentBands.count <= seg { session.contentBands.append(.unlocked) }
-            session.contentBands[seg] = result.contentBand
-            lastKeyframeRow = result.position
-            lastSegment = result.segmentIndex
-            keyframeIndex += 1
-        }
-
-        var lastImage: CGImage?, lastProfile: FrameProfile?, lastResult: TrackingResult?
-        for image in frames {
-            let profile = profiler.profile(image)
-            let result = tracker.process(profile)
-            if selector.evaluate(result, bandHeight: profile.rowCount) == .commitKeyframe {
-                commit(image, profile, result)
-            }
-            lastImage = image; lastProfile = profile; lastResult = result
-        }
-        if selector.finish() == .commitKeyframe, let i = lastImage, let p = lastProfile, let r = lastResult {
-            commit(i, p, r)
-        }
-        session.status = .complete
-        return (session, images)
-    }
+    // MARK: - Full pipeline (see `CaptureHarness`)
 
     // MARK: - Diagnostics
 
@@ -240,8 +185,9 @@ import Foundation
     // MARK: - Tests
 
     @Test func highVarianceContentShouldStitchNotStack() throws {
-        let (session, images) = buildSession(frames: frames(doc: highVarDoc()))
-        let out = try Compositor().composite(session) { images[$0.index]! }
+        let capture = try CaptureHarness.capture(frames(doc: highVarDoc()))
+        let session = capture.session
+        let out = try capture.composite()
         dump("HIGH-variance content", session, out)
 
         // A correct stitch reproduces the document once, plus one top + one bottom chrome:
@@ -261,8 +207,9 @@ import Foundation
     }
 
     @Test func lowVarianceContentShouldStitchNotStack() throws {
-        let (session, images) = buildSession(frames: frames(doc: lowVarDoc()))
-        let out = try Compositor().composite(session) { images[$0.index]! }
+        let capture = try CaptureHarness.capture(frames(doc: lowVarDoc()))
+        let session = capture.session
+        let out = try capture.composite()
         dump("LOW-variance content", session, out)
 
         // A correct stitch reproduces the document once, plus one top + one bottom chrome:

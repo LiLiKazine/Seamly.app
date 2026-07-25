@@ -3,11 +3,14 @@ import Foundation
 
 /// Stitches a *fixed, unordered* set of overlapping screenshots into one long image.
 ///
-/// `PositionTracker` tracks a live, in-order broadcast stream; the batch case instead receives
-/// the frames the user picked — possibly shuffled, possibly with gaps. `BatchStitcher` recovers
-/// the scroll order from pairwise vertical offsets, measures the repeated chrome (status/search
-/// bars, nav bar), and hands a built `StitchSession` to `Compositor`. Frames that don't overlap
-/// fall into separate segments rather than being forced together.
+/// `ScrollCaptureDriver` banks frames live and in order; this is the other half — assembly. It
+/// receives the frames the user picked, possibly shuffled and possibly with gaps, recovers the
+/// scroll order from pairwise vertical offsets, measures the repeated chrome (status/search bars,
+/// nav bar), and hands a built `StitchSession` to `Compositor`. Frames that don't overlap fall into
+/// separate segments rather than being forced together.
+///
+/// Every geometry decision in a finished capture is made here, not during capture: the extension's
+/// only job is to bank overlapping keyframes.
 ///
 /// Ordering is a 1-D layout problem: for each overlapping pair the matcher gives how far the
 /// lower frame sits below the upper one, so anchoring the highest-confidence edges and reading
