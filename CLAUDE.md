@@ -124,7 +124,9 @@ swift test --package-path Seamly/StitchKit --filter OffsetMatcherTests
 # Visual triage on a real file — run this before believing a stitch is correct
 cd Seamly/StitchKit
 swift run stitch-cli video ~/Pictures/scroll.mp4 --out /tmp/stitch
-swift run stitch-cli images ./Tests/StitchKitTests/Fixtures/RealDevice --out /tmp/stitch
+# --prefix is not optional here: RealDevice/ holds three unrelated captures.
+swift run stitch-cli images ./Tests/StitchKitTests/Fixtures/RealDevice --prefix youtube --out /tmp/stitch
+swift run stitch-cli images ./Tests/StitchKitTests/Fixtures/Screenshots --out /tmp/stitch
 
 # Build (simulator) — verified working
 xcodebuild -project Seamly/Seamly.xcodeproj -scheme Seamly \
@@ -157,15 +159,24 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
 - **Tests:** `Seamly/StitchKit/Tests/StitchKitTests/` (the bulk) ·
   `Seamly/SeamlyTests/` (app-level import/assembly) · `Seamly/SeamlyUITests/`
 - **Fixtures:** `Seamly/StitchKit/Tests/StitchKitTests/Fixtures/` — synthetic,
-  `wikipedia.png`, and `RealDevice/` (28 MB of real broadcast keyframes)
+  `wikipedia.png`, `Example/`, `RealDevice/` (real broadcast keyframes + a screen recording),
+  and `Screenshots/` (real Photos-app screenshots, the "From Photos" shape). `RealDevice/` and
+  `Screenshots/` each carry a `README.md` recording ground truth **and their resolution** —
+  read it before measuring anything against them.
 - **Why the code is like this:** `DECISIONS.md` + `docs/logs/` (one log per significant
-  change) · specs in `docs/superpowers/specs/`
+  change) · `docs/superpowers/plans/` and `docs/superpowers/specs/`
 
 ## Testing
 
-- Use **Swift Testing** (`import Testing`, `@Test`, `#expect`) — not XCTest.
+- Use **Swift Testing** (`import Testing`, `@Test`, `#expect`) — not XCTest. The exception is
+  `SeamlyUITests`, which is XCTest because `XCUIApplication` has no Swift Testing equivalent;
+  don't "convert" it.
 - Keep the stitching core pure and testable, and cover it with TDD before wiring up UI.
-- Fixtures are bundled, never live photo-library access — deterministic and CI-friendly.
+- Fixtures are **checked in and read from disk** — never the photo library, never the network,
+  so a run is deterministic and CI-friendly. Bundled resources are the norm (`Bundle.module`);
+  the app test target has no fixture bundle, so `SeamlyTests/PhotoPickOrderTests` reads
+  `StitchKit`'s by source-relative `#filePath` rather than duplicating the PNGs. Either is
+  fine; a live library lookup is not.
 
 **Read this before trusting a green suite.** The synthetic tier produced *three consecutive
 cycles of false green*: the fixtures were built upside-down and compensated by a flip in
@@ -176,7 +187,9 @@ real device geometry.
 Consequences for how you test here:
 
 - Prefer **real pixels**. A green synthetic suite is necessary but not sufficient.
-- Fixtures must be **full resolution** — a different downsample factor changes matching.
+- Fixtures must be **full resolution** — a different downsample factor changes `rowScale` and
+  therefore matching. `RealDevice/youtube-*` is a knowing exception (half of its recording,
+  kept for the translucent tab bar); its README says so, and measurements don't cross sets.
 - For anything visual, render the output and **look at it** (`stitch-cli`). A stitch can
   clear every structural gate — right order, no breaks, high confidence — and still be
   plainly wrong; the translucent-chrome bug did exactly that.
@@ -213,5 +226,6 @@ Consequences for how you test here:
   bridges to `NotificationCenter`. The foreground scan is still the source of truth.
 - **Display proxies are capped at 4096 px tall.** A GPU texture tops out ~16,384 px/side, so
   a full-res stitch cannot render as one texture — never bind a full composite to an `Image`.
-- **The real-frame test tiers are slow** (~5 min for the package). That's inherent to the
-  fixtures, not a hang; use `--filter` while iterating.
+- **The real-frame test tiers are slow** — several minutes for the package, and the number
+  grows with every real-pixel fixture. That's inherent to them, not a hang; use `--filter`
+  while iterating.
