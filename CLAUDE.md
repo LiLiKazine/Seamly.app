@@ -82,35 +82,23 @@ Two conventions are load-bearing, each paid for with a real bug (see `DECISIONS.
 
 ## Error handling
 
-**Never swallow errors silently.** An error that vanishes with no propagation, no log, and no
-user-visible effect turns a real failure (disk full, corrupt manifest, denied permission)
-into a silent no-op that's near-impossible to debug. This is not hypothetical here: a bare
-`try?` around the App Group import is exactly why "coming back from a broadcast does
-nothing" shipped (`DECISIONS.md`, `[B4]`).
+**Never swallow errors silently.** A bare `try?` around the App Group import is exactly why
+"coming back from a broadcast does nothing" shipped (`DECISIONS.md`, `[B4]`).
 
-Avoid these swallowing patterns unless the exception below applies:
+Don't: `try?` that drops the error · empty `catch {}` / `catch { return nil }` · masking
+fallbacks like `?? someDefault` or `?? image`.
 
-- `try?` that drops the error and continues as if nothing happened.
-- `catch {}` (empty) or `catch { return nil }` / `catch { return }` that discards the error.
-- Fallbacks like `?? someDefault` or `?? image` that mask a failure behind a plausible value.
+Do, in order of preference:
 
-Instead:
+- **Propagate** with `throws` / `try` — most of `StitchKit` already does.
+- **Handle at the boundary**: recover, surface it (`LibraryModel.importError`,
+  `Capture.Phase.failed`), or log via `Diagnostics`.
+- **Ignore explicitly and narrowly** when you must: catch it and comment why — e.g.
+  `catch { /* best-effort cleanup; source already gone */ }`. If a reviewer can't tell the
+  error was ignored *on purpose*, the handling is wrong.
 
-- **Propagate** with `throws` / `try` when the caller can react — most of `StitchKit`
-  (`BatchStitcher`, `Compositor`, `SessionStore`) already does. Prefer it.
-- **Handle meaningfully** at the boundary: recover, surface to the user (`LibraryModel`
-  sets `importError`; `Capture.Phase.failed` carries the message), or log via `Diagnostics`.
-- **When you genuinely must ignore an error** (best-effort cleanup, expected-benign
-  failure), do it *explicitly and narrowly*: catch it, and leave a comment saying why
-  ignoring is correct — e.g. `catch { /* best-effort cleanup; source already gone */ }`.
-  A bare `try?` doesn't document intent; a commented `catch` does.
-
-The extension can't show UI and its container isn't reliably pullable over USB, so its
-errors go to `Diagnostics` (unified log + a durable App Group file the app reads back in
-`DiagnosticsView`). A capture that produces nothing must stay diagnosable after the fact.
-
-Rule of thumb: if a reviewer can't tell whether an error was ignored *on purpose*, the
-handling is wrong.
+The extension can't show UI and its container isn't reliably pullable over USB, so its errors
+go to `Diagnostics` (unified log + a durable App Group file `DiagnosticsView` reads back).
 
 ## Commands
 
@@ -124,9 +112,8 @@ swift test --package-path Seamly/StitchKit --filter OffsetMatcherTests
 # Visual triage on a real file — run this before believing a stitch is correct
 cd Seamly/StitchKit
 swift run stitch-cli video ~/Pictures/scroll.mp4 --out /tmp/stitch
-# --prefix is not optional here: RealDevice/ holds three unrelated captures.
+# --prefix required: RealDevice/ holds three unrelated captures
 swift run stitch-cli images ./Tests/StitchKitTests/Fixtures/RealDevice --prefix youtube --out /tmp/stitch
-swift run stitch-cli images ./Tests/StitchKitTests/Fixtures/Screenshots --out /tmp/stitch
 
 # Build (simulator) — verified working
 xcodebuild -project Seamly/Seamly.xcodeproj -scheme Seamly \
@@ -158,38 +145,27 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
 - **Extension:** `Seamly/SeamlyBroadcast/SampleHandler.swift`
 - **Tests:** `Seamly/StitchKit/Tests/StitchKitTests/` (the bulk) ·
   `Seamly/SeamlyTests/` (app-level import/assembly) · `Seamly/SeamlyUITests/`
-- **Fixtures:** `Seamly/StitchKit/Tests/StitchKitTests/Fixtures/` — synthetic,
-  `wikipedia.png`, `Example/`, `RealDevice/` (real broadcast keyframes + a screen recording),
-  and `Screenshots/` (real Photos-app screenshots, the "From Photos" shape). `RealDevice/` and
-  `Screenshots/` each carry a `README.md` recording ground truth **and their resolution** —
-  read it before measuring anything against them.
+- **Fixtures:** `Seamly/StitchKit/Tests/StitchKitTests/Fixtures/` — synthetic, `wikipedia.png`,
+  `Example/`, `RealDevice/` (broadcast keyframes), `Screenshots/` (Photos-app screenshots). The
+  last two carry a `README.md` with ground truth and resolution — read it before measuring.
 - **Why the code is like this:** `DECISIONS.md` + `docs/logs/` (one log per significant
   change) · `docs/superpowers/plans/` and `docs/superpowers/specs/`
 
 ## Testing
 
-- Use **Swift Testing** (`import Testing`, `@Test`, `#expect`) — not XCTest. The exception is
-  `SeamlyUITests`, which is XCTest because `XCUIApplication` has no Swift Testing equivalent;
-  don't "convert" it.
+- Use **Swift Testing** (`import Testing`, `@Test`, `#expect`) — not XCTest, except
+  `SeamlyUITests` (XCUIApplication requires it).
 - Keep the stitching core pure and testable, and cover it with TDD before wiring up UI.
-- Fixtures are **checked in and read from disk** — never the photo library, never the network,
-  so a run is deterministic and CI-friendly. Bundled resources are the norm (`Bundle.module`);
-  the app test target has no fixture bundle, so `SeamlyTests/PhotoPickOrderTests` reads
-  `StitchKit`'s by source-relative `#filePath` rather than duplicating the PNGs. Either is
-  fine; a live library lookup is not.
+- Fixtures are checked in and read from disk — never the photo library. Bundled
+  (`Bundle.module`) or source-relative `#filePath`, either is fine.
 
-**Read this before trusting a green suite.** The synthetic tier produced *three consecutive
-cycles of false green*: the fixtures were built upside-down and compensated by a flip in
-`VerticalProfile`, so two inverted conventions cancelled out — every real capture shattered
-while the suite passed. A later cycle passed on half-resolution fixtures and shattered at
-real device geometry.
-
-Consequences for how you test here:
+**A green suite here has lied three times** — synthetic fixtures built upside-down cancelled out
+a flip in `VerticalProfile`, and a later cycle passed at half resolution. Every real capture
+shattered while the suite stayed green. So:
 
 - Prefer **real pixels**. A green synthetic suite is necessary but not sufficient.
-- Fixtures must be **full resolution** — a different downsample factor changes `rowScale` and
-  therefore matching. `RealDevice/youtube-*` is a knowing exception (half of its recording,
-  kept for the translucent tab bar); its README says so, and measurements don't cross sets.
+- Fixtures must be **full resolution** — a different downsample changes `rowScale` and so
+  matching. (`RealDevice/youtube-*` is a documented exception — see its README.)
 - For anything visual, render the output and **look at it** (`stitch-cli`). A stitch can
   clear every structural gate — right order, no breaks, high confidence — and still be
   plainly wrong; the translucent-chrome bug did exactly that.
@@ -226,6 +202,8 @@ Consequences for how you test here:
   bridges to `NotificationCenter`. The foreground scan is still the source of truth.
 - **Display proxies are capped at 4096 px tall.** A GPU texture tops out ~16,384 px/side, so
   a full-res stitch cannot render as one texture — never bind a full composite to an `Image`.
-- **The real-frame test tiers are slow** — several minutes for the package, and the number
-  grows with every real-pixel fixture. That's inherent to them, not a hang; use `--filter`
-  while iterating.
+- **The real-frame test tiers are slow** (several minutes for the package). Inherent to the
+  fixtures, not a hang; use `--filter` while iterating.
+- **`#expect` over `contains(where:)` / `allSatisfy` won't compile** — the macro loses the
+  `rethrows` conversion and demands a `try`. Bind to a local first. Not a `SWIFT_VERSION`
+  artifact; it reproduces in `StitchKit`'s Swift 6 tests too.
