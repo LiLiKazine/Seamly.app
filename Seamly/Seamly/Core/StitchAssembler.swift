@@ -20,8 +20,11 @@ enum OrderStrategy {
     /// order at all — with one, `.recoverOrInputOrder` strictly dominates this, since it does the
     /// same recovery first and only differs when that recovery is not trustworthy.
     case recover
-    /// Recover; if the result isn't one clean, confident chain, fall back to the input order and
-    /// mark `orderAssumed`. Used by "From Photos" and by broadcast import.
+    /// Recover; if the result isn't one unbroken chain, fall back to the input order and mark
+    /// `orderAssumed`. Used by "From Photos" and by broadcast import.
+    ///
+    /// A break is the only thing that makes the recovered order a guess — see `resolveGeometry`
+    /// for why a low-confidence *seam* is not, and what it cost when it was treated as one.
     case recoverOrInputOrder
     /// Trust the input order verbatim (capture/temporal order). Used by "From Video".
     case inputOrder
@@ -67,7 +70,20 @@ enum StitchAssembler {
             plan = try stitcher.plan(images, assumingOrder: identity)
         case .recoverOrInputOrder:
             let recovered = try stitcher.plan(images)
-            let clean = recovered.session.segmentBreaks.isEmpty && recovered.session.seams.allSatisfy { !$0.isLowConfidence }
+            // Only a segment break is evidence about *ordering*. Components that recovery could
+            // not relate are placed by input index — a guess — so there the caller's guess is the
+            // better one, and that is what the fallback is for.
+            //
+            // This used to also require every seam to clear `isLowConfidence`, which cost the
+            // Photos path its whole reason to exist. Seam confidence is a statement about one
+            // seam's *offset*, not about the order, and the fallback re-measures that same pair
+            // with the same matcher — so a fuzzy seam stays exactly as fuzzy while a correctly
+            // recovered order is thrown away. Measured on `Fixtures/Screenshots`: recovery nails
+            // that six-screenshot set from any permutation, yet its seam 2→3 scores 0.368, so
+            // every import fell back. With the photos picked in scroll order the fallback is a
+            // no-op and nothing looks wrong, which is why this only surfaced as "stitching works
+            // in order, shatters out of order" (`PhotoPickOrderTests`).
+            let clean = recovered.session.segmentBreaks.isEmpty
             if clean {
                 plan = recovered
             } else {

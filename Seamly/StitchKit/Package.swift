@@ -33,6 +33,7 @@ let package = Package(
                 .copy("Fixtures/wikipedia.png"),
                 .copy("Fixtures/RealDevice"),
                 .copy("Fixtures/Example"),
+                .copy("Fixtures/Screenshots"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
