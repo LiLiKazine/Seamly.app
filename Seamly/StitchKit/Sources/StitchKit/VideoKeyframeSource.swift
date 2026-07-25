@@ -59,6 +59,11 @@ public struct VideoKeyframeSource: Sendable {
             // profiled. Sample buffers are still pulled sequentially (inter-frame codec needs it);
             // the saving is skipping makeCGImage + VerticalProfile.
             if let minInterval, seconds - lastProfiledSeconds < minInterval { continue }
+            // Intentional skip, deliberately not counted as a decode failure: the output is
+            // configured for 32BGRA, so every video sample carries an image buffer and this is
+            // effectively unreachable. A non-video sample that slipped through has no frame to
+            // profile, so there is nothing to record — unlike `makeCGImage` returning nil below,
+            // which *is* a real decode failure and is counted.
             guard let pb = CMSampleBufferGetImageBuffer(sample) else { continue }
             autoreleasepool {
                 guard let image = PixelBufferImage.makeCGImage(from: pb) else { decodeFailures += 1; return }
