@@ -166,10 +166,19 @@ import Foundation
     /// capture isn't shattered into many segments — undetected chrome degrades to "the bar
     /// repeats", never to "content disappears" (the project's surface-don't-mask error policy).
     ///
-    /// **Known gap** (`withKnownIssue`): the band can't lock on a translucent bar, so chrome/
-    /// segment repetition inflates the height. Pixel-only translucent detection is unsolved
-    /// (see 2026-07-05-01 log); when it's addressed this block will start passing and should be
-    /// promoted to a hard assertion.
+    /// **Known gap** (`withKnownIssue`): the *live* band can't lock on a translucent bar, so
+    /// chrome/segment repetition inflates the height here.
+    ///
+    /// Note this is now specifically a **capture-time** gap, not an export one. Translucent chrome
+    /// *is* detected during assembly — see `TranslucentChromeTests`, and
+    /// `ContentBandDetector.isStatic(allowingTranslucency:)` for why the same relaxation is unsafe
+    /// on this path: a scrolling vertical gradient is indistinguishable from a translucent bar by
+    /// that measure, and enabling it here stops the consensus locking at all (it regressed this very
+    /// test and `ChromeStitchReproTests` to `0/0, isLowConfidence`). Because
+    /// `StitchAssembler.resolveGeometry` re-derives the band with `BatchStitcher` at import and
+    /// overwrites whatever the tracker recorded, the finished stitch is unaffected — which is why
+    /// this block is still `withKnownIssue` rather than a hard assertion. Closing it needs a
+    /// gradient-vs-translucency discriminator for the incremental case, not the batch fix.
     @Test func stitchesRealScreenshotWithTranslucentChrome() throws {
         let shot = try loadFixture()
         let contentDocH = shot.height - Self.topChromeH - Self.bottomChromeH

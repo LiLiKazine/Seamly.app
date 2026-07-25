@@ -9,10 +9,19 @@ let package = Package(
     ],
     products: [
         .library(name: "StitchKit", targets: ["StitchKit"]),
+        // Diagnostic driver for real captures — see Sources/stitch-cli.
+        .executable(name: "stitch-cli", targets: ["stitch-cli"]),
     ],
     targets: [
         .target(
             name: "StitchKit",
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .executableTarget(
+            name: "stitch-cli",
+            dependencies: ["StitchKit"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]

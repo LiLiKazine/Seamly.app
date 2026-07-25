@@ -37,6 +37,30 @@ Ground-truth offsets (px): 0→1 = −767, 1→2 = −679 (home/launch genuinely
 the list — spurious negative "best" matches), 2→3 = +175, 3→4 = +25 (the real list scroll).
 This exercises the "junk pre-app frames must not corrupt tracking / must segment off" case.
 
+## `youtube-00..05.png` — YouTube feed, **translucent bottom tab bar** (6 keyframes)
+
+Six committed keyframes from an iPhone 17 Pro Max (iOS 26) screen recording of the YouTube
+feed, decoded through `VideoKeyframeSource` at the app's 30fps cadence and stored at half
+resolution (660×1434). A single clean downward scroll.
+
+The point of this set is the **translucent** tab bar. Unlike the opaque chrome in the sets
+above, its pixels change frame to frame as bright thumbnails scroll behind it, so per-row
+*mean* comparison reads it as moving content:
+
+| bottom-edge row | Δmean (pairs 0-1 … 4-5) | Δvariance | Δ centered signature |
+|---|---|---|---|
+| 639 | 0.003, 0.002, **0.049**, **0.023**, **0.051** | ≤ 0.0007 | ≤ 0.024 |
+
+Three of five pairs blow past the 0.02 mean tolerance while the variance and the
+*mean-centered* shape barely move — the signature that `ContentBandDetector`'s
+`structureTolerance` keys on. Ground truth: the bar's top edge sits ~124px above the frame
+bottom; rows inside the bar keep a centered difference ≤ 0.057 while the first real content
+row jumps to ≥ 0.449.
+
+Before the fix this set produced `bottomChrome == 0` — the bar baked into the stitch once per
+keyframe, hiding the content beneath each copy — plus a thin dark line at every seam from
+rounding the band to the nearest profile row. See `TranslucentChromeTests`.
+
 ## Regenerating / full-resolution
 
 Full-resolution raw BGRA originals (884×1918) were pulled from the app container at

@@ -18,6 +18,18 @@ public struct ContentBandDetector: Sendable {
     public let meanTolerance: Float
     /// Max variance difference for a row to still count as static.
     public let varianceTolerance: Float
+    /// Max change in a row's **mean-centered** horizontal signature for it to still count as
+    /// static. Translucent chrome (a blur / "liquid glass" bar) keeps its own structure while the
+    /// content behind it shifts its brightness, so `meanTolerance` alone rejects it as content;
+    /// comparing shape with the brightness removed still recognizes it.
+    ///
+    /// Measured on the `youtube-*` fixture (a real translucent iOS 26 tab bar) at both full and
+    /// half resolution: rows inside the bar top out at **0.057**, while the first genuine content
+    /// row jumps to **0.449** — an ~8x gap, and the same numbers either way, since the signature is
+    /// always 64 columns wide regardless of source size. The default sits in that gap with roughly
+    /// 2.7x headroom above chrome and 3x below content. Values near 0.05 clip the top of the bar
+    /// (its blur picks up more backdrop the closer it gets to the content edge).
+    public let structureTolerance: Float
     /// Minimum |dy| (rows) that counts as real scroll; pairs below this don't vote.
     public let motionThreshold: Int
     /// Moving pairs required before a band may lock.
@@ -33,6 +45,7 @@ public struct ContentBandDetector: Sendable {
     public init(
         meanTolerance: Float = 0.02,
         varianceTolerance: Float = 0.02,
+        structureTolerance: Float = 0.15,
         motionThreshold: Int = 2,
         minMovingFrames: Int = 3,
         staticFraction: Float = 0.7,
@@ -41,6 +54,7 @@ public struct ContentBandDetector: Sendable {
     ) {
         self.meanTolerance = meanTolerance
         self.varianceTolerance = varianceTolerance
+        self.structureTolerance = structureTolerance
         self.motionThreshold = motionThreshold
         self.minMovingFrames = minMovingFrames
         self.staticFraction = staticFraction
@@ -128,8 +142,52 @@ public struct ContentBandDetector: Sendable {
 
     // MARK: - Helpers
 
-    private func isStatic(_ a: FrameProfile, _ b: FrameProfile, row: Int) -> Bool {
-        abs(a.means[row] - b.means[row]) <= meanTolerance
-            && abs(a.variances[row] - b.variances[row]) <= varianceTolerance
+    /// Whether row `row` held still between the two frames.
+    ///
+    /// `allowingTranslucency` additionally accepts a row whose *shape* is unchanged but whose
+    /// brightness shifted — a translucent bar with content moving behind it.
+    ///
+    /// **Only `BatchStitcher.chromeBand` passes `true`.** The flag exists because that extra
+    /// permissiveness is right for one caller and measurably wrong for the others:
+    ///
+    /// - `staticMask` feeds `OffsetMatcher`. Masking a translucent bar out of the match removes
+    ///   signal: on the `youtube-*` fixture it cost pair 3-4 its overlap edge and split the capture
+    ///   into two segments. `BatchStitcher.downwardMatch` already picks between the masked and
+    ///   unmasked match on confidence alone ("the mask helps some real pairs and flips the sign on
+    ///   others"), so retuning it needs its own measurement pass, not a ride-along.
+    /// - The live consensus (`observe`, `bandChangedSharply`) counts *contiguously* inward and locks
+    ///   only when two successive candidates agree. A vertical gradient scrolls as a near-uniform
+    ///   brightness shift with its horizontal shape intact — indistinguishable from translucency by
+    ///   this measure — so the band creeps into content by a different amount each pair and never
+    ///   locks at all: enabling it here regressed `ChromeStitchReproTests` and
+    ///   `stitchesRealScreenshotScroll` from a correct band to `0/0, isLowConfidence`.
+    ///
+    /// Scoping it to the batch path is also *sufficient*, not just safe: `StitchAssembler`
+    /// `resolveGeometry` re-derives geometry with `BatchStitcher` at import for every source and
+    /// overwrites `contentBands`, so the live detector's band never reaches the finished stitch.
+    /// Translucent chrome during live tracking therefore remains the known gap documented by
+    /// `RealFrameStitchTests.stitchesRealScreenshotWithTranslucentChrome`; it costs capture-time
+    /// band accuracy, not the exported image.
+    func isStatic(_ a: FrameProfile, _ b: FrameProfile, row: Int, allowingTranslucency: Bool = false) -> Bool {
+        guard abs(a.variances[row] - b.variances[row]) <= varianceTolerance else { return false }
+        if abs(a.means[row] - b.means[row]) <= meanTolerance { return true }
+        guard allowingTranslucency else { return false }
+        return (centeredDifference(a, b, row: row) ?? .greatestFiniteMagnitude) <= structureTolerance
+    }
+
+    /// Mean-absolute difference of the two rows' **mean-centered** signatures — how much the row's
+    /// horizontal *shape* changed, with any uniform brightness shift removed.
+    ///
+    /// `nil` when there is no horizontal structure to compare. A single-sample row (the mean-only
+    /// `FrameProfile` initializer) centers to `[0]` in *both* frames, so its shape always matches
+    /// and every row with a steady variance would read as chrome — inverting the mean-based
+    /// contract the profile-level tests rely on. Such rows must stay on the mean test.
+    private func centeredDifference(_ a: FrameProfile, _ b: FrameProfile, row: Int) -> Float? {
+        let ra = a.rows[row], rb = b.rows[row]
+        guard ra.count == rb.count, ra.count > 1 else { return nil }
+        let ma = a.means[row], mb = b.means[row]
+        var sum: Float = 0
+        for c in 0..<ra.count { sum += abs((ra[c] - ma) - (rb[c] - mb)) }
+        return sum / Float(ra.count)
     }
 }
