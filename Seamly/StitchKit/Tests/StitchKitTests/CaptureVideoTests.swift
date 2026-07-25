@@ -67,13 +67,22 @@ import Foundation
         #expect(plan.order == Array(0..<r.keyframes.count), "expected monotonic scroll order, got \(plan.order)")
 
         // IDEAL end-state: a single continuous downward scroll should re-stitch into ONE segment.
-        // It currently does NOT — this is an assembly-side (BatchStitcher) limitation, deferred to
-        // a follow-up (see docs/logs/2026-07-23-01-batch-stitcher-direction-on-image-heavy-content.md).
-        // Root cause: on image-heavy / low-horizontal-texture frames the matcher scores a spurious
-        // "no-scroll" (dy=1) reverse match higher than the real downward scroll, so BatchStitcher
-        // discards the real edge for pairs 2-3 and 3-4 and breaks the stitch. Capture is correct here
-        // (overlaps ~0.5, order recovered above); the defect is purely in re-assembly. When the
-        // stitcher is fixed this block starts passing and should be promoted to a hard assertion.
+        // It currently does NOT, but it is closer: breaks were [2, 3] and are now just [3].
+        //
+        // Pair 2-3 is recovered as of 2026-07-25-07. Its real downward edge (dy=344) was losing the
+        // direction tie-break to a spurious dy=1 reverse match that scored higher on *confidence*
+        // while fitting far worse; direction is now settled on fit, and the chain-joining pass
+        // rescues the edge despite its 0.341 confidence sitting under `edgeConfidence`.
+        //
+        // Pair 3-4 remains, and is a different problem: keyframe 4 is the trailing `finish()`
+        // commit, an artifact of trimming the fixture mid-scroll, so it barely overlaps its
+        // predecessor. Its real edge fits only 0.953 as well as its own reverse — versus 0.996 for
+        // a genuine non-overlap — so no directional test can separate it, and no confidence floor
+        // can either (0.047). Closing this needs the fixture re-trimmed, or the dense live-frame
+        // oracle CLAUDE.md flags as still missing; it is not another threshold.
+        //
+        // Capture is correct here (overlaps ~0.5, order recovered above); the defect is purely in
+        // re-assembly. When the last break goes, promote this block to a hard assertion.
         withKnownIssue("BatchStitcher mis-scores scroll direction on image-heavy content; assembly-side fix deferred (see docs/logs/2026-07-23-01)") {
             #expect(plan.session.segmentBreaks.isEmpty,
                     "real single scroll should re-stitch into one continuous segment, got breaks \(plan.session.segmentBreaks.map { $0.afterKeyframeIndex })")
