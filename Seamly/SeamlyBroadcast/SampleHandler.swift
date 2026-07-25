@@ -43,6 +43,11 @@ class SampleHandler: RPBroadcastSampleHandler {
     private let diag = Diagnostics(containerURL: AppGroup.containerURL, category: .capture)
     private func dlog(_ message: String) { diag.log(message) }
 
+    /// Consecutive failed per-keyframe manifest checkpoints. A single failure is recovered by the
+    /// next keyframe's write, so it isn't worth a line; a *run* of them means the container is
+    /// unwritable and the capture will import short or not at all, which must be diagnosable.
+    private var checkpointFailures = 0
+
     /// Current physical memory footprint in MB (the number ReplayKit's ~50 MB ceiling is measured
     /// against), or -1 if it can't be read. Used only for the diagnostic trace.
     private func memoryFootprintMB() -> Int {
@@ -138,6 +143,9 @@ class SampleHandler: RPBroadcastSampleHandler {
         } catch {
             // The app can still recover this capture via the staleness heuristic, but log:
             // a failed final write is why a finished capture might import as "incomplete".
+            // Via `dlog` too, not just NSLog — the durable App Group file is the only channel
+            // the user can hand back after the fact, and this is exactly that kind of failure.
+            dlog("broadcastFinished: final manifest write FAILED: \(error.localizedDescription)")
             NSLog("Seamly: final manifest write failed: \(error)")
         }
         CFNotificationCenterPostNotification(
@@ -184,10 +192,24 @@ class SampleHandler: RPBroadcastSampleHandler {
         // failure and those fallbacks are safe.
         keyframeIndex = meta.index + 1
         self.session = session
-        // Best-effort incremental checkpoint: the next keyframe rewrites the manifest and
-        // broadcastFinished() writes the authoritative final copy, so a dropped write here is
-        // recovered by the following one. Intentionally not surfaced per-frame.
-        try? store.writeManifest(session)
+        // Incremental checkpoint. One failure is genuinely recoverable — the next keyframe rewrites
+        // the manifest and broadcastFinished() writes the authoritative final copy — so it isn't
+        // surfaced to the user and isn't logged per-frame (this runs once per keyframe and a flood
+        // would push the real trace out of the size-capped log). But the manifest is what makes a
+        // capture importable at all, so a *persistent* failure (disk full, container gone) must not
+        // vanish: log the first, then every 10th, so the trace shows both onset and duration.
+        do {
+            try store.writeManifest(session)
+            if checkpointFailures > 0 {
+                dlog("manifest checkpoint recovered after \(checkpointFailures) consecutive failure(s)")
+                checkpointFailures = 0
+            }
+        } catch {
+            checkpointFailures += 1
+            if checkpointFailures == 1 || checkpointFailures % 10 == 0 {
+                dlog("manifest checkpoint FAILED (\(checkpointFailures) consecutive, at keyframe \(meta.index)): \(error.localizedDescription)")
+            }
+        }
     }
 
     // MARK: - Safety cue
