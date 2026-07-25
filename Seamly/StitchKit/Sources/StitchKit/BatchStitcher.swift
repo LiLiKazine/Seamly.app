@@ -133,7 +133,21 @@ public struct BatchStitcher: Sendable {
             case (nil, nil): pos[e.above] = 0; pos[e.below] = Double(e.dy)
             case (let pa?, nil): pos[e.below] = pa + Double(e.dy)
             case (nil, let pb?): pos[e.above] = pb - Double(e.dy)
-            case (.some, .some): continue   // both already placed in different components: skip
+            case (let pa?, let pb?):
+                // Both endpoints are already placed, in two different components (same-component
+                // edges were skipped above). Positions are only meaningful *within* a component —
+                // each starts its own frame of reference at 0 — so this edge is not a conflict,
+                // it is the offset that finally relates the two frames. Slide the `below`
+                // component so the edge is satisfied, then merge.
+                //
+                // This used to `continue`, silently discarding the edge and leaving a segment
+                // break between two frames that overlap perfectly well. On `youtube-*` the
+                // dropped edge was 1→2 at confidence 0.922 — the third-strongest edge in the
+                // set — because 2-3 and 0-1 happened to be anchored first, which is purely an
+                // artifact of confidence ordering, not evidence about the capture.
+                let shift = (pa + Double(e.dy)) - pb
+                let belowRoot = find(e.below)
+                for k in 0..<n where find(k) == belowRoot { pos[k]? += shift }
             }
             parent[find(e.above)] = find(e.below)
         }
@@ -259,3 +273,4 @@ public struct BatchStitcher: Sendable {
         rows == 0 ? 0 : Int((Double(rows + 1) * rowScale).rounded(.up))
     }
 }
+

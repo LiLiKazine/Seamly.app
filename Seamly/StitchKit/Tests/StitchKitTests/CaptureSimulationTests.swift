@@ -149,21 +149,18 @@ import Foundation
         let plan = try BatchStitcher().plan(kfs.map { $0.image })
         #expect(plan.order == Array(0..<kfs.count), "captured order should already be scroll order")
 
-        // ...but one internal edge (kf 3→4) falls under `BatchStitcher`'s default 0.45
-        // edge-confidence floor: this stretch of the real Discover feed has less differentiated
-        // structure than its neighbours, which is a genuine limit of *blind* (order-unaware)
-        // pairwise re-matching on real content at this keyframe density. This is NOT the fling's
-        // doing — disabling `flingAtFrame` during calibration reproduced the identical single
-        // break (just at a shifted index), and it is not a capture defect either: the driver
-        // still committed a correctly-overlapping keyframe here (`overlaps` above confirms its
-        // measured overlap sits in the normal cadence band). This is the documented fallback per
-        // the calibration decision: assert the one known break explicitly, with its real cause,
-        // rather than tune indefinitely for an oracle-content coincidence.
+        // ...and the whole scroll now re-derives as ONE segment. This assertion used to expect a
+        // single internal break, attributed to an edge falling under the 0.45 edge-confidence
+        // floor. That diagnosis was wrong: the break disappeared when `layout` stopped discarding
+        // an overlap edge whose endpoints were both already positioned in different components
+        // (2026-07-25-06). A genuinely sub-floor edge could not have been rescued by a merge fix,
+        // so the edge had always cleared the floor — it was being thrown away afterwards, at a
+        // location determined by how the confidences happened to sort.
         //
-        // This is the same assembly-side direction-scoring class documented in
-        // docs/logs/2026-07-23-01-batch-stitcher-direction-on-image-heavy-content.md. Revisit this
-        // assertion (likely flips to `segmentBreaks.isEmpty`) once that follow-up fix lands.
-        #expect(plan.session.segmentBreaks.count == 1, "expected exactly the one known low-confidence internal edge, got \(plan.session.segmentBreaks)")
-        #expect(plan.session.segmentBreaks.first?.reason == .lostLock)
+        // Zero breaks is the correct answer here and not over-merging: `overlaps` above confirms
+        // every consecutive pair sits in the 0.40–0.60 cadence band, i.e. they really do overlap.
+        #expect(plan.session.segmentBreaks.isEmpty,
+                "continuous simulated scroll should re-derive as one segment, got \(plan.session.segmentBreaks)")
+        #expect(plan.session.seams.count == kfs.count - 1)
     }
 }
