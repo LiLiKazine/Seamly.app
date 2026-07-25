@@ -88,8 +88,8 @@ final class LibraryModel {
     /// Import picked screenshots as a new capture. Recovers scroll order from overlap, falling back
     /// to the pick order (badged) when recovery can't confidently chain them.
     func importPhotos(_ images: [CGImage]) async {
-        await runImport { store in
-            try MediaImporter.write(images: images, into: store, strategy: .recoverOrInputOrder, source: .photos)
+        await runImport { store, diag in
+            try MediaImporter.write(images: images, into: store, strategy: .recoverOrInputOrder, source: .photos, diag: diag)
         }
     }
 
@@ -98,6 +98,13 @@ final class LibraryModel {
     func importVideo(_ url: URL) async {
         importProgress = 0
         let diag = self.diag
+        defer {
+            // `PickedMovie` copied the recording into tmp/ purely so AVAssetReader could open it;
+            // decoding is done by the time this returns, so the copy is ours to drop. These are
+            // large, and while tmp/ is OS-purgeable they otherwise accumulate for the whole session.
+            do { try FileManager.default.removeItem(at: url) }
+            catch { diag.log("importVideo: temp cleanup failed: \(error.localizedDescription)") }
+        }
         // A `@Sendable` sink that hops each fraction back to the main actor to update UI state.
         let sink: @Sendable (Double) -> Void = { [weak self] frac in
             Task { @MainActor in self?.importProgress = frac }
@@ -120,19 +127,19 @@ final class LibraryModel {
             importError = error.localizedDescription
             diag.log("importVideo: decode FAILED: \(error.localizedDescription)")
         case .success(let images):
-            await runImport { store in
-                try MediaImporter.write(images: images, into: store, strategy: .inputOrder, source: .video)
+            await runImport { store, diag in
+                try MediaImporter.write(images: images, into: store, strategy: .inputOrder, source: .video, diag: diag)
             }
         }
     }
 
     /// Shared tail: run a `MediaImporter.write` off-main, then reload + assemble the new capture, or
     /// record a user-visible error. `.notEnoughContent` maps to the friendly empty nudge.
-    private func runImport(_ body: @escaping @Sendable (SessionStore) throws -> UUID) async {
+    private func runImport(_ body: @escaping @Sendable (SessionStore, Diagnostics) throws -> UUID) async {
         let store = appStore
         let diag = self.diag
         let result: Result<UUID, Error> = await Task.detached {
-            do { return .success(try body(store)) }
+            do { return .success(try body(store, diag)) }
             catch { return .failure(error) }
         }.value
         switch result {

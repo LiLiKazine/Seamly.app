@@ -27,6 +27,10 @@ struct MediaImportTests {
         return ctx.makeImage()!
     }
 
+    /// `Diagnostics` with no container: the unified-log channel still runs (harmless under test),
+    /// and nothing is written to disk, so import logging can't leak files into the test run.
+    static let silentDiagnostics = Diagnostics(containerURL: nil, category: .app)
+
     static func slices(count: Int, width: Int, sliceH: Int, dy: Int) -> [CGImage] {
         let src = makeSource(width: width, height: sliceH + (count - 1) * dy)
         return (0..<count).map { src.cropping(to: CGRect(x: 0, y: $0 * dy, width: width, height: sliceH))! }
@@ -83,7 +87,7 @@ struct MediaImportTests {
         let store = SessionStore(containerURL: root)
         let imgs = Self.slices(count: 3, width: 120, sliceH: 360, dy: 140)
 
-        let id = try MediaImporter.write(images: imgs, into: store, strategy: .inputOrder, source: .video)
+        let id = try MediaImporter.write(images: imgs, into: store, strategy: .inputOrder, source: .video, diag: Self.silentDiagnostics)
         let session = try store.readManifest(for: id)
         #expect(session.keyframes.count == 3)
         #expect(session.status == .complete)
@@ -104,7 +108,7 @@ struct MediaImportTests {
         let store = SessionStore(containerURL: root)
         let one = Self.slices(count: 1, width: 120, sliceH: 360, dy: 140)
         #expect(throws: MediaImporter.ImportError.self) {
-            try MediaImporter.write(images: one, into: store, strategy: .recoverOrInputOrder, source: .photos)
+            try MediaImporter.write(images: one, into: store, strategy: .recoverOrInputOrder, source: .photos, diag: Self.silentDiagnostics)
         }
     }
 
