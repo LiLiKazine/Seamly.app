@@ -40,11 +40,7 @@ class SampleHandler: RPBroadcastSampleHandler {
     // a durable App Group file the app can read back and share. This is how a capture that produces
     // no output stays diagnosable after the fact.
     private var frameCount = 0
-    private static let debugGroupID = "group.io.github.lilikazine.Seamly"
-    private let diag = Diagnostics(
-        containerURL: FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: SampleHandler.debugGroupID),
-        category: .capture
-    )
+    private let diag = Diagnostics(containerURL: AppGroup.containerURL, category: .capture)
     private func dlog(_ message: String) { diag.log(message) }
 
     /// Current physical memory footprint in MB (the number ReplayKit's ~50 MB ceiling is measured
@@ -61,7 +57,7 @@ class SampleHandler: RPBroadcastSampleHandler {
     }
 
     override func broadcastStarted(withSetupInfo setupInfo: [String: NSObject]?) {
-        let container = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.io.github.lilikazine.Seamly")
+        let container = AppGroup.containerURL
         dlog("broadcastStarted: container=\(container?.path ?? "NIL")")
         guard let container else {
             finishBroadcastWithError(NSError(domain: "Seamly", code: 1, userInfo: [NSLocalizedDescriptionKey: "App Group unavailable"]))
@@ -146,7 +142,7 @@ class SampleHandler: RPBroadcastSampleHandler {
         }
         CFNotificationCenterPostNotification(
             CFNotificationCenterGetDarwinNotifyCenter(),
-            CFNotificationName("io.github.lilikazine.Seamly.sessionFinished" as CFString),
+            CFNotificationName(AppGroup.sessionFinishedNotification as CFString),
             nil, nil, true
         )
     }
