@@ -166,19 +166,22 @@ import Foundation
     /// capture isn't shattered into many segments — undetected chrome degrades to "the bar
     /// repeats", never to "content disappears" (the project's surface-don't-mask error policy).
     ///
-    /// **Known gap** (`withKnownIssue`): the *live* band can't lock on a translucent bar, so
-    /// chrome/segment repetition inflates the height here.
+    /// **Known gap** (`withKnownIssue`): `PositionTracker`'s consensus band can't lock on a
+    /// translucent bar, so chrome/segment repetition inflates the height here.
     ///
-    /// Note this is now specifically a **capture-time** gap, not an export one. Translucent chrome
-    /// *is* detected during assembly — see `TranslucentChromeTests`, and
-    /// `ContentBandDetector.isStatic(allowingTranslucency:)` for why the same relaxation is unsafe
-    /// on this path: a scrolling vertical gradient is indistinguishable from a translucent bar by
-    /// that measure, and enabling it here stops the consensus locking at all (it regressed this very
-    /// test and `ChromeStitchReproTests` to `0/0, isLowConfidence`). Because
-    /// `StitchAssembler.resolveGeometry` re-derives the band with `BatchStitcher` at import and
-    /// overwrites whatever the tracker recorded, the finished stitch is unaffected — which is why
-    /// this block is still `withKnownIssue` rather than a hard assertion. Closing it needs a
-    /// gradient-vs-translucency discriminator for the incremental case, not the batch fix.
+    /// This gap does **not** describe the shipping app, and this block should not be read as one.
+    /// `buildSession` below drives `PositionTracker`, which has no callers outside tests; the real
+    /// capture path (`SampleHandler` → `ScrollCaptureDriver` → `KeyframeSelector`) never computes a
+    /// content band, and the band in a finished stitch is always `BatchStitcher`'s, re-derived at
+    /// import. Translucent chrome *is* handled there — see `TranslucentChromeTests`.
+    ///
+    /// So this stays `withKnownIssue` for a different reason than "unsolved": the batch fix
+    /// deliberately does not apply here. `ContentBandDetector.isStatic(allowingTranslucency:)`
+    /// records why — a scrolling vertical gradient is indistinguishable from a translucent bar by
+    /// that measure, and enabling it on the incremental path stops the consensus locking at all
+    /// (it regressed this very test and `ChromeStitchReproTests` to `0/0, isLowConfidence`). Closing
+    /// it needs a gradient-vs-translucency discriminator for the incremental case — worth doing only
+    /// if `PositionTracker` regains a production role.
     @Test func stitchesRealScreenshotWithTranslucentChrome() throws {
         let shot = try loadFixture()
         let contentDocH = shot.height - Self.topChromeH - Self.bottomChromeH
