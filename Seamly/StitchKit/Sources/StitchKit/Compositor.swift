@@ -48,12 +48,43 @@ public struct Compositor: Sendable {
 
     /// Snap each seam's provisional offset to pixel precision, and flag seams with a
     /// nonzero horizontal component or a low-confidence vertical match.
+    ///
+    /// Refinement matches with the segment's chrome band **masked out**, the same restriction
+    /// `BatchStitcher` applies to its own matching. This was the last matching path that scored
+    /// chrome rows as if they were content.
+    ///
+    /// Measured on `youtube-*` (660×1434, half-res, band 115/124), refined `dy` against a
+    /// full-width brute-force MAD over the content band:
+    ///
+    /// | pair | truth | unmasked | masked |
+    /// |------|-------|----------|--------|
+    /// | 0-1  | 744   | 744 @ 0.74 | 744 @ 0.95 |
+    /// | 1-2  | 716†  | 716 @ 0.57 | 717 @ 0.79 |
+    /// | 2-3  | 726   | 726 @ 0.70 | 726 @ 0.95 |
+    /// | 3-4  | 755†  | **754** @ 0.16 | 755 @ 0.73 |
+    /// | 4-5  | 721   | 721 @ 0.47 | 721 @ 0.98 |
+    ///
+    /// († sub-pixel: these two pairs are 1433/2 and 1509/2 at full resolution, so 716.5 and
+    /// 754.5 — no integer answer exists and the brute-force costs are a near tie. The three
+    /// pairs with an exact integer truth are pixel-exact either way.)
+    ///
+    /// The win is **confidence**, not the argmin: masking roughly doubles the score valley's
+    /// depth, and the worst pair goes 0.16 → 0.73. That matters because a match scoring below
+    /// `refinementConfidence` is discarded and the coarse provisional kept, so before this the
+    /// hardest seam — the one that most needed refining — was the one that never got refined.
+    ///
+    /// Deliberately **not** done: widening `VerticalProfile.targetWidth` for refinement, which
+    /// issue #9 proposed as the fix. Measured at 64, 128, 256, 512 and full 660 columns, every
+    /// pair returned an identical `dy` and a confidence differing by ≤0.01. The 1px discrepancy
+    /// is not a horizontal-sampling artifact, so paying ~10x the render cost buys nothing.
     public func refineSeams(_ session: StitchSession, images: (Keyframe) throws -> CGImage) throws -> [Seam] {
         let byIndex = Dictionary(uniqueKeysWithValues: session.keyframes.map { ($0.index, $0) })
+        let bandByKeyframe = contentBandByKeyframeIndex(session)
         return try session.seams.map { seam in
             guard let a = byIndex[seam.fromIndex], let b = byIndex[seam.fromIndex + 1] else { return seam }
             let imgA = try images(a), imgB = try images(b)
-            let (dy, confident) = refineVertical(imgA, imgB, provisional: seam.provisionalDy)
+            let mask = contentRowMask(bandByKeyframe[seam.fromIndex], frameHeight: imgA.height)
+            let (dy, confident) = refineVertical(imgA, imgB, provisional: seam.provisionalDy, rowMask: mask)
             let dx = measureHorizontal(imgA, imgB, dy: dy)
             var refined = seam
             refined.provisionalDy = dy
@@ -309,16 +340,43 @@ public struct Compositor: Sendable {
 
     /// Pixel-exact vertical refinement around the provisional offset; falls back to the
     /// provisional value when the local match isn't confident.
-    private func refineVertical(_ a: CGImage, _ b: CGImage, provisional: Int) -> (dy: Int, confident: Bool) {
+    private func refineVertical(_ a: CGImage, _ b: CGImage, provisional: Int, rowMask: [Bool]?) -> (dy: Int, confident: Bool) {
         let h = a.height
         let pa = profiler.profile(a, forcingHeight: h)
         let pb = profiler.profile(b, forcingHeight: b.height)
         let lo = max(1, provisional - refinementDelta)
         let hi = min(h - matcher.minimumOverlap, provisional + refinementDelta)
         guard hi >= lo else { return (provisional, false) }
-        let m = matcher.match(pa, pb, searchRange: lo...hi)
+        let m = matcher.match(pa, pb, searchRange: lo...hi, rowMask: rowMask)
         if m.confidence >= refinementConfidence { return (m.dy, true) }
         return (provisional, false)
+    }
+
+    /// Screen-row mask marking the scrolling content of a frame `frameHeight` tall — `false`
+    /// over the segment's chrome band, `true` elsewhere. `nil` when there is nothing to mask.
+    ///
+    /// Chrome rows are the one thing in the frame that is *not* a function of scroll position, so
+    /// including them in the refinement score adds a constant-ish floor of noise that is unrelated
+    /// to the offset being measured. That noise doesn't usually move the argmin, but it badly
+    /// flattens the score valley — and refinement is gated on `refinementConfidence`, which is
+    /// exactly a measure of how deep that valley is. See `refineSeams` for the measurements.
+    private func contentRowMask(_ band: ContentBand?, frameHeight: Int) -> [Bool]? {
+        guard let band, band.isPlausible(forFrameHeight: frameHeight) else { return nil }
+        let top = max(0, band.topChrome)
+        let bottom = max(0, band.bottomChrome)
+        guard top > 0 || bottom > 0 else { return nil }
+        return (0..<frameHeight).map { $0 >= top && $0 < frameHeight - bottom }
+    }
+
+    /// Maps each keyframe index to the `ContentBand` of the segment it belongs to, so a seam can
+    /// be refined against its own segment's chrome rather than the first segment's.
+    private func contentBandByKeyframeIndex(_ session: StitchSession) -> [Int: ContentBand] {
+        var result: [Int: ContentBand] = [:]
+        for (s, segment) in splitIntoSegments(session).enumerated() {
+            let band = session.contentBand(forSegment: s)
+            for kf in segment { result[kf.index] = band }
+        }
+        return result
     }
 
     /// Lightweight incidental horizontal shift over the overlap band (monitoring only —
