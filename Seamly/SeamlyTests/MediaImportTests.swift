@@ -38,7 +38,7 @@ struct MediaImportTests {
 
     /// Writes `images` as raw keyframes + a base manifest into a fresh session folder, returning
     /// (store, id, folder). Used to drive resolveGeometry directly.
-    private func writeBase(_ images: [CGImage], root: URL) throws -> (SessionStore, UUID, URL) {
+    func writeBase(_ images: [CGImage], root: URL) throws -> (SessionStore, UUID, URL) {
         let store = SessionStore(containerURL: root)
         let id = UUID()
         let folder = try store.createFolder(for: id)

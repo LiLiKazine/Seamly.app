@@ -3,11 +3,25 @@ import Foundation
 import StitchKit
 
 /// How `resolveGeometry` decides scroll order.
+///
+/// The choice is really "how much do we trust the order the images arrived in?", and that
+/// depends entirely on where they came from — a photo pick order is a user's guess, while a
+/// broadcast's or a video's is a timeline.
+///
+/// Note the fallback never *merges* anything. It only stops re-ordering: the assumed-order path
+/// still runs `BatchStitcher.segmentsAlong`, which re-tests each consecutive pair for overlap and
+/// breaks where there is none. Measured on the real device fixtures — `wechat-*` (home screen →
+/// launch animation → chat list, genuinely non-overlapping) keeps its breaks after 0, 1 and 3
+/// under every strategy here.
 enum OrderStrategy {
-    /// Recover order from pixel overlap; never fall back. Behaviour-preserving for broadcast.
+    /// Recover order from pixel overlap; never fall back.
+    ///
+    /// Now unused by the shipping import paths. Kept for callers that have no meaningful input
+    /// order at all — with one, `.recoverOrInputOrder` strictly dominates this, since it does the
+    /// same recovery first and only differs when that recovery is not trustworthy.
     case recover
-    /// Recover; if the result isn't one clean, confident chain, fall back to the input (pick)
-    /// order and mark `orderAssumed`. Used by "From Photos".
+    /// Recover; if the result isn't one clean, confident chain, fall back to the input order and
+    /// mark `orderAssumed`. Used by "From Photos" and by broadcast import.
     case recoverOrInputOrder
     /// Trust the input order verbatim (capture/temporal order). Used by "From Video".
     case inputOrder

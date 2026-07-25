@@ -202,11 +202,18 @@ final class LibraryModel {
                             diag.log("import: \(shortID) IMPORTED into app storage")
                             // Resolve scroll order + geometry once, now, so the manifest the app
                             // composites (and the user edits) is correct. The extension's live
-                            // order/seams/bands are unreliable; re-derive from the keyframes.
+                            // seams/bands are unreliable; re-derive them from the keyframes.
+                            //
+                            // Its *order*, however, is trustworthy: `ScrollCaptureDriver` numbers
+                            // keyframes monotonically as it banks them, so a broadcast's stored
+                            // order is capture order — the same temporal ordering that justifies
+                            // `.inputOrder` for video. So recovery gets first refusal, and when it
+                            // can't produce one clean confident chain we fall back to that order
+                            // and badge `orderAssumed` rather than shipping a mis-recovered one.
                             do {
-                                let resolved = try StitchAssembler.resolveGeometry(session, in: dest, strategy: .recover)
+                                let resolved = try StitchAssembler.resolveGeometry(session, in: dest, strategy: .recoverOrInputOrder)
                                 try appStore.writeManifest(resolved)
-                                diag.log("import: \(shortID) geometry resolved (\(resolved.keyframes.count) kf, \(resolved.seams.count) seams, \(resolved.segmentBreaks.count) breaks)")
+                                diag.log("import: \(shortID) geometry resolved (\(resolved.keyframes.count) kf, \(resolved.seams.count) seams, \(resolved.segmentBreaks.count) breaks, orderAssumed=\(resolved.orderAssumed))")
                             } catch {
                                 // Non-fatal: keep the extension's manifest so the capture still
                                 // imports (it may stitch imperfectly) rather than being lost.
