@@ -32,7 +32,9 @@ public struct BatchStitcher: Sendable {
     let edgeConfidence: Double
     /// Fewest profile rows of scroll for a pair to be an edge (rejects near-duplicate frames).
     let minEdgeDy: Int
-    /// Max mean/variance delta (0...1 luminance) for a row to read as static chrome.
+    /// Max mean/variance delta (0...1 luminance) for a row to read as static chrome. The
+    /// translucency (shape) term of that test keeps `ContentBandDetector`'s default — it is scaled
+    /// to the signature width, not to this luminance tolerance.
     let chromeTolerance: Float
     /// ± source px searched around each provisional seam during compositing. Wider than the
     /// compositor's default because a downscaled provisional offset can be a few px off.
@@ -210,21 +212,38 @@ public struct BatchStitcher: Sendable {
 
     // MARK: - Chrome
 
-    /// The chrome shared by every adjacent pair in a segment: rows static (mean+variance within
-    /// tolerance) in *all* pairs, counted inward from each edge. Intersection, not union, so a
-    /// coincidentally-still content row in one pair can't over-crop. No pairs → `.unlocked`.
+    /// The chrome shared by every adjacent pair in a segment: rows static in *all* pairs, counted
+    /// inward from each edge. Intersection, not union, so a coincidentally-still content row in one
+    /// pair can't over-crop. No pairs → `.unlocked`.
+    ///
+    /// The static test is `ContentBandDetector`'s, not a local copy: this used to inline its own
+    /// mean+variance comparison, which is how the two drifted — the detector learned to recognize
+    /// translucent chrome by shape while this path kept rejecting it, so a blurred tab bar produced
+    /// `bottomChrome == 0` here and got baked into the stitch once per keyframe.
     private func chromeBand(_ pairs: [(FrameProfile, FrameProfile)], rowScale: Double) -> ContentBand {
         guard !pairs.isEmpty else { return .unlocked }
         let n = pairs.map { min($0.0.rowCount, $0.1.rowCount) }.min()!
+        let detector = ContentBandDetector(meanTolerance: chromeTolerance, varianceTolerance: chromeTolerance)
         func staticAll(_ i: Int) -> Bool {
-            pairs.allSatisfy { abs($0.0.means[i] - $0.1.means[i]) <= chromeTolerance && abs($0.0.variances[i] - $0.1.variances[i]) <= chromeTolerance }
+            pairs.allSatisfy { detector.isStatic($0.0, $0.1, row: i, allowingTranslucency: true) }
         }
         var top = 0; while top < n, staticAll(top) { top += 1 }
         var bottom = 0; while bottom < n - top, staticAll(n - 1 - bottom) { bottom += 1 }
         return ContentBand(
-            topChrome: Int((Double(top) * rowScale).rounded()),
-            bottomChrome: Int((Double(bottom) * rowScale).rounded()),
+            topChrome: sourcePixels(top, rowScale: rowScale),
+            bottomChrome: sourcePixels(bottom, rowScale: rowScale),
             isLowConfidence: false
         )
+    }
+
+    /// Convert a count of static profile rows to source pixels, rounding **outward** by one row.
+    ///
+    /// A profile row aggregates `rowScale` source pixels, so the first row that reads as content is
+    /// typically part chrome and part content — rounding to nearest leaves a sliver of the bar in
+    /// every frame's strip, which the hard cut then bakes in as a thin line at each seam. Cropping
+    /// a few extra *chrome* pixels is harmless; leaving a few behind is visible. A zero band stays
+    /// zero — there is no chrome to round outward from, and widening it would eat content.
+    private func sourcePixels(_ rows: Int, rowScale: Double) -> Int {
+        rows == 0 ? 0 : Int((Double(rows + 1) * rowScale).rounded(.up))
     }
 }
