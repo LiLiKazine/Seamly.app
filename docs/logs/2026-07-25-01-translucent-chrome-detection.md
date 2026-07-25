@@ -1,6 +1,7 @@
 # 2026-07-25-01: Translucent chrome defeats static-row band detection
 
-**Status:** Implemented (assembly path). The live-tracking path remains a documented gap — see
+**Status:** Implemented. Covers every path that produces a finished stitch. The unfixed
+incremental-consensus case is `PositionTracker`-only, which has no production callers — see
 "What Was Discovered".
 
 ## Context
@@ -50,8 +51,9 @@ own structure (icons, labels) stays put. The measured margin is ~8× and resolut
 
 Scoping it to the batch path is not a compromise but the correct blast radius, and it is
 *sufficient*: `StitchAssembler.resolveGeometry` re-derives geometry with `BatchStitcher` at import
-for **every** source (broadcast included, `LibraryModel.swift:200`) and overwrites `contentBands`,
-so the live detector's band never reaches the finished stitch.
+for **every** source (broadcast included, `LibraryModel.swift:200`) and overwrites `contentBands`.
+Stronger still — the shipping capture path never computes a content band in the first place (see
+"What Was Discovered"), so there is no second implementation left holding the old behaviour.
 
 `chromeBand` now calls `ContentBandDetector.isStatic` rather than inlining its own copy of the
 comparison. The duplication was the mechanism of this bug: two implementations of "is this row
@@ -74,7 +76,23 @@ static" that could drift, and did.
 
 ## What Was Discovered
 
-- **Enabling the structural test on the live consensus path breaks it.** `observe` /
+- **A legacy capture tier is still acting as the project's regression oracle.** Verifying the
+  paragraph above turned up something broader: `PositionTracker` (240 lines) and `FrameSelector`
+  have **no production callers** — `PositionTracker` appears outside its own file only in doc
+  comments and 5 test files, and `FrameSelector` not even in a doc comment. The shipping path is
+  `SampleHandler` → `ScrollCaptureDriver` → `KeyframeSelector`, and `KeyframeSelector` touches
+  `ContentBandDetector` only via `staticMask` — so **live capture never computes a content band at
+  all**. `ContentBandDetector`'s whole consensus half (`observe`, `lockedBand`,
+  `bandChangedSharply`, and the `motionThreshold` / `minMovingFrames` / `staticFraction` /
+  `jumpThreshold` parameters, plus 5 of its 7 tests) is reachable only from `PositionTracker`.
+
+  This matters beyond dead code: `RealFrameStitchTests` and `ChromeStitchReproTests` both label
+  their `buildSession` helper a "Faithful mirror of SampleHandler's capture → session pipeline",
+  and that claim is now **false** — those are the real-device oracles, and they validate a pipeline
+  the app no longer ships. It explains why the translucent-chrome `withKnownIssue` could not be
+  promoted by this fix. Not addressed here (deleting a tracker plus rewriting four test suites onto
+  the shipped path is well outside a cropping fix); flagged for a decision.
+- **Enabling the structural test on the incremental consensus path breaks it.** `observe` /
   `bandChangedSharply` count contiguously inward and lock only when two successive candidates
   agree. A scrolling vertical *gradient* is a near-uniform brightness shift with its horizontal
   shape intact — indistinguishable from translucency by this measure — so the band creeps into

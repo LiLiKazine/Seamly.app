@@ -11,8 +11,16 @@ import Foundation
 /// single-pair inaccuracy (76 vs 24 px; 23→73).
 ///
 /// All row indices are **profile rows**; the caller converts to source pixels via `rowScale`.
-/// Used serially by `PositionTracker`, one detector per segment (a value type, mutated in
-/// place — no shared state, no actor needed).
+/// A value type, mutated in place — no shared state, no actor needed.
+///
+/// Two distinct halves, with different reach. The **per-pair** queries (`staticMask`, `isStatic`)
+/// are what ships: `KeyframeSelector` uses `staticMask` during live capture, and
+/// `BatchStitcher.chromeBand` uses `isStatic` to measure the band that ends up in the stitch. The
+/// **consensus** half (`observe`, `lockedBand`, `bandChangedSharply`) is used serially by
+/// `PositionTracker`, one detector per segment — and `PositionTracker` has no callers outside tests,
+/// so nothing it produces reaches a finished capture. Keep that split in mind before tuning: a
+/// change to `isStatic`'s defaults moves real output, a change to the consensus parameters moves
+/// only tests.
 public struct ContentBandDetector: Sendable {
     /// Max mean difference for a row to still count as static (0...1 luminance).
     public let meanTolerance: Float
@@ -155,19 +163,22 @@ public struct ContentBandDetector: Sendable {
     ///   into two segments. `BatchStitcher.downwardMatch` already picks between the masked and
     ///   unmasked match on confidence alone ("the mask helps some real pairs and flips the sign on
     ///   others"), so retuning it needs its own measurement pass, not a ride-along.
-    /// - The live consensus (`observe`, `bandChangedSharply`) counts *contiguously* inward and locks
-    ///   only when two successive candidates agree. A vertical gradient scrolls as a near-uniform
-    ///   brightness shift with its horizontal shape intact — indistinguishable from translucency by
-    ///   this measure — so the band creeps into content by a different amount each pair and never
-    ///   locks at all: enabling it here regressed `ChromeStitchReproTests` and
+    /// - The incremental consensus (`observe`, `bandChangedSharply`) counts *contiguously* inward and
+    ///   locks only when two successive candidates agree. A vertical gradient scrolls as a
+    ///   near-uniform brightness shift with its horizontal shape intact — indistinguishable from
+    ///   translucency by this measure — so the band creeps into content by a different amount each
+    ///   pair and never locks at all: enabling it there regressed `ChromeStitchReproTests` and
     ///   `stitchesRealScreenshotScroll` from a correct band to `0/0, isLowConfidence`.
     ///
-    /// Scoping it to the batch path is also *sufficient*, not just safe: `StitchAssembler`
-    /// `resolveGeometry` re-derives geometry with `BatchStitcher` at import for every source and
-    /// overwrites `contentBands`, so the live detector's band never reaches the finished stitch.
-    /// Translucent chrome during live tracking therefore remains the known gap documented by
-    /// `RealFrameStitchTests.stitchesRealScreenshotWithTranslucentChrome`; it costs capture-time
-    /// band accuracy, not the exported image.
+    /// Note the second case is not a shipping gap. That consensus API is reachable only from
+    /// `PositionTracker`, which nothing in the app or the broadcast extension constructs — the
+    /// capture path is `SampleHandler` → `ScrollCaptureDriver` → `KeyframeSelector`, and
+    /// `KeyframeSelector` uses this type *only* for `staticMask`. Live capture therefore never
+    /// computes a content band at all; the band that reaches the finished stitch is always the one
+    /// `BatchStitcher` derives at import (`StitchAssembler.resolveGeometry` overwrites
+    /// `contentBands` for every source). So live capture's exposure to translucent chrome is the
+    /// first bullet — bar rows counted as scroll signal, which can nudge commit timing — not a
+    /// wrong band.
     func isStatic(_ a: FrameProfile, _ b: FrameProfile, row: Int, allowingTranslucency: Bool = false) -> Bool {
         guard abs(a.variances[row] - b.variances[row]) <= varianceTolerance else { return false }
         if abs(a.means[row] - b.means[row]) <= meanTolerance { return true }
