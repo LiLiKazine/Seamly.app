@@ -5,7 +5,7 @@ import Foundation
 @testable import StitchKit
 
 /// `BatchStitcher` stitches a *fixed, unordered* set of overlapping screenshots (the
-/// off-device "pick images → stitch" case), as opposed to `PositionTracker`, which models a
+/// off-device "pick images → stitch" case), as opposed to `ScrollCaptureDriver`, which models a
 /// live ordered broadcast stream. The oracle is the three real Chrome/Discover screenshots in
 /// `Fixtures/Example`, which the streaming path stacks (wrong order, lost lock on every pair).
 @Suite struct BatchStitcherTests {

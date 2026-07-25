@@ -32,7 +32,8 @@ translucent by default.
 | Loosen `meanTolerance` | One-line change | No safe value exists: the bar's mean shift (0.051) overlaps real content's. Measured 0.06/0.10 both land on the correct band here, but only because *this* content happens to differ elsewhere — it removes the discriminator rather than fixing it |
 | Consensus voting instead of unanimity (mirror `consensusBand`'s `staticFraction`) | Reuses an existing, proven idea | Doesn't work: only 2 of 5 pairs read the bottom rows as static (0.4), below the 0.7 threshold. Unanimity isn't the problem; the *measure* is |
 | Drop the mean term, keep variance only | Detected the band correctly (54 rows, stable across a 3.3× threshold range) | Variance alone can't distinguish a flat *content* band at the frame edge from flat chrome — it discards real signal |
-| **Mean-centered signature comparison (chosen)** | Translucency shifts brightness but preserves horizontal *shape*; comparing centered signatures isolates exactly that. Measured gap: chrome ≤ 0.057, first content row ≥ 0.449 — ~8×, and identical at full and half resolution | Needs a guard for single-sample rows, and is unsafe on the incremental path (see below) |
+| Mean-centered signature comparison alone | Isolates the right property; measured gap on `youtube-*` is ~8× (chrome ≤ 0.057, first content row ≥ 0.449), identical at full and half resolution | **Insufficient on its own** — see the follow-up below. Content whose horizontal pattern repeats identically row to row scores *exactly* 0, so it reads as chrome |
+| **Centered signature + a bounded brightness shift (chosen)** | Requires both halves of the physical signature: shape preserved *and* brightness moved only as far as a blur material plausibly tints. Separates both failure directions | Two constants instead of one; needs a guard for single-sample rows |
 
 ## Decision
 
@@ -76,6 +77,26 @@ static" that could drift, and did.
 
 ## What Was Discovered
 
+- **Follow-up (same day): the shape test alone over-cropped, and the fixtures couldn't see it.**
+  Pointing `ChromeStitchReproTests` at the shipped path (see 2026-07-25-02) immediately collapsed it:
+  output 272px against 1244px expected, because `chromeBand` measured bottom chrome as **240px when
+  the truth is 20px**. Cause: that fixture's `lowVarDoc` gives every row the *same* horizontal
+  pattern (`c % 7 == 0`) and varies only per-row brightness — so its centered difference is
+  **exactly 0.0000** while its mean shifts by **0.486–0.773**. Identical shape, different brightness
+  is the translucency signature, so real content was cropped as chrome.
+
+  This was a genuine production regression, not a test artifact: before the change the mean test
+  correctly rejected those rows. It was invisible because these suites did not exercise `chromeBand`
+  at all — the only fixture that did was `youtube-*`, which happens not to contain such content.
+  Fixed by requiring **both** halves of the signature: `translucencyMeanCeiling` (0.20) bounds the
+  brightness shift, since a blur material tints toward its backdrop but cannot swing 0.5. The bar
+  measures ≤ 0.051 and that content ≥ 0.486, so the ceiling sits ~4× above one and ~2.4× below the
+  other. After it: `ChromeStitchRepro` bands land at 25/21 against a truth of 24/20 (output ratio
+  0.99), and the `youtube-*` band is unchanged at 247px.
+
+  Lesson worth keeping: "the intersection across all pairs protects against over-cropping" was
+  wrong, and one real fixture was not enough to establish it. The adversarial low-signal synthetic
+  fixture caught what the realistic one could not.
 - **A legacy capture tier is still acting as the project's regression oracle.** Verifying the
   paragraph above turned up something broader: `PositionTracker` (240 lines) and `FrameSelector`
   have **no production callers** — `PositionTracker` appears outside its own file only in doc

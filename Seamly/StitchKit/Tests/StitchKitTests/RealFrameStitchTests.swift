@@ -95,50 +95,16 @@ import Foundation
         return ps
     }
 
-    // MARK: - Faithful mirror of SampleHandler's capture → session pipeline
-
-    private func buildSession(_ frames: [CGImage]) -> (StitchSession, [Int: CGImage]) {
-        let profiler = VerticalProfile()
-        var tracker = PositionTracker()
-        var selector = FrameSelector()
-        var session = StitchSession(createdAt: Date(), status: .recording, deviceScale: 1, orientation: .portrait)
-        var images: [Int: CGImage] = [:]
-        var keyframeIndex = 0, lastKeyframeRow = 0, lastSegment = 0
-
-        func commit(_ image: CGImage, _ profile: FrameProfile, _ result: TrackingResult) {
-            session.keyframes.append(Keyframe(filename: "kf-\(keyframeIndex)", pixelWidth: image.width, pixelHeight: image.height, index: keyframeIndex))
-            images[keyframeIndex] = image
-            if case .segmentBreak(let reason) = result.decision, keyframeIndex > 0 {
-                session.segmentBreaks.append(SegmentBreak(afterKeyframeIndex: keyframeIndex - 1, reason: reason))
-            } else if keyframeIndex > 0, result.segmentIndex == lastSegment {
-                let dyRows = max(0, result.position - lastKeyframeRow)
-                session.seams.append(Seam(fromIndex: keyframeIndex - 1, provisionalDy: Int(Double(dyRows) * profile.rowScale), confidence: result.confidence, isLowConfidence: result.confidence < 0.4))
-            }
-            let seg = result.segmentIndex
-            while session.contentBands.count <= seg { session.contentBands.append(.unlocked) }
-            session.contentBands[seg] = result.contentBand
-            lastKeyframeRow = result.position; lastSegment = result.segmentIndex; keyframeIndex += 1
-        }
-
-        var lastImage: CGImage?, lastProfile: FrameProfile?, lastResult: TrackingResult?
-        for image in frames {
-            let profile = profiler.profile(image)
-            let result = tracker.process(profile)
-            if selector.evaluate(result, bandHeight: profile.rowCount) == .commitKeyframe { commit(image, profile, result) }
-            lastImage = image; lastProfile = profile; lastResult = result
-        }
-        if selector.finish() == .commitKeyframe, let i = lastImage, let p = lastProfile, let r = lastResult { commit(i, p, r) }
-        session.status = .complete
-        return (session, images)
-    }
+    // MARK: - Full pipeline (see `CaptureHarness`)
 
     @Test func stitchesRealScreenshotScroll() throws {
         let shot = try loadFixture()
         let contentDocH = shot.height - Self.topChromeH - Self.bottomChromeH
         let frames = scrollPositions(contentDocH: contentDocH).map { frame(from: shot, scroll: $0) }
 
-        let (session, images) = buildSession(frames)
-        let out = try Compositor().composite(session) { images[$0.index]! }
+        let capture = try CaptureHarness.capture(frames)
+        let session = capture.session
+        let out = try capture.composite()
 
         let expected = Self.topChromeH + contentDocH + Self.bottomChromeH   // == shot.height
         let band = session.contentBand(forSegment: 0)
@@ -159,36 +125,26 @@ import Foundation
     }
 
     /// Translucent top bar: content scrolls under a blurred bar, so the chrome band's pixels
-    /// change every frame and static-row detection can't lock it. This documents the current
-    /// contract and the known gap.
+    /// change every frame, so comparing row *means* cannot tell the bar from scrolled content.
     ///
-    /// **Contract that must hold** (hard-asserted): the scrolling content is never lost and the
-    /// capture isn't shattered into many segments — undetected chrome degrades to "the bar
-    /// repeats", never to "content disappears" (the project's surface-don't-mask error policy).
+    /// This was the project's long-standing "pixel-only translucent-chrome detection is unsolved"
+    /// gap (2026-07-05-01), asserted through `withKnownIssue`. It is now **closed** and asserted at
+    /// the same tolerances as the opaque case above: `ContentBandDetector` recognizes a translucent
+    /// bar by shape rather than brightness (see `structureTolerance` / `translucencyMeanCeiling`,
+    /// and `TranslucentChromeTests` for the real-device fixture).
     ///
-    /// **Known gap** (`withKnownIssue`): `PositionTracker`'s consensus band can't lock on a
-    /// translucent bar, so chrome/segment repetition inflates the height here.
-    ///
-    /// This gap does **not** describe the shipping app, and this block should not be read as one.
-    /// `buildSession` below drives `PositionTracker`, which has no callers outside tests; the real
-    /// capture path (`SampleHandler` → `ScrollCaptureDriver` → `KeyframeSelector`) never computes a
-    /// content band, and the band in a finished stitch is always `BatchStitcher`'s, re-derived at
-    /// import. Translucent chrome *is* handled there — see `TranslucentChromeTests`.
-    ///
-    /// So this stays `withKnownIssue` for a different reason than "unsolved": the batch fix
-    /// deliberately does not apply here. `ContentBandDetector.isStatic(allowingTranslucency:)`
-    /// records why — a scrolling vertical gradient is indistinguishable from a translucent bar by
-    /// that measure, and enabling it on the incremental path stops the consensus locking at all
-    /// (it regressed this very test and `ChromeStitchReproTests` to `0/0, isLowConfidence`). Closing
-    /// it needs a gradient-vs-translucency discriminator for the incremental case — worth doing only
-    /// if `PositionTracker` regains a production role.
+    /// Two things had to be true for this to start passing. The measure itself, and the fact that
+    /// this test now runs the *shipping* pipeline: it previously drove `PositionTracker`, which the
+    /// app had already stopped using, so a fix to batch assembly could never have shown up here.
+    /// See `CaptureHarness`.
     @Test func stitchesRealScreenshotWithTranslucentChrome() throws {
         let shot = try loadFixture()
         let contentDocH = shot.height - Self.topChromeH - Self.bottomChromeH
         let frames = scrollPositions(contentDocH: contentDocH).map { translucentFrame(from: shot, scroll: $0) }
 
-        let (session, images) = buildSession(frames)
-        let out = try Compositor().composite(session) { images[$0.index]! }
+        let capture = try CaptureHarness.capture(frames)
+        let session = capture.session
+        let out = try capture.composite()
 
         let expected = Self.topChromeH + contentDocH + Self.bottomChromeH
         let band = session.contentBand(forSegment: 0)
@@ -206,11 +162,11 @@ import Foundation
         #expect(session.segmentBreaks.count <= 2,
                 "translucent chrome should not shatter the capture: \(session.segmentBreaks.count) breaks")
 
-        // Known gap: ideal behavior is a locked band and no chrome/segment repetition.
-        withKnownIssue("pixel-only translucent-chrome detection is unsolved (see docs/logs/2026-07-05-01)") {
-            #expect(!band.isLowConfidence, "band should lock even under a translucent bar")
-            #expect(abs(band.topChrome - Self.topChromeH) <= 60)
-            #expect(Double(out.height) <= Double(expected) * 1.12, "no chrome/segment repetition")
-        }
+        // Promoted from `withKnownIssue` (2026-07-25-01): the band is measured, and no chrome or
+        // segment repeats. Same assertions as the opaque case above, at the same tolerances — a
+        // translucent bar is no longer a degraded mode.
+        #expect(!band.isLowConfidence, "band should be measured even under a translucent bar")
+        #expect(abs(band.topChrome - Self.topChromeH) <= 60, "top chrome \(band.topChrome) vs ~\(Self.topChromeH)")
+        #expect(Double(out.height) <= Double(expected) * 1.12, "no chrome/segment repetition")
     }
 }

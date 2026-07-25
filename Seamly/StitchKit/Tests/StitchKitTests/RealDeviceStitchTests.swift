@@ -36,7 +36,7 @@ import Foundation
     /// On the real Baidu downward scroll the matcher must recover a **positive** (downward)
     /// offset for every consecutive pair — the shipped matcher returned the wrong sign, so the
     /// tracker read every forward scroll as a back-scroll and the capture shattered. Uses the
-    /// bootstrap chrome mask exactly as `PositionTracker` does (static status/search bars
+    /// bootstrap chrome mask exactly as `KeyframeSelector` does (static status/search bars
     /// otherwise pin large-offset pairs to dy = 0).
     @Test func matcherRecoversDownwardOffsetsOnRealFrames() throws {
         let frames = try baiduFrames()
@@ -68,49 +68,21 @@ import Foundation
         }
     }
 
-    // MARK: - Full pipeline (SampleHandler mirror)
+    // MARK: - Full pipeline
 
-    private func buildSession(_ frames: [CGImage]) -> (StitchSession, [Int: CGImage]) {
-        let profiler = VerticalProfile()
-        var tracker = PositionTracker()
-        var selector = FrameSelector()
-        var session = StitchSession(createdAt: Date(), status: .recording, deviceScale: 1, orientation: .portrait)
-        var images: [Int: CGImage] = [:]
-        var keyframeIndex = 0, lastKeyframeRow = 0, lastSegment = 0
-
-        func commit(_ image: CGImage, _ profile: FrameProfile, _ result: TrackingResult) {
-            session.keyframes.append(Keyframe(filename: "kf-\(keyframeIndex)", pixelWidth: image.width, pixelHeight: image.height, index: keyframeIndex))
-            images[keyframeIndex] = image
-            if case .segmentBreak(let reason) = result.decision, keyframeIndex > 0 {
-                session.segmentBreaks.append(SegmentBreak(afterKeyframeIndex: keyframeIndex - 1, reason: reason))
-            } else if keyframeIndex > 0, result.segmentIndex == lastSegment {
-                let dyRows = max(0, result.position - lastKeyframeRow)
-                session.seams.append(Seam(fromIndex: keyframeIndex - 1, provisionalDy: Int(Double(dyRows) * profile.rowScale), confidence: result.confidence, isLowConfidence: result.confidence < 0.4))
-            }
-            let seg = result.segmentIndex
-            while session.contentBands.count <= seg { session.contentBands.append(.unlocked) }
-            session.contentBands[seg] = result.contentBand
-            lastKeyframeRow = result.position; lastSegment = result.segmentIndex; keyframeIndex += 1
-        }
-
-        var lastImage: CGImage?, lastProfile: FrameProfile?, lastResult: TrackingResult?
-        for image in frames {
-            let profile = profiler.profile(image)
-            let result = tracker.process(profile)
-            if selector.evaluate(result, bandHeight: profile.rowCount) == .commitKeyframe { commit(image, profile, result) }
-            lastImage = image; lastProfile = profile; lastResult = result
-        }
-        if selector.finish() == .commitKeyframe, let i = lastImage, let p = lastProfile, let r = lastResult { commit(i, p, r) }
-        session.status = .complete
-        return (session, images)
+    /// These fixtures are already *committed keyframes*, so they go straight to assembly — running
+    /// the picker over sparse keyframes would just re-bank every one of them. See `CaptureHarness`.
+    private func assembled() throws -> CaptureHarness.Capture {
+        try CaptureHarness.assemble(try baiduFrames())
     }
 
     /// Guaranteed contract on real frames: no seam ever points the wrong way (the sign fix), and
     /// the composite is neither collapsed to nothing nor absurdly tall.
     @Test func realCaptureSeamsPointDownwardAndOutputIsSane() throws {
         let frames = try baiduFrames()
-        let (session, images) = buildSession(frames)
-        let out = try Compositor().composite(session) { images[$0.index]! }
+        let capture = try assembled()
+        let out = try capture.composite()
+        let session = capture.session
         let frameH = frames[0].height
         print("── REAL Baidu (full-res): kf=\(session.keyframes.count) seams=\(session.seams.count) breaks=\(session.segmentBreaks.count) out=\(out.height)")
 
@@ -132,8 +104,7 @@ import Foundation
     /// on-device frame-trace verification confirms. When dense-frame captures are wired into the
     /// oracle this block should become a hard assertion.
     @Test func cleanDownwardScrollStitchesIntoOneSegment() throws {
-        let frames = try baiduFrames()
-        let (session, _) = buildSession(frames)
+        let session = try assembled().session
         withKnownIssue("sparse broken-capture keyframes have fast-flick gaps; needs a dense live-frame oracle (see docs/logs/2026-07-05-03)") {
             #expect(session.segmentBreaks.count <= 1, "capture shattered into \(session.segmentBreaks.count + 1) segments")
             #expect(session.seams.count >= 2, "expected stitched seams, got \(session.seams.count) (frames stacked)")
