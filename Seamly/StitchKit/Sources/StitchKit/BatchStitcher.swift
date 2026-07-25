@@ -331,8 +331,21 @@ public struct BatchStitcher: Sendable {
     // MARK: - Matching
 
     /// Best downward (positive-`dy`) alignment of `b` below `a`, taking whichever of the
-    /// static-masked and plain matcher is more confident — the mask helps some real pairs and
-    /// flips the sign on others, so neither wins alone.
+    /// static-masked and plain matcher is more confident.
+    ///
+    /// The old rationale here — "the mask helps some real pairs and flips the sign on others, so
+    /// neither wins alone" — does not survive measurement (issue #11), and could not have been
+    /// literally true of this function anyway: it searches `1...bound`, so no sign is available
+    /// to flip. Direction is chosen in `layout`, not here.
+    ///
+    /// Measured across every adjacent pair of `youtube-*`, `baidu-*` and `wechat-*`: masked and
+    /// plain recover the **same `dy`** on all of them except baidu 4-5, where both are wrong. So
+    /// this choice never changes the recovered offset on any real fixture — it only reports the
+    /// better-scoring of two matches that already agree. It is kept because that reported
+    /// confidence is load-bearing downstream (`edgeConfidence`, `isLowConfidence`), and masking
+    /// genuinely improves it: `youtube` 3-4 scores 0.824 masked against 0.340 plain, baidu 3-4
+    /// 0.387 against 0.032. Picking on confidence is right for that purpose; picking a *direction*
+    /// on confidence was the bug, and `layout` now uses `cost` for it.
     private func downwardMatch(_ a: FrameProfile, _ b: FrameProfile) -> Match {
         let bound = min(a.rowCount, b.rowCount) - matcher.minimumOverlap
         guard bound >= 1 else { return Match(dy: 0, confidence: 0) }
