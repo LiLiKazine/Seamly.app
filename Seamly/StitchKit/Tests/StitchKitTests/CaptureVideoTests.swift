@@ -83,7 +83,7 @@ import Foundation
         //
         // Capture is correct here (overlaps ~0.5, order recovered above); the defect is purely in
         // re-assembly. When the last break goes, promote this block to a hard assertion.
-        withKnownIssue("BatchStitcher mis-scores scroll direction on image-heavy content; assembly-side fix deferred (see docs/logs/2026-07-23-01)") {
+        withKnownIssue("one break left, at the fixture's unmatchable trailing keyframe; needs the fixture re-trimmed, not another threshold (see docs/logs/2026-07-25-07, issue #2)") {
             #expect(plan.session.segmentBreaks.isEmpty,
                     "real single scroll should re-stitch into one continuous segment, got breaks \(plan.session.segmentBreaks.map { $0.afterKeyframeIndex })")
             #expect(plan.session.seams.count == r.keyframes.count - 1,
