@@ -93,7 +93,7 @@ public struct OffsetMatcher: Sendable {
         }
 
         let confidence = confidenceMargin(best: bestScore, runnerUp: runnerUp)
-        return Match(dy: bestOffset, confidence: confidence)
+        return Match(dy: bestOffset, confidence: confidence, cost: bestScore)
     }
 
     /// Variance-weighted mean absolute difference over the overlap, or `nil` if the counted

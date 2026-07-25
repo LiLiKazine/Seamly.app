@@ -66,7 +66,6 @@ import Foundation
     /// regression.
     @Test func refinedOffsetsMatchFullWidthBruteForceGroundTruth() throws {
         let images = try fixtureImages()
-        let h = images[0].height
         let plan = try BatchStitcher().plan(images, assumingOrder: Array(0..<images.count))
         let band = plan.session.contentBand(forSegment: 0)
         let compositor = Compositor()

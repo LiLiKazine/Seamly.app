@@ -35,6 +35,43 @@ public struct BatchStitcher: Sendable {
     let edgeConfidence: Double
     /// Fewest profile rows of scroll for a pair to be an edge (rejects near-duplicate frames).
     let minEdgeDy: Int
+    /// In the chain-joining pass only, a boundary pair counts as an overlap edge — even below
+    /// `edgeConfidence` — when its scroll direction fits at most this fraction as badly as the
+    /// opposite direction.
+    ///
+    /// The idea: two frames that don't overlap have no preferred direction, since neither
+    /// alignment explains the other frame, so their two costs converge and the ratio approaches 1.
+    /// A real edge, however weakly peaked, still fits better one way round.
+    ///
+    /// **Read the margins before touching this.** They are far tighter than the other measured
+    /// constants here — `structureTolerance` next door separates its two populations by 8x, this
+    /// separates them by about 1.1x — and each bound rests on a single observation.
+    ///
+    /// Measured on the video tier at both decode cadences (its pair 2-3 is a genuine `dy≈330`
+    /// edge whose confidence, 0.27–0.34, sits well under `edgeConfidence`):
+    ///
+    /// | ratio | what it is | at 0.80 |
+    /// |-------|------------|---------|
+    /// | 0.658 | pair 2-3, full-rate decode — REAL | rescued |
+    /// | 0.777 | pair 2-3, 30 fps (production) — REAL | rescued |
+    /// | 0.803 | pair 3-4, 30 fps — real but unmatchable tail | rejected |
+    /// | 0.953 | pair 3-4, full-rate — same tail | rejected |
+    /// | >0.84 | first `wechat-*` false accept (verified safe at 0.84, over-merges at 0.88) | rejected |
+    ///
+    /// 0.80 is the highest value keeping a ≥5% margin below the false-accept zone. It is not
+    /// pushed to ~0.81 to also capture pair 3-4, for two reasons: that would leave ~2% of margin
+    /// on both sides, and it would not close the acceptance criterion anyway — the full-rate
+    /// decode that `CaptureVideoTests` uses scores that same pair at 0.953, so its last break
+    /// needs the fixture re-trimmed, not a bolder threshold.
+    ///
+    /// The asymmetry is why the bias is downward: rejecting a real edge leaves a segment break,
+    /// which is visible and honest, while accepting a false one stitches unrelated screens
+    /// together.
+    ///
+    /// Guards, all on real fixtures: `wechatNonOverlapStillBreaks` (over-merge),
+    /// `baiduDownwardScrollStaysSane` (order inversion), `nonOverlappingFramesSplitIntoSegments`.
+    /// Raising this without re-running them is how unrelated screens end up in one image.
+    let directionalCostRatio: Double
     /// Max mean/variance delta (0...1 luminance) for a row to read as static chrome. The
     /// translucency (shape) term of that test keeps `ContentBandDetector`'s default — it is scaled
     /// to the signature width, not to this luminance tolerance.
@@ -48,6 +85,7 @@ public struct BatchStitcher: Sendable {
         matcher: OffsetMatcher = OffsetMatcher(),
         edgeConfidence: Double = 0.45,
         minEdgeDy: Int = 2,
+        directionalCostRatio: Double = 0.80,
         chromeTolerance: Float = 0.02,
         refinementDelta: Int = 16
     ) {
@@ -55,6 +93,7 @@ public struct BatchStitcher: Sendable {
         self.matcher = matcher
         self.edgeConfidence = edgeConfidence
         self.minEdgeDy = minEdgeDy
+        self.directionalCostRatio = directionalCostRatio
         self.chromeTolerance = chromeTolerance
         self.refinementDelta = refinementDelta
     }
@@ -114,7 +153,12 @@ public struct BatchStitcher: Sendable {
             for j in (i + 1)..<n {
                 let fwd = downwardMatch(profiles[i], profiles[j])   // i above j
                 let bwd = downwardMatch(profiles[j], profiles[i])   // j above i
-                let (above, below, m) = fwd.confidence >= bwd.confidence ? (i, j, fwd) : (j, i, bwd)
+                // Which way round the pair goes is a question about *fit*, so it is settled on
+                // cost. It used to be settled on confidence, which measures how sharply a match
+                // beat its runner-up — and a spurious alignment can be sharp while fitting badly.
+                // Measured on the video tier, that inversion discarded the real downward edge on
+                // pairs 2-3 (dy=344, cost 0.177 vs the reverse's 0.269) and 3-4.
+                let (above, below, m) = fwd.cost <= bwd.cost ? (i, j, fwd) : (j, i, bwd)
                 if m.confidence >= edgeConfidence, m.dy >= minEdgeDy {
                     edges.append(Edge(above: above, below: below, dy: m.dy, conf: m.confidence))
                 }
@@ -153,6 +197,8 @@ public struct BatchStitcher: Sendable {
         }
         for k in 0..<n where pos[k] == nil { pos[k] = 0 }   // isolated frame: its own component
 
+        joinChainsAcrossComponents(profiles, n: n, pos: &pos, parent: &parent)
+
         // Group into components, order each by position, order components by lowest input index.
         var comps: [Int: [Int]] = [:]
         for k in 0..<n { comps[find(k), default: []].append(k) }
@@ -175,11 +221,80 @@ public struct BatchStitcher: Sendable {
         var segmentOfSlot = [0]
         for slot in 1..<order.count {
             let a = profiles[order[slot - 1]], b = profiles[order[slot]]
-            let m = downwardMatch(a, b)
-            let overlaps = m.confidence >= edgeConfidence && m.dy >= minEdgeDy
+            // The order is fixed here, so there is no direction to choose — but the reverse match
+            // is still needed, as the yardstick the forward one is judged against.
+            let overlaps = qualifiesAsEdge(downwardMatch(a, b), against: downwardMatch(b, a))
             segmentOfSlot.append(overlaps ? segmentOfSlot[slot - 1] : segmentOfSlot[slot - 1] + 1)
         }
         return segmentOfSlot
+    }
+
+    /// Second pass: try to join components that the confidence floor left separate, by testing
+    /// only their **boundary** frames — the bottom of one chain against the top of another.
+    ///
+    /// A weak-but-real edge can sit under `edgeConfidence` (video pair 2-3: a genuine dy=344 at
+    /// confidence 0.341), and rescuing it needs a test other than sharpness. `qualifiesAsEdge`'s
+    /// directional-cost comparison is that test — but it is only safe *here*, on a handful of
+    /// boundary candidates.
+    ///
+    /// Offering it to all O(n²) pairs, which is what the first pass does, actively corrupts the
+    /// order. Measured on the video tier: pairs 1-3 and 1-4 both pass the cost-ratio test in the
+    /// *reverse* direction (0.762 and 0.781), and admitting them recovers `order=[4,0,1,2,3]` —
+    /// the exact inversion issue #2 warns a lowered floor produces. Distant frames from one
+    /// scroll share layout statistics, so "no overlap implies no preferred direction" simply
+    /// isn't true for them. Restricting to chain extension removes those candidates entirely:
+    /// a frame can only attach to the end of a chain, never into its middle.
+    private func joinChainsAcrossComponents(
+        _ profiles: [FrameProfile], n: Int,
+        pos: inout [Int: Double], parent: inout [Int]
+    ) {
+        struct Join { let above: Int; let below: Int; let dy: Int; let ratio: Double }
+        // Local, non-capturing root lookup: the caller's `find` closes over `parent`, and calling
+        // it while `parent` is also bound `inout` here is an exclusive-access violation.
+        func root(_ x: Int, _ p: [Int]) -> Int { var r = x; while p[r] != r { r = p[r] }; return r }
+
+        while true {
+            // Current chains, each ordered top→bottom by position.
+            var chains: [Int: [Int]] = [:]
+            for k in 0..<n { chains[root(k, parent), default: []].append(k) }
+            guard chains.count > 1 else { return }
+            let ordered = chains.values.map { $0.sorted { pos[$0]! < pos[$1]! } }
+
+            var best: Join?
+            for a in ordered {
+                for b in ordered where b.first! != a.first! {
+                    // Only `a`'s bottom frame against `b`'s top frame: append b's chain below a's.
+                    let above = a.last!, below = b.first!
+                    let fwd = downwardMatch(profiles[above], profiles[below])
+                    let bwd = downwardMatch(profiles[below], profiles[above])
+                    guard qualifiesAsEdge(fwd, against: bwd) else { continue }
+                    let ratio = Double(fwd.cost / bwd.cost)
+                    if best == nil || ratio < best!.ratio {
+                        best = Join(above: above, below: below, dy: fwd.dy, ratio: ratio)
+                    }
+                }
+            }
+            guard let join = best else { return }
+
+            let shift = (pos[join.above]! + Double(join.dy)) - pos[join.below]!
+            let belowRoot = root(join.below, parent)
+            for k in 0..<n where root(k, parent) == belowRoot { pos[k]? += shift }
+            parent[root(join.above, parent)] = belowRoot
+        }
+    }
+
+    /// Whether `chosen` is a real overlap edge, judged against the same pair's `opposite`
+    /// direction. Shared by both the order-recovery and fixed-order paths so they cannot drift.
+    ///
+    /// Real scroll is required either way. Beyond that a match qualifies when it is sharply
+    /// peaked (`edgeConfidence`), **or** when it fits decisively better than the other direction
+    /// — see `directionalCostRatio` for why the second test separates a weak real edge from a
+    /// non-overlap, which a confidence floor alone cannot do.
+    private func qualifiesAsEdge(_ chosen: Match, against opposite: Match) -> Bool {
+        guard chosen.dy >= minEdgeDy else { return false }
+        if chosen.confidence >= edgeConfidence { return true }
+        guard opposite.cost.isFinite, opposite.cost > 0, chosen.cost.isFinite else { return false }
+        return Double(chosen.cost / opposite.cost) <= directionalCostRatio
     }
 
     /// Shared manifest assembly from a resolved (order, segmentOfSlot). Extracted verbatim from the
