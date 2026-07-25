@@ -116,7 +116,6 @@ handling is wrong.
 
 ```bash
 # StitchKit tests — the fast, primary loop (no simulator, no signing).
-# 80 tests / 17 suites, ~5 min; passes with 3 known issues across 2 tests.
 swift test --package-path Seamly/StitchKit
 
 # One suite while iterating

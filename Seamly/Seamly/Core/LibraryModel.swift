@@ -86,7 +86,8 @@ final class LibraryModel {
     }
 
     /// Import picked screenshots as a new capture. Recovers scroll order from overlap, falling back
-    /// to the pick order (badged) when recovery can't confidently chain them.
+    /// to the pick order (badged) only when recovery can't chain them into one segment — pick order
+    /// is a guess, so it must not override an order the pixels actually settled.
     func importPhotos(_ images: [CGImage]) async {
         await runImport { store, diag in
             try MediaImporter.write(images: images, into: store, strategy: .recoverOrInputOrder, source: .photos, diag: diag)
