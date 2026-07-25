@@ -100,10 +100,21 @@ public struct ContentBandDetector: Sendable {
     ///
     /// **Only `BatchStitcher.chromeBand` passes `true`.** `staticMask` deliberately does not,
     /// because it feeds `OffsetMatcher` rather than the crop: masking a translucent bar out of the
-    /// match removes signal, and on the `youtube-*` fixture it cost pair 3-4 its overlap edge and
-    /// split the capture into two segments. `BatchStitcher.downwardMatch` already picks between the
-    /// masked and unmasked match on confidence alone ("the mask helps some real pairs and flips the
-    /// sign on others"), so retuning that needs its own measurement pass, not a ride-along.
+    /// match removes signal rather than cleaning it.
+    ///
+    /// Re-measured 2026-07-25 (issue #11), and the cost is far higher than previously recorded.
+    /// The old note here said enabling it "cost pair 3-4 its overlap edge and split the capture
+    /// into two segments". Driving the real `scroll-recording.mp4` through the live selector at
+    /// the production 30 fps cadence with `allowingTranslucency: true` in `staticMask` instead
+    /// banks **1 keyframe instead of 5** — the capture collapses outright. Enough rows read as
+    /// static that the mask starves the match, measured `dy` never reaches `commitFraction`, and
+    /// nothing after the first frame commits. This is not a tuning knob; leave it `false` here.
+    ///
+    /// What the mask *does* buy the matcher, measured across all real fixtures: nothing in the
+    /// recovered offset, and a lot in confidence. Masked and unmasked agree on `dy` for every
+    /// adjacent pair on `youtube-*`, `baidu-*` and `wechat-*` bar one (baidu 4-5, where both are
+    /// wrong). Where they differ is fit — `youtube` 3-4 scores 0.824 masked against 0.340
+    /// unmasked. See `BatchStitcher.downwardMatch`.
     func isStatic(_ a: FrameProfile, _ b: FrameProfile, row: Int, allowingTranslucency: Bool = false) -> Bool {
         guard abs(a.variances[row] - b.variances[row]) <= varianceTolerance else { return false }
         if abs(a.means[row] - b.means[row]) <= meanTolerance { return true }
