@@ -198,7 +198,18 @@ public struct Compositor: Sendable {
 
         for (s, seg) in segmentsKF.enumerated() {
             // Crop chrome using *this segment's* locked band, not the first seam's globally.
-            let contentBand = session.contentBand(forSegment: s)
+            //
+            // An implausible band is refused rather than clamped. `band` below would otherwise
+            // degrade to 1, pinning every seam to a 1px advance and collapsing the segment to
+            // roughly one frame tall — with no error and a manifest that still reads as healthy
+            // (right keyframe count, right seams, `isLowConfidence: false`). `BatchStitcher`
+            // already rejects such a measurement at source, so this guard is for the manifests
+            // it cannot vet: ones persisted before that check existed, and ones the editor's
+            // band override can produce. Cropping nothing means the chrome repeats, which is
+            // visible and honest; the alternative is content silently disappearing.
+            let h = seg[0].pixelHeight
+            let measuredBand = session.contentBand(forSegment: s)
+            let contentBand = measuredBand.isPlausible(forFrameHeight: h) ? measuredBand : .unlocked
             let chromeTop = max(0, contentBand.topChrome)
             let chromeBottom = max(0, contentBand.bottomChrome)
 
@@ -208,7 +219,6 @@ public struct Compositor: Sendable {
             }
             var segPieces: [Piece] = []
             var localY = 0
-            let h = seg[0].pixelHeight
             let band = max(1, h - chromeTop - chromeBottom)
 
             func add(_ kf: Keyframe?, _ srcY: Int, _ height: Int) {
