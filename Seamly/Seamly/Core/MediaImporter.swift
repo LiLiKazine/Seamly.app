@@ -14,8 +14,14 @@ enum MediaImporter {
     /// Write `images` (in final display order) into `store` as a new session and resolve its
     /// geometry with `strategy`. Returns the new session id. Throws `.notEnoughContent` for
     /// fewer than two images (a single frame is not a stitch).
-    nonisolated static func write(images: [CGImage], into store: SessionStore, strategy: OrderStrategy, source: Source) throws -> UUID {
-        guard images.count >= 2 else { throw ImportError.notEnoughContent }
+    ///
+    /// `source` is recorded in the diagnostic trace: a capture's origin is otherwise
+    /// indistinguishable after import, and photo picks and video decodes fail differently.
+    nonisolated static func write(images: [CGImage], into store: SessionStore, strategy: OrderStrategy, source: Source, diag: Diagnostics) throws -> UUID {
+        guard images.count >= 2 else {
+            diag.log("import[\(source.rawValue)]: rejected, \(images.count) image(s) — need at least two")
+            throw ImportError.notEnoughContent
+        }
         let id = UUID()
         let folder = try store.createFolder(for: id)
 
@@ -37,6 +43,7 @@ enum MediaImporter {
 
         let resolved = try StitchAssembler.resolveGeometry(session, in: folder, strategy: strategy)
         try store.writeManifest(resolved)
+        diag.log("import[\(source.rawValue)]: \(id.uuidString.prefix(8)) wrote \(images.count) kf, resolved \(resolved.seams.count) seams, \(resolved.segmentBreaks.count) breaks, orderAssumed=\(resolved.orderAssumed)")
         return id
     }
 }

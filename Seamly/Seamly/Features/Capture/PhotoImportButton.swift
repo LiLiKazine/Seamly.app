@@ -26,6 +26,11 @@ struct PhotoImportButton: View {
 
     private func load(_ items: [PhotosPickerItem]) async {
         loadError = nil
+        // Clear up front, not on the success branch: `PhotosPickerItem` is `Equatable` and
+        // `.onChange` only fires on a *change*, so a selection still standing when we return —
+        // after an error, or while an import is in flight — makes re-picking the same photos a
+        // no-op and the button looks dead. `items` is already captured, so this is safe here.
+        selection = []
         var images: [CGImage] = []
         for (i, item) in items.enumerated() {
             do {
@@ -42,7 +47,6 @@ struct PhotoImportButton: View {
             }
         }
         guard images.count >= 2 else { loadError = "Pick at least two overlapping screenshots."; return }
-        selection = []
         onStarted()
         await model.importPhotos(images)
     }

@@ -42,11 +42,15 @@ struct VideoImportButton: View {
 
     private func load(_ item: PhotosPickerItem) async {
         loadError = nil
+        // Clear up front, not on the success branch: `PhotosPickerItem` is `Equatable` and
+        // `.onChange` only fires on a *change*, so a selection still standing when we return —
+        // after an error, or while an import is in flight — makes re-picking the same video a
+        // no-op and the button looks dead. `item` is already captured, so this is safe here.
+        selection = nil
         do {
             guard let movie = try await item.loadTransferable(type: PickedMovie.self) else {
                 loadError = "Couldn't read that video."; return
             }
-            selection = nil
             onStarted()
             await model.importVideo(movie.url)
         } catch {
