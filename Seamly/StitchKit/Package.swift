@@ -34,6 +34,7 @@ let package = Package(
                 .copy("Fixtures/RealDevice"),
                 .copy("Fixtures/Example"),
                 .copy("Fixtures/Screenshots"),
+                .copy("Fixtures/Screenshots2"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

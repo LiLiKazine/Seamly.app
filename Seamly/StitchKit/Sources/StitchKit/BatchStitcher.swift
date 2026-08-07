@@ -76,6 +76,29 @@ public struct BatchStitcher: Sendable {
     /// translucency (shape) term of that test keeps `ContentBandDetector`'s default — it is scaled
     /// to the signature width, not to this luminance tolerance.
     let chromeTolerance: Float
+    /// How much of a candidate chrome band must actually have held still for `chromeBand` to
+    /// believe it, rather than fall back to the conservative inward scan.
+    ///
+    /// A bar contains rows that change — a clock, signal bars — so the band is derived from where
+    /// the *content* is (see `chromeBand`) and can't require every row to be static. This is the
+    /// guard on that inference: content mis-read as chrome shows up as a band that is mostly
+    /// moving. Measured over every real fixture, the two populations are nowhere near each other:
+    ///
+    /// | candidate band | fraction | verdict |
+    /// |----------------|----------|---------|
+    /// | `RealDevice` youtube / baidu / wechat-bottom, `Screenshots`-bottom, `Example`-none | 1.000 | real, band unchanged |
+    /// | `Screenshots2` bottom — toolbar with a 15 px moving strip | 0.923 | real, **the fix** |
+    /// | `Screenshots2` top — 372 px bar with 39 px of live status icons | 0.892 | real, **the fix** |
+    /// | `Example` bottom / top | 0.482 / 0.436 | content, rejected |
+    /// | `Screenshots` top — would have cropped 1130 px of page | 0.303 | content, rejected |
+    /// | `wechat` top — would have cropped 378 px | 0.232 | content, rejected |
+    ///
+    /// 0.75 sits in the middle of a 0.482–0.892 gap. The guard is doing real work, not decorating
+    /// a safe inference: three of the six sets produce a candidate band that must be refused, and
+    /// on `Screenshots` refusing it is the difference between the shipped stitch and losing a
+    /// third of every page. The bias is deliberate — failing this test costs only the older,
+    /// smaller band, while passing it wrongly crops content away for good.
+    let minChromeStaticFraction: Double
     /// ± source px searched around each provisional seam during compositing. Wider than the
     /// compositor's default because a downscaled provisional offset can be a few px off.
     let refinementDelta: Int
@@ -87,6 +110,7 @@ public struct BatchStitcher: Sendable {
         minEdgeDy: Int = 2,
         directionalCostRatio: Double = 0.80,
         chromeTolerance: Float = 0.02,
+        minChromeStaticFraction: Double = 0.75,
         refinementDelta: Int = 16
     ) {
         self.profiler = profiler
@@ -95,6 +119,7 @@ public struct BatchStitcher: Sendable {
         self.minEdgeDy = minEdgeDy
         self.directionalCostRatio = directionalCostRatio
         self.chromeTolerance = chromeTolerance
+        self.minChromeStaticFraction = minChromeStaticFraction
         self.refinementDelta = refinementDelta
     }
 
@@ -357,23 +382,46 @@ public struct BatchStitcher: Sendable {
 
     // MARK: - Chrome
 
-    /// The chrome shared by every adjacent pair in a segment: rows static in *all* pairs, counted
-    /// inward from each edge. Intersection, not union, so a coincidentally-still content row in one
-    /// pair can't over-crop. No pairs → `.unlocked`.
+    /// The chrome shared by every adjacent pair in a segment: rows static in *all* pairs.
+    /// Intersection, not union, so a coincidentally-still content row in one pair can't over-crop.
+    /// No pairs → `.unlocked`.
     ///
     /// The static test is `ContentBandDetector`'s, not a local copy: this used to inline its own
     /// mean+variance comparison, which is how the two drifted — the detector learned to recognize
     /// translucent chrome by shape while this path kept rejecting it, so a blurred tab bar produced
     /// `bottomChrome == 0` here and got baked into the stitch once per keyframe.
+    ///
+    /// **A bar is not uniformly static, so the band is read as "everything outside the content"
+    /// rather than "static rows counted inward from the edge."** A status bar carries a clock and
+    /// signal indicators; screenshots taken seconds apart disagree there. The inward scan halted at
+    /// the first such row, and on `Screenshots2` — where a 39 px strip of status icons sits inside a
+    /// 372 px top bar, and a 15 px strip inside a 234 px bottom bar — it measured 81 px and 27 px,
+    /// leaving the whole browser toolbar inside every keyframe's strip to be stamped through the
+    /// middle of the page once per frame.
+    ///
+    /// The content is the longest run of rows that moved. That is a safe thing to key on precisely
+    /// because it is the *longest* run: the scrolling region dwarfs any strip inside a bar (505 rows
+    /// against 9 and 4 on `Screenshots2`). Its risk is the mirror image — a content row that happens
+    /// to hold still splits the run, and the longer half is then mistaken for all of it — so each
+    /// candidate band must itself be `minChromeStaticFraction` static to be believed, and falls back
+    /// to the inward scan when it isn't. The fallback is never worse than the previous behaviour:
+    /// the inward scan stops at the first row that moved, so it can only under-crop.
     private func chromeBand(_ pairs: [(FrameProfile, FrameProfile)], rowScale: Double) -> ContentBand {
         guard !pairs.isEmpty else { return .unlocked }
         let n = pairs.map { min($0.0.rowCount, $0.1.rowCount) }.min()!
         let detector = ContentBandDetector(meanTolerance: chromeTolerance, varianceTolerance: chromeTolerance)
-        func staticAll(_ i: Int) -> Bool {
+        let held = (0..<n).map { i in
             pairs.allSatisfy { detector.isStatic($0.0, $0.1, row: i, allowingTranslucency: true) }
         }
-        var top = 0; while top < n, staticAll(top) { top += 1 }
-        var bottom = 0; while bottom < n - top, staticAll(n - 1 - bottom) { bottom += 1 }
+
+        var top = 0; while top < n, held[top] { top += 1 }
+        var bottom = 0; while bottom < n - top, held[n - 1 - bottom] { bottom += 1 }
+
+        if let content = longestMovingRun(held) {
+            let overTop = content.lowerBound, underBottom = n - content.upperBound
+            if readsAsChrome(held[0..<overTop]) { top = overTop }
+            if readsAsChrome(held[(n - underBottom)...]) { bottom = underBottom }
+        }
         // A band that eats most of the frame means the static test matched nearly every row —
         // "no content found anywhere", which is a measurement failure, not a very large bar.
         // Believing it collapses the stitch (every seam clamps to a 1px advance) while the
@@ -388,6 +436,28 @@ public struct BatchStitcher: Sendable {
             bottomChrome: sourcePixels(bottom, rowScale: rowScale),
             isLowConfidence: false
         )
+    }
+
+    /// The longest run of rows that moved in at least one pair — the scrolling content — or `nil`
+    /// when nothing moved anywhere (still frames; the caller's plausibility ceiling rejects that).
+    private func longestMovingRun(_ held: [Bool]) -> Range<Int>? {
+        var best: Range<Int>?
+        var i = 0
+        while i < held.count {
+            guard !held[i] else { i += 1; continue }
+            var j = i
+            while j < held.count, !held[j] { j += 1 }
+            if j - i > (best?.count ?? 0) { best = i..<j }
+            i = j
+        }
+        return best
+    }
+
+    /// Whether a candidate band is static enough to be a bar rather than mis-classified content.
+    /// An empty band is vacuously fine — there is nothing to disbelieve.
+    private func readsAsChrome(_ rows: ArraySlice<Bool>) -> Bool {
+        guard !rows.isEmpty else { return true }
+        return Double(rows.filter { $0 }.count) / Double(rows.count) >= minChromeStaticFraction
     }
 
     /// Convert a count of static profile rows to source pixels, rounding **outward** by one row.
