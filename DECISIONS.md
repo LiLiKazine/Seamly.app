@@ -273,3 +273,24 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
   open the target app FIRST, then start the broadcast; scroll one direction at a normal reading
   pace. I'll pull the resulting session via devicectl and inspect the stitched output.
 - Reversible: install is replaceable; no irreversible action taken.
+
+---
+
+# Component Harness CLI (2026-08-08, branch feat/component-harness-cli)
+
+## [CH-plan] Add a separate testable harness product without changing `stitch-cli`
+- Why: the existing `stitch-cli images|video` is a human-oriented end-to-end visual triage
+  tool. Component diagnostics need stable JSON, strict argument validation, and in-process
+  tests. A `StitchHarness` library target plus a thin `stitch-harness` executable provides that
+  contract without breaking existing commands or mixing `@main` process behavior into tests.
+- Commands: `profile`, `match`, `capture`, `plan`, `session`, `compose`, and `pipeline`.
+  Inputs are real image files/directories, videos, or persisted session folders that map to
+  current `StitchKit` APIs; stdout is one schema-versioned JSON envelope and artifact-producing
+  commands write only under an explicit output directory.
+- Boundary: the macOS SwiftPM executable exercises the extracted production seams
+  (`ScrollCaptureDriver`, `BatchStitcher`, `SessionStore`, `Compositor`). It does not pretend to
+  host ReplayKit or SwiftUI; those platform adapters remain app/extension integration concerns.
+- Alternatives: retrofit JSON modes into `stitch-cli` (compatibility risk), or fake app/ReplayKit
+  hosts (misleading coverage). Both rejected.
+- Reversible: yes — the new product/targets are additive and can be removed independently.
+- Confidence: high.

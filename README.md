@@ -100,6 +100,48 @@ Three build products plus a diagnostic CLI and a shared container:
 | **`stitch-cli`** (package executable) | Runs the real pipeline over an arbitrary clip or screenshot directory and writes the result where you can look at it. Exists because the failure modes here are *visual* — see [Testing](#testing). |
 | App Group container | Shared handoff — the extension writes raw keyframes + a manifest; the app reads them after the broadcast stops, then moves them into app storage. |
 
+### Component harness
+
+`stitch-harness` is the machine-readable component boundary for exercising the extracted
+production capture and stitching code. Build or run it from the package directory:
+
+```sh
+cd Seamly/StitchKit
+swift build --product stitch-harness
+swift run stitch-harness profile Tests/StitchKitTests/Fixtures/Example/20260718-225057.png
+```
+
+| Command | Example |
+|---|---|
+| `profile` | `stitch-harness profile <image>` |
+| `match` | `stitch-harness match <a> <b> [--mask-chrome]` |
+| `capture` | `stitch-harness capture images <dir> [--prefix P] [--out DIR]`<br>`stitch-harness capture video <file> [--fps N] [--out DIR]` |
+| `plan` | `stitch-harness plan <dir> [--prefix P] [--order recover\|input] [--out DIR]` |
+| `session` | `stitch-harness session create <dir> --out <container> [--prefix P] [--order recover\|input]`<br>`stitch-harness session inspect <session-folder>` |
+| `compose` | `stitch-harness compose <session-folder> --out <image.png>` |
+| `pipeline` | `stitch-harness pipeline images <dir> --out <dir> [--prefix P] [--order recover\|input]`<br>`stitch-harness pipeline video <file> --out <dir> [--fps N] [--order recover\|input]` |
+
+The built executable emits exactly one pretty-printed JSON envelope: successes go to stdout and
+failures to stderr with a non-zero exit. The envelope contains `schemaVersion`, `command`, `ok`,
+and either `result` or a stable `error.code` plus message. `swift run` may additionally emit
+SwiftPM build diagnostics on stderr, so scripts that require clean JSON should invoke the built
+`.build/.../stitch-harness` executable. Capture reports measured safety-cue counts for image
+sequences; video reports that field as `null` because its decoder result does not expose cue
+decisions.
+Capture `--out` directories contain committed keyframes as PNGs. Plan output can contain a
+manifest. Session output uses raw BGRA keyframes plus `manifest.json`; pipeline output places
+that real `SessionStore` at `<out>/store/sessions/<session-id>/` and writes
+`<out>/stitched.png`.
+
+Output paths are caller-owned fixed locations. Commands intentionally replace their named
+artifacts (`manifest.json`, `kf-NNNN.*`, and `stitched.png`) when rerun with the same `--out`
+directory; use a fresh output directory when prior artifacts must be preserved.
+
+This executable does not host ReplayKit or SwiftUI. Its capture and pipeline commands exercise
+the extracted production `ScrollCaptureDriver` (and the real video decoder for video input),
+then production planning, storage, and composition. The existing `stitch-cli` remains the
+human-oriented visual-triage tool for inspecting arbitrary captures.
+
 ### The load-bearing decision: capture banks frames, the app derives geometry
 
 The extension's only job is to save overlapping keyframes and a list of them. It computes
