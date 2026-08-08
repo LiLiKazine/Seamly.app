@@ -33,13 +33,22 @@ import Foundation
     static let contentBottom = 2633
     static let frameHeight = 2868
 
-    private func load(_ name: String) throws -> CGImage {
-        let url = try #require(Bundle.module.url(forResource: name, withExtension: "PNG", subdirectory: "Screenshots2"),
-                               "missing fixture \(name)")
+    /// Both Chrome-for-iOS screenshot sets, at the same resolution and with the same bottom
+    /// toolbar — so the same reference row identifies it in either.
+    static let sets = [
+        "Screenshots2": names,
+        "Screenshots": ["IMG_1757", "IMG_1758", "IMG_1759", "IMG_1760", "IMG_1761", "IMG_1762"],
+    ]
+
+    private func load(_ name: String, from subdirectory: String = "Screenshots2") throws -> CGImage {
+        let url = try #require(Bundle.module.url(forResource: name, withExtension: "PNG", subdirectory: subdirectory),
+                               "missing fixture \(subdirectory)/\(name)")
         return try KeyframeIO.read(from: url)
     }
 
-    private func framesInScrollOrder() throws -> [CGImage] { try Self.names.map { try load($0) } }
+    private func framesInScrollOrder(_ subdirectory: String = "Screenshots2") throws -> [CGImage] {
+        try #require(Self.sets[subdirectory]).map { try load($0, from: subdirectory) }
+    }
 
     /// The band must cover a whole bar, not just the part of it above the first row that moved.
     ///
@@ -62,32 +71,53 @@ import Foundation
 
     /// The visible consequence, asserted on the pixels rather than on the manifest: an
     /// under-measured bottom band leaves the toolbar inside every keyframe's strip, so the
-    /// finished image carries a row of browser buttons through the middle of the page — four
-    /// times over, on this set. Correctly cropped it survives exactly once, at the very bottom.
-    @Test func theToolbarSurvivesExactlyOnceInTheStitchedImage() throws {
-        let frames = try framesInScrollOrder()
-        let stitched = try BatchStitcher().stitch(frames)
+    /// finished image carries a row of browser buttons through the middle of the page. Correctly
+    /// cropped it survives exactly once, at the very bottom.
+    ///
+    /// Run over **both** screenshot sets, because they reach that outcome by opposite routes and
+    /// only one of them was ever broken: `Screenshots2` needs the content-run inference (its bars
+    /// contain moving strips), while `Screenshots` needs it *refused* (its page contains static
+    /// rows) and is served by the inward scan. A change that fixes one by breaking the other
+    /// passes neither.
+    ///
+    /// Each set also composites once with the band zeroed, which is what a failed measurement
+    /// looks like downstream. That counter-check is what keeps this test honest: a green
+    /// "appears once" proves nothing on its own unless the same code can be shown to count the
+    /// duplicates when they are there.
+    @Test(arguments: sets.keys.sorted())
+    func theToolbarSurvivesExactlyOnceInTheStitchedImage(_ fixture: String) throws {
+        let frames = try framesInScrollOrder(fixture)
+        let plan = try BatchStitcher().plan(frames)
+        let compositor = Compositor(refinementDelta: 16)
+        let source = { (kf: Keyframe) in frames[plan.order[kf.index]] }
 
         // A row from the middle of the toolbar, and every row of the output, in the same space.
         let profiler = VerticalProfile()
         let reference = profiler.profile(frames[0], forcingHeight: Self.frameHeight).rows[2700]
-        let output = profiler.profile(stitched, forcingHeight: stitched.height)
 
-        func matchesToolbar(_ row: [Float]) -> Bool {
-            guard row.count == reference.count else { return false }
-            var sum: Float = 0
-            for c in 0..<row.count { sum += abs(row[c] - reference[c]) }
-            return sum / Float(row.count) <= 0.01
+        func toolbarOccurrences(in image: CGImage) -> Int {
+            let output = profiler.profile(image, forcingHeight: image.height)
+            var runs = 0
+            var inRun = false
+            for row in output.rows {
+                var sum: Float = 0
+                for c in 0..<min(row.count, reference.count) { sum += abs(row[c] - reference[c]) }
+                let hit = row.count == reference.count && sum / Float(row.count) <= 0.01
+                if hit && !inRun { runs += 1 }
+                inRun = hit
+            }
+            return runs
         }
 
-        var bands = 0
-        var inBand = false
-        for row in output.rows {
-            let hit = matchesToolbar(row)
-            if hit && !inBand { bands += 1 }
-            inBand = hit
-        }
-        #expect(bands == 1, "the toolbar appears \(bands)x in the \(stitched.width)x\(stitched.height) stitch")
+        let stitched = try compositor.composite(plan.session, images: source)
+        #expect(toolbarOccurrences(in: stitched) == 1,
+                "\(fixture): the toolbar appears \(toolbarOccurrences(in: stitched))x in the \(stitched.width)x\(stitched.height) stitch")
+
+        var unbanded = plan.session
+        unbanded.contentBands = unbanded.contentBands.map { _ in ContentBand() }
+        let uncropped = try compositor.composite(unbanded, images: source)
+        #expect(toolbarOccurrences(in: uncropped) == frames.count,
+                "\(fixture): with the band zeroed the toolbar should repeat once per keyframe; if it does not, the check above cannot see duplicates at all")
     }
 
     /// The other half of the inference, on the fixture that would be destroyed without it.
