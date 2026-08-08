@@ -77,15 +77,25 @@ struct PhotoPickOrderTests {
     /// fuzzy one of its seams is, so it must not be badged — otherwise the badge degrades into
     /// "recovery wasn't perfect" and stops telling the user anything actionable. The fuzzy seam is
     /// still reported, on the seam itself, where the editor already surfaces it.
+    ///
+    /// The flag threshold is raised so the fuzzy seam is guaranteed rather than hoped for. This
+    /// set used to score 0.368 on seam 2→3 and now scores 0.726 — same offsets, better-calibrated
+    /// confidence after the masked overlap floor was corrected — so at the shipping 0.4 there is
+    /// no longer a fuzzy seam here to not-badge, and the assertion below would pass without ever
+    /// exercising the bug it was written for.
     @Test func aFuzzySeamDoesNotBadgeTheOrderAsAssumed() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let (session, folder) = try writePickedSession(Self.scrollOrder, root: root)
 
-        let resolved = try StitchAssembler.resolveGeometry(session, in: folder, strategy: .recoverOrInputOrder)
+        let resolved = try StitchAssembler.resolveGeometry(
+            session, in: folder,
+            strategy: .recoverOrInputOrder,
+            stitcher: BatchStitcher(lowConfidenceSeam: 0.8)
+        )
 
         let fuzzy = resolved.seams.filter(\.isLowConfidence)
+        #expect(!fuzzy.isEmpty, "flag threshold no longer reproduces the trap: \(resolved.seams.map(\.confidence))")
         #expect(resolved.orderAssumed == false, "a fully chained recovery was badged 'order assumed'")
-        #expect(!fuzzy.isEmpty, "fixture no longer reproduces the trap: no seam under the 0.4 floor")
     }
 }

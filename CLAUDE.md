@@ -11,16 +11,20 @@ import, photo import, order recovery, stitching, preview, non-destructive editin
 export (Photos / PNG / JPEG / PDF / clipboard) all ship. `README.md` is now an accurate
 description of the code, not a spec — trust it.
 
-Two known gaps are tracked as `withKnownIssue` tests, not hidden:
+One known gap is tracked as a `withKnownIssue` test, not hidden:
 
-- `BatchStitcher` mis-scores scroll direction on image-heavy content —
-  `docs/logs/2026-07-23-01-batch-stitcher-direction-on-image-heavy-content.md`
 - The dense live-frame regression oracle still needs a real capture; the existing device
-  fixtures come from a *broken* capture with fast-flick gaps —
+  fixtures (`RealDevice/baidu-*`) come from a *broken* capture with fast-flick gaps, and
+  still split a clean downward scroll into 4 segments —
   `docs/logs/2026-07-05-03-real-frame-orientation-and-signal-fix.md`
 
-Do not "fix" these by relaxing the assertions. If you make one pass legitimately, remove
-its `withKnownIssue` and say so.
+Do not "fix" this by relaxing the assertion. If you make it pass legitimately, remove the
+`withKnownIssue` and say so.
+
+Closed since: `BatchStitcher` mis-scoring scroll direction on image-heavy content (issue #2)
+— the video tier now stitches into one continuous segment. Its last break was blamed on an
+"unmatchable" fixture keyframe for two cycles; the real cause was `OffsetMatcher` discarding
+large offsets, `docs/logs/2026-08-08-02-masked-overlap-floor.md`.
 
 ## Architecture
 
@@ -147,8 +151,9 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
   `Seamly/SeamlyTests/` (app-level import/assembly) · `Seamly/SeamlyUITests/`
 - **Fixtures:** `Seamly/StitchKit/Tests/StitchKitTests/Fixtures/` — synthetic, `wikipedia.png`,
   `Example/`, `RealDevice/` (broadcast keyframes), `Screenshots/` (Photos-app screenshots),
-  `Screenshots2/` (same, but with a live clock inside the bars). The last three carry a
-  `README.md` with ground truth and resolution — read it before measuring.
+  `Screenshots2/` (same, but with a live clock inside the bars), `Recordings/` (an untrimmed
+  handheld screen recording, with a fast flick and pauses). The last four carry a `README.md`
+  with ground truth and resolution — read it before measuring.
 - **Why the code is like this:** `DECISIONS.md` + `docs/logs/` (one log per significant
   change) · `docs/superpowers/plans/` and `docs/superpowers/specs/`
 
