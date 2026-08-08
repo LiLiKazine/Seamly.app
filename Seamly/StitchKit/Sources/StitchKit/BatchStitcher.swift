@@ -27,6 +27,18 @@ public struct BatchStitcher: Sendable {
         public let session: StitchSession
     }
 
+    /// How planning treats the order in which images arrived.
+    public enum OrderStrategy: Sendable {
+        /// Recover scroll order from pixel overlap and never fall back.
+        case recover
+        /// Recover first; if recovery cannot form one continuous chain, use input order and badge it
+        /// as assumed. Low-confidence seams do not trigger the fallback: they describe alignment,
+        /// not whether the recovered relative order is known.
+        case recoverOrInputOrder
+        /// Trust input order as chronology. This is not badged because the order is authoritative.
+        case inputOrder
+    }
+
     public enum StitchError: Error, Equatable { case empty }
 
     let profiler: VerticalProfile
@@ -157,6 +169,25 @@ public struct BatchStitcher: Sendable {
         let profiles = images.map { profiler.profile($0) }
         let segmentOfSlot = segmentsAlong(order, profiles)
         return buildPlan(profiles: profiles, order: order, segmentOfSlot: segmentOfSlot)
+    }
+
+    /// Plan using a source-aware ordering policy. This preserves the two lower-level planning
+    /// overloads above while providing one shared implementation for app and diagnostic callers.
+    public func plan(_ images: [CGImage], strategy: OrderStrategy) throws -> Plan {
+        switch strategy {
+        case .recover:
+            return try plan(images)
+        case .inputOrder:
+            return try plan(images, assumingOrder: Array(images.indices))
+        case .recoverOrInputOrder:
+            let recovered = try plan(images)
+            guard !recovered.session.segmentBreaks.isEmpty else { return recovered }
+
+            let fallback = try plan(images, assumingOrder: Array(images.indices))
+            var session = fallback.session
+            session.orderAssumed = true
+            return Plan(order: fallback.order, session: session)
+        }
     }
 
     /// Recover order and composite to a single long image.
@@ -484,4 +515,3 @@ public struct BatchStitcher: Sendable {
         rows == 0 ? 0 : Int((Double(rows + 1) * rowScale).rounded(.up))
     }
 }
-

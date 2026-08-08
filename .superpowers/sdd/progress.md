@@ -302,3 +302,56 @@ worktree, or destructive changes. No commit or push unless the user asks.
   confirms success emits only one JSON stdout envelope, while failure emits only one JSON stderr
   envelope and exits 1. Final read-only specialist audit reports no remaining Critical or Important
   findings.
+
+---
+
+# Component Harness Production Paths — active
+
+**Goal:** Correct the merged component harness so every pipeline mode names and exercises a real
+production input shape, with the Photos fallback behavior shared by the app and harness.
+
+**Branch:** `fix/harness-production-paths` in `/Users/leo/Developer/Seamly.app`, based on
+`origin/main` at `1b639d2`.
+
+**Done-criteria:**
+1. Photos/already-committed image inputs plan every discovered image and use the app's exact
+   recover-or-input fallback, including `orderAssumed`.
+2. Raw frame sequences remain available only through an explicit driver-oriented mode; video keeps
+   the validated decoder → driver → trusted-order path.
+3. The six full-resolution Photos fixtures produce 6 keyframes, 5 seams, no breaks, and a
+   1320×10316 composite through the production-shaped harness path.
+4. A real displaced pair proves the chrome mask is applied; executable success/failure routing and
+   exit codes are automated; wrapped errors retain actionable underlying detail.
+5. README and the JSON contract describe source modes and metrics without ambiguous aliases.
+6. Focused tests, full `swift test`, both CLI builds, strict concurrency/warnings-as-errors, diff
+   checks, and final specialist review are green with no unresolved Critical or Important findings.
+
+**Hard-stop allowlist:** no force-push/history rewrite, publishing/release, external communication,
+new worktree, destructive user-data operations, or commit/push unless the user separately asks.
+
+## CHP task status
+| # | Task | Status |
+|---|------|--------|
+| CHP1 | Shared order strategy + explicit source contract | complete |
+| CHP2 | Real-fixture, mask, error, and process tests | complete |
+| CHP3 | Implementation + schema cleanup | complete |
+| CHP4 | Documentation + decision trail | complete |
+| CHP5 | Full verification + specialist review | complete |
+
+## CHP verification so far
+- Shared planning policy: 5/5 `BatchStitcherOrderStrategyTests` pass, including a non-identity
+  partial recovery that proves fallback really restores input order and badges it.
+- Harness behavior: 24/24 `HarnessDispatcherTests` pass. The full-resolution Photos oracle plans
+  all 6 images, produces 5 seams and no breaks, and composites to 1320×10316. Canonical
+  `committed`, `frames`, and both legacy spellings have direct coverage.
+- Executable boundary: 2/2 `HarnessProcessTests` pass against the built product, pinning exit status
+  plus stdout/stderr exclusivity for success and failure.
+- App integration: selected `MediaImportTests`, `PhotoPickOrderTests`, and
+  `BroadcastOrderStrategyTests` passed under `xcodebuild`; an iOS simulator app build also passed.
+- Final integrated verification: 133 SwiftPM tests in 26 suites passed with only the one
+  pre-existing `RealDeviceStitchTests` known issue; strict-concurrency/warnings-as-errors linked
+  both CLI products; selected simulator app integration tests passed; the canonical committed
+  executable check planned all 7 `baidu-*` keyframes; and `git diff --check` passed.
+- Final four-dimension review: GO, overall 4/5 (Structure 4, Interface 4, Testing 4, Agentic 5),
+  with no remaining Critical or Important findings. Remaining schema redundancy, double decoding,
+  and summary cleanup are non-blocking cleanup/performance suggestions.

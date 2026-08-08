@@ -17,7 +17,7 @@ enum MediaImporter {
     ///
     /// `source` is recorded in the diagnostic trace: a capture's origin is otherwise
     /// indistinguishable after import, and photo picks and video decodes fail differently.
-    nonisolated static func write(images: [CGImage], into store: SessionStore, strategy: OrderStrategy, source: Source, diag: Diagnostics) throws -> UUID {
+    nonisolated static func write(images: [CGImage], into store: SessionStore, strategy: BatchStitcher.OrderStrategy, source: Source, diag: Diagnostics) throws -> UUID {
         guard images.count >= 2 else {
             diag.log("import[\(source.rawValue)]: rejected, \(images.count) image(s) — need at least two")
             throw ImportError.notEnoughContent
