@@ -19,3 +19,6 @@ DerivedData/
 # CocoaPods / Carthage (not used, but future-proofing)
 Pods/
 Carthage/Build/
+
+# CodeGraph index (local, machine-specific)
+.codegraph/
