@@ -74,17 +74,35 @@ import Foundation
 
     // MARK: - The trap
 
-    /// A complete chain can still carry a seam under the `isLowConfidence` floor. This is the
-    /// combination `StitchAssembler` mishandled, and it is pinned here so the app-level policy
-    /// test in `PhotoPickOrderTests` keeps a real measurement behind it rather than a guess.
+    /// A complete chain can still carry a seam flagged `isLowConfidence`. This is the combination
+    /// `StitchAssembler` mishandled, and it is pinned here so the app-level policy test in
+    /// `PhotoPickOrderTests` keeps a real measurement behind it rather than a guess.
     ///
-    /// If a future matcher change lifts this seam above 0.4, this test fails loudly — at which
-    /// point the fixture no longer exercises the trap and something else must.
+    /// The flag threshold is raised rather than left at its shipping 0.4, because this set no
+    /// longer trips 0.4 on its own: its weakest seam was 0.368 until the masked overlap floor was
+    /// corrected (`docs/logs/2026-08-08-02`), which left the same offsets — 1326 / 1636 / 1416 /
+    /// 1533 / 1537 px, unchanged — measured against the full score curve instead of a truncated
+    /// one, and re-scored that seam at 0.726.
+    ///
+    /// Waiting for a fixture to happen to score under 0.4 is what made this test and its app-side
+    /// partner both go vacuous in the same commit. Raising the threshold reproduces the condition
+    /// deliberately, from the same real pixels: the chain is complete *and* seams are flagged, so
+    /// anything that conflates the two still has something to fail against.
     @Test func aCompleteChainStillCarriesALowConfidenceSeam() throws {
-        let plan = try BatchStitcher().plan(try framesInScrollOrder())
+        let plan = try BatchStitcher(lowConfidenceSeam: 0.8).plan(try framesInScrollOrder())
         #expect(plan.session.segmentBreaks.isEmpty)
         let flagged = plan.session.seams.filter(\.isLowConfidence)
         #expect(!flagged.isEmpty,
-                "no seam under the 0.4 floor; confidences \(plan.session.seams.map { ($0.fromIndex, $0.confidence) })")
+                "no seam under the 0.8 flag; confidences \(plan.session.seams.map { ($0.fromIndex, $0.confidence) })")
+    }
+
+    /// …and at the shipping threshold this set is now entirely clean, which is worth pinning
+    /// separately: it is the measurement the sentence above rests on, and a matcher regression
+    /// that pushed a seam back under 0.4 would otherwise pass silently.
+    @Test func atTheShippingThresholdEverySeamIsConfident() throws {
+        let plan = try BatchStitcher().plan(try framesInScrollOrder())
+        let flagged = plan.session.seams.filter(\.isLowConfidence)
+        #expect(flagged.isEmpty,
+                "expected every seam over 0.4; confidences \(plan.session.seams.map { ($0.fromIndex, $0.confidence) })")
     }
 }

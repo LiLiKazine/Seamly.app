@@ -35,6 +35,7 @@ let package = Package(
                 .copy("Fixtures/Example"),
                 .copy("Fixtures/Screenshots"),
                 .copy("Fixtures/Screenshots2"),
+                .copy("Fixtures/Recordings"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

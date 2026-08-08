@@ -56,11 +56,36 @@ public struct OffsetMatcher: Sendable {
         var bestScore = Float.greatestFiniteMagnitude
         var scored: [(offset: Int, score: Float)] = []
 
-        // Effective overlap floor: the absolute minimum, or a fraction of the smaller frame,
-        // whichever is larger. Rejecting tiny-overlap offsets is what keeps the matcher from
-        // latching onto an extreme boundary shift at real (heavily downscaled) geometry.
-        let referenceRows = min(a.rowCount, b.rowCount)
-        let minOverlap = max(minimumOverlap, Int((minimumOverlapFraction * Double(referenceRows)).rounded()))
+        // Effective overlap floor: the absolute minimum, or a fraction of the rows this match can
+        // actually count, whichever is larger. Rejecting tiny-overlap offsets is what keeps the
+        // matcher from latching onto an extreme boundary shift at real (heavily downscaled)
+        // geometry.
+        //
+        // The reference is the *countable* rows, not the frame's rows, and the difference is not
+        // cosmetic. A masked match only ever counts content rows — chrome is excluded at both ends
+        // of the shift — so measuring the floor against the full frame silently caps how far a
+        // masked match can measure. Measured on `Recordings/DSNN4777.MP4` (640 profile rows, 471
+        // of them content): at the true offset `dy=354` a masked match counts 124 rows against a
+        // floor of 160, so the correct offset was discarded and the match returned `dy=0` — while
+        // the same match with the floor lifted finds 354 at confidence 0.704, against plain
+        // matching's 0.207.
+        //
+        // That ceiling landed just above `KeyframeSelector.commitFraction`: a commit needed
+        // `dy ≥ 320` and the mask made anything past ~345 unmeasurable, leaving a 25-row window.
+        // A fast flick stepped 273 → 319 → 354 straight over it, the selector never committed a
+        // second keyframe, and every later frame had scrolled past the first one entirely — so a
+        // 6.4 s scroll banked exactly **one** keyframe and produced no stitch at all.
+        //
+        // `overlapPenalty` below deliberately keeps the **frame** as its denominator. Moving it to
+        // the countable rows as well was tried and reverted: it lowers every offset's penalty, but
+        // lowers a well-overlapped one's much further (at `dy=0`, 1.21 → 1.00; at `dy=354`, 1.65 →
+        // 1.59), which tilts the whole score curve toward `dy=0`. On baidu that flipped a real
+        // downward pair to `dy=0` outright. The floor and the penalty answer different questions —
+        // "did this offset count enough rows to be trusted" versus "how much of the frame does it
+        // explain" — and only the first is about what the mask made available.
+        let frameRows = min(a.rowCount, b.rowCount)
+        let referenceRows = frameRows
+        let minOverlap = max(minimumOverlap, Int((minimumOverlapFraction * Double(countableRows(rowMask, upTo: frameRows))).rounded()))
 
         for offset in searchRange {
             guard let score = weightedMAD(a, b, offset: offset, rowMask: rowMask, minOverlap: minOverlap, referenceRows: referenceRows) else { continue }
@@ -94,6 +119,18 @@ public struct OffsetMatcher: Sendable {
 
         let confidence = confidenceMargin(best: bestScore, runnerUp: runnerUp)
         return Match(dy: bestOffset, confidence: confidence, cost: bestScore)
+    }
+
+    /// The most rows any offset could contribute to the score: every overlapping row for an
+    /// unmasked match, and only the content rows for a masked one (`offset = 0` counts exactly
+    /// those, and every other offset counts a subset). This is what the overlap *floor* has to be
+    /// a fraction of — a floor set against the frame's rows asks a masked match to count rows the
+    /// mask already removed.
+    private func countableRows(_ rowMask: [Bool]?, upTo rows: Int) -> Int {
+        guard let rowMask else { return rows }
+        var counted = 0
+        for k in 0..<rows where k < rowMask.count && rowMask[k] { counted += 1 }
+        return counted
     }
 
     /// Variance-weighted mean absolute difference over the overlap, or `nil` if the counted

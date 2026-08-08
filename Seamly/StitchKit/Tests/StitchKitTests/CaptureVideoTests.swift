@@ -7,11 +7,16 @@ import Foundation
 /// the exact on-device path (`AVAssetReader` → `PixelBufferImage` → `ScrollCaptureDriver`) and the
 /// committed keyframes are re-stitched with `BatchStitcher`. Ground truth is fuzzy, so numeric
 /// assertions are tolerant; the structural ones (0 decode failures, non-empty, sane overlap band,
-/// monotonic order) are hard gates. The "single continuous segment" gate lives in the §4 fix test.
+/// monotonic order, and — since 2026-08-08 — a single continuous segment) are hard gates.
 ///
 /// Literals below are pinned to the trimmed fixture's observed ground truth (362 frames decoded, 0
 /// failures, 5 committed keyframes, consecutive overlaps 0.469–0.536), with tolerance around it —
 /// not the full 11.2s spike's numbers (671 frames / 4 keyframes), which don't apply to this ~6s clip.
+///
+/// This clip is **trimmed to a steady scroll**, which is its limitation as much as its value: it
+/// never flicks fast enough to cross the offset ceiling a masked match used to impose, so it could
+/// not have caught the defect in `docs/logs/2026-08-08-02`. `LongScreenshotFromVideoTests` drives
+/// an untrimmed handheld recording for exactly that reason; the two tiers are complementary.
 @Suite struct CaptureVideoTests {
 
     private func fixtureURL() throws -> URL {
@@ -66,29 +71,26 @@ import Foundation
         // withKnownIssue block below tracks the intended end-state.
         #expect(plan.order == Array(0..<r.keyframes.count), "expected monotonic scroll order, got \(plan.order)")
 
-        // IDEAL end-state: a single continuous downward scroll should re-stitch into ONE segment.
-        // It currently does NOT, but it is closer: breaks were [2, 3] and are now just [3].
+        // A single continuous downward scroll re-stitches into ONE segment. This was
+        // `withKnownIssue` across three fix cycles — breaks [2, 3], then [3] — and is now a hard
+        // assertion. It is the last acceptance criterion of issue #2.
         //
-        // Pair 2-3 is recovered as of 2026-07-25-07. Its real downward edge (dy=344) was losing the
+        // Pair 2-3 was recovered in 2026-07-25-07: its real downward edge (dy=344) was losing the
         // direction tie-break to a spurious dy=1 reverse match that scored higher on *confidence*
-        // while fitting far worse; direction is now settled on fit, and the chain-joining pass
-        // rescues the edge despite its 0.341 confidence sitting under `edgeConfidence`.
+        // while fitting far worse, so direction is now settled on fit.
         //
-        // Pair 3-4 remains, and is a different problem: keyframe 4 is the trailing `finish()`
-        // commit, an artifact of trimming the fixture mid-scroll, so it barely overlaps its
-        // predecessor. Its real edge fits only 0.953 as well as its own reverse — versus 0.996 for
-        // a genuine non-overlap — so no directional test can separate it, and no confidence floor
-        // can either (0.047). Closing this needs the fixture re-trimmed, or the dense live-frame
-        // oracle CLAUDE.md flags as still missing; it is not another threshold.
-        //
-        // Capture is correct here (overlaps ~0.5, order recovered above); the defect is purely in
-        // re-assembly. When the last break goes, promote this block to a hard assertion.
-        withKnownIssue("one break left, at the fixture's unmatchable trailing keyframe; needs the fixture re-trimmed, not another threshold (see docs/logs/2026-07-25-07, issue #2)") {
-            #expect(plan.session.segmentBreaks.isEmpty,
-                    "real single scroll should re-stitch into one continuous segment, got breaks \(plan.session.segmentBreaks.map { $0.afterKeyframeIndex })")
-            #expect(plan.session.seams.count == r.keyframes.count - 1,
-                    "expected \(r.keyframes.count - 1) seams for one segment, got \(plan.session.seams.count)")
-        }
+        // Pair 3-4 was blamed on the fixture. Keyframe 4 read as a trailing `finish()` commit that
+        // barely overlapped its predecessor — edge confidence 0.047, fitting 0.953 as well as its
+        // own reverse — and the recorded diagnosis was "needs the fixture re-trimmed, not another
+        // threshold." Half right: it was not a threshold, but the fixture was not at fault either.
+        // The masked overlap floor was rejecting large offsets outright (`docs/logs/2026-08-08-02`),
+        // which both moved where the selector committed and left that pair unmeasurable. With it
+        // corrected, this same clip banks 5 keyframes whose weakest seam scores 0.732, and the
+        // supposedly unmatchable pair 3-4 measures dy=1268 px at **0.945**.
+        #expect(plan.session.segmentBreaks.isEmpty,
+                "real single scroll should re-stitch into one continuous segment, got breaks \(plan.session.segmentBreaks.map { $0.afterKeyframeIndex })")
+        #expect(plan.session.seams.count == r.keyframes.count - 1,
+                "expected \(r.keyframes.count - 1) seams for one segment, got \(plan.session.seams.count)")
     }
 
     /// Re-validation gate: at the production sampling cadence (30 fps by timestamp) the driver must

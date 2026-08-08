@@ -99,6 +99,17 @@ public struct BatchStitcher: Sendable {
     /// third of every page. The bias is deliberate — failing this test costs only the older,
     /// smaller band, while passing it wrongly crops content away for good.
     let minChromeStaticFraction: Double
+    /// Match confidence below which a seam is stamped `isLowConfidence` — "this one offset is
+    /// fuzzy", surfaced to the editor. It says nothing about ordering; `StitchAssembler` learned
+    /// that the hard way (see `docs/logs/2026-07-25-08`).
+    ///
+    /// Configurable rather than a literal because the callers that must keep working *despite* a
+    /// fuzzy seam can otherwise only be tested when some fixture happens to produce one. That was
+    /// the arrangement until `Fixtures/Screenshots`' 0.368 seam — the only one in the repo — rose
+    /// to 0.726 when the masked overlap floor was corrected, and two tests guarding a real,
+    /// shipped bug went vacuous at once. Raising this reproduces the condition from the same real
+    /// pixels instead of waiting for luck.
+    let lowConfidenceSeam: Double
     /// ± source px searched around each provisional seam during compositing. Wider than the
     /// compositor's default because a downscaled provisional offset can be a few px off.
     let refinementDelta: Int
@@ -111,6 +122,7 @@ public struct BatchStitcher: Sendable {
         directionalCostRatio: Double = 0.80,
         chromeTolerance: Float = 0.02,
         minChromeStaticFraction: Double = 0.75,
+        lowConfidenceSeam: Double = 0.4,
         refinementDelta: Int = 16
     ) {
         self.profiler = profiler
@@ -120,6 +132,7 @@ public struct BatchStitcher: Sendable {
         self.directionalCostRatio = directionalCostRatio
         self.chromeTolerance = chromeTolerance
         self.minChromeStaticFraction = minChromeStaticFraction
+        self.lowConfidenceSeam = lowConfidenceSeam
         self.refinementDelta = refinementDelta
     }
 
@@ -339,7 +352,7 @@ public struct BatchStitcher: Sendable {
                 let a = profiles[order[slot]], b = profiles[order[slot + 1]]
                 let m = downwardMatch(a, b)
                 let dyPx = Int((Double(m.dy) * a.rowScale).rounded())
-                session.seams.append(Seam(fromIndex: slot, provisionalDy: dyPx, confidence: m.confidence, isLowConfidence: m.confidence < 0.4))
+                session.seams.append(Seam(fromIndex: slot, provisionalDy: dyPx, confidence: m.confidence, isLowConfidence: m.confidence < lowConfidenceSeam))
             } else {
                 session.segmentBreaks.append(SegmentBreak(afterKeyframeIndex: slot, reason: .lostLock))
             }
