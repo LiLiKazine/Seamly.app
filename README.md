@@ -8,10 +8,9 @@ iOS doesn't natively support scrolling screenshots outside of Safari's full-page
 export. Seamly fills that gap for every app.
 
 > **Status: the pipeline is built and works end to end** — live broadcast capture, video
-> import, photo import, stitching, preview, editing, and export all ship. Two known gaps
-> are tracked as `withKnownIssue` tests rather than hidden: scroll-direction scoring on
-> image-heavy content ([log](docs/logs/2026-07-23-01-batch-stitcher-direction-on-image-heavy-content.md))
-> and a dense live-frame regression oracle that still needs capturing
+> import, photo import, stitching, preview, editing, and export all ship. One known gap is
+> tracked as a `withKnownIssue` test rather than hidden: the sparse broken-capture fixture still
+> needs to be replaced by a dense live-frame regression oracle
 > ([log](docs/logs/2026-07-05-03-real-frame-orientation-and-signal-fix.md)).
 > Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/); every
 > significant decision is logged in [`DECISIONS.md`](DECISIONS.md) and [`docs/logs/`](docs/logs/).
@@ -115,19 +114,51 @@ swift run stitch-harness profile Tests/StitchKitTests/Fixtures/Example/20260718-
 |---|---|
 | `profile` | `stitch-harness profile <image>` |
 | `match` | `stitch-harness match <a> <b> [--mask-chrome]` |
-| `capture` | `stitch-harness capture images <dir> [--prefix P] [--out DIR]`<br>`stitch-harness capture video <file> [--fps N] [--out DIR]` |
-| `plan` | `stitch-harness plan <dir> [--prefix P] [--order recover\|input] [--out DIR]` |
-| `session` | `stitch-harness session create <dir> --out <container> [--prefix P] [--order recover\|input]`<br>`stitch-harness session inspect <session-folder>` |
+| `capture` | `stitch-harness capture frames <dir> [--prefix P] [--out DIR]`<br>`stitch-harness capture images <dir> [--prefix P] [--out DIR]` (compatibility alias for `frames`)<br>`stitch-harness capture video <file> [--fps N] [--out DIR]` |
+| `plan` | `stitch-harness plan <dir> [--prefix P] [--order recover\|recover-or-input\|input] [--out DIR]` |
+| `session` | `stitch-harness session create <dir> --out <container> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness session inspect <session-folder>` |
 | `compose` | `stitch-harness compose <session-folder> --out <image.png>` |
-| `pipeline` | `stitch-harness pipeline images <dir> --out <dir> [--prefix P] [--order recover\|input]`<br>`stitch-harness pipeline video <file> --out <dir> [--fps N] [--order recover\|input]` |
+| `pipeline` | `stitch-harness pipeline photos <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline committed <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline frames <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline video <file> --out <dir> [--fps N] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline images <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]` (legacy spelling for `photos`) |
+
+Pipeline source names select a production-shaped ingestion path, not merely a file format:
+
+| Source | Ingestion and default planning |
+|---|---|
+| `photos` (`pipeline images` legacy spelling) | Treat every discovered file as an already selected Photos item. All images reach `BatchStitcher`; none are re-selected. Defaults to `recover-or-input`, matching Photos import. |
+| `committed` | Treat every discovered file as a keyframe already committed by the broadcast driver. All keyframes go directly to planning without another selection pass. Defaults to `recover-or-input`, matching broadcast import. |
+| `frames` | Treat the directory as dense, chronological raw frames and pass them through `ScrollCaptureDriver`, which emits committed keyframes. Defaults to `input`. |
+| `video` | Decode the video chronologically and pass decoded frames through `ScrollCaptureDriver`. Defaults to `input`. |
+
+Directory inputs are discovered after prefix filtering and ingested in lexical filename order. For
+`recover-or-input`, a fallback to input order therefore means that lexical order; a directory does
+not retain the user's original Photos picker order. The `pipeline images` spelling is retained for
+old invocations, but its behavior changed from the original harness's driver path to the
+production-shaped `photos` path. Use `frames` when the input really is a dense raw-frame stream.
+
+For ordering, `recover` requires pixel-overlap recovery, `input` trusts the supplied chronology,
+and `recover-or-input` tries recovery first but falls back to input order when recovery cannot form
+one continuous chain. `orderAssumed` is `true` only when that fallback was used; it remains `false`
+for successfully recovered order and for an explicitly trusted `input` order. The value is persisted
+in the session manifest and reported by planning, pipeline, and session-inspection results.
+
+`match.geometricOverlapFraction` reports the fraction of profile rows that geometrically overlap at
+the chosen offset; it deliberately does not use the chrome mask or the matcher's countable-row
+floor. `overlapFraction` is the legacy JSON-field alias for the same value.
+
+`match` is a symmetric, bounded `OffsetMatcher` component probe: it searches both offset signs and
+reports the best candidate. Production planning and pipeline commands additionally perform
+directional layout selection and apply the production edge gates. Use `plan` or `pipeline` when the
+question is whether production would accept, orient, and connect the frames.
 
 The built executable emits exactly one pretty-printed JSON envelope: successes go to stdout and
 failures to stderr with a non-zero exit. The envelope contains `schemaVersion`, `command`, `ok`,
-and either `result` or a stable `error.code` plus message. `swift run` may additionally emit
-SwiftPM build diagnostics on stderr, so scripts that require clean JSON should invoke the built
-`.build/.../stitch-harness` executable. Capture reports measured safety-cue counts for image
-sequences; video reports that field as `null` because its decoder result does not expose cue
-decisions.
+and either `result` or a stable `error.code` plus message. When an operation wraps an underlying
+error, the error object also carries the optional `cause` field so diagnostics retain the original
+failure; automation should branch on `error.code`, not parse `message` or `cause`. `swift run` may
+additionally emit SwiftPM build diagnostics on stderr, so scripts that require clean JSON should
+invoke the built `.build/.../stitch-harness` executable. Capture reports measured safety-cue counts
+for frame directories; video reports that field as `null` because its decoder result does not
+expose cue decisions.
 Capture `--out` directories contain committed keyframes as PNGs. Plan output can contain a
 manifest. Session output uses raw BGRA keyframes plus `manifest.json`; pipeline output places
 that real `SessionStore` at `<out>/store/sessions/<session-id>/` and writes
@@ -138,9 +169,12 @@ artifacts (`manifest.json`, `kf-NNNN.*`, and `stitched.png`) when rerun with the
 directory; use a fresh output directory when prior artifacts must be preserved.
 
 This executable does not host ReplayKit or SwiftUI. Its capture and pipeline commands exercise
-the extracted production `ScrollCaptureDriver` (and the real video decoder for video input),
-then production planning, storage, and composition. The existing `stitch-cli` remains the
-human-oriented visual-triage tool for inspecting arbitrary captures.
+the production ingestion path selected by the source: raw frames and decoded video use the
+extracted `ScrollCaptureDriver`, while Photos and committed-keyframe inputs go directly to planning
+with every image. `Fixtures/RealDevice` contains keyframes already committed by the broadcast
+driver, and Photos screenshot directories contain discrete user selections; sending either through
+the driver again can silently discard valid frames and invent segment breaks. The existing
+`stitch-cli` remains the human-oriented visual-triage tool for inspecting arbitrary captures.
 
 ### The load-bearing decision: capture banks frames, the app derives geometry
 
@@ -157,16 +191,13 @@ frame set available, can be re-run after a fix, and is testable off-device.
 ### Pipeline
 
 ```
-ReplayKit frames                     video file            picked screenshots
-      │                                   │                        │
-      │ SampleHandler (decode, disk, haptics)                      │
-      ▼                                   ▼                        ▼
-ScrollCaptureDriver ─── pure, Sendable; the same code on all three paths ───┐
-  VerticalProfile → KeyframeSelector                                       │
-      │                                                                    │
-      ▼                                                                    │
-App Group: kf-NNNN.bgra + manifest.json ───────────────────────────────────┘
-      │ LibraryModel.importFromGroup (move into app storage; recover killed broadcasts)
+ReplayKit raw frames ── SampleHandler ── ScrollCaptureDriver ── committed keyframes ────────────┐
+`frames` directory ── lexical load ───── ScrollCaptureDriver ── committed keyframes ────────────┤
+video file ────────── VideoKeyframeSource ── ScrollCaptureDriver ── committed keyframes ────────┤
+picked screenshots / `photos` ── all selected; recover-or-input ───────────────────────────────┤
+keyframe directory / `committed` ── all already selected; recover-or-input ────────────────────┤
+App Group keyframes ── LibraryModel.importFromGroup (move; recover killed broadcasts) ─────────┘
+      │
       ▼
 StitchAssembler.resolveGeometry → BatchStitcher.plan
       │   pairwise offsets → order recovery → segments → per-segment chrome band
@@ -304,7 +335,7 @@ order, no segment breaks, high seam confidence — and still be visibly wrong. R
 real file and *look* at the output, then pin whatever it turns up as a fixture-backed test.
 
 ```bash
-# StitchKit package tests — 80 tests, ~5 min (the real-frame tiers are slow by design)
+# StitchKit package tests (the real-frame tiers are slow by design)
 swift test --package-path Seamly/StitchKit
 
 # Visual triage on a real file
@@ -317,8 +348,10 @@ xcodebuild test -project Seamly/Seamly.xcodeproj -scheme Seamly \
   -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
-The suite passes with **3 known issues** across 2 tests, recorded with `withKnownIssue` and
-linked to their decision logs rather than deleted or faked green.
+The only expected known issue is the sparse broken-capture oracle in
+`RealDeviceStitchTests.cleanDownwardScrollStitchesIntoOneSegment`, recorded with
+`withKnownIssue` and linked to its decision log rather than deleted or faked green. Treat any
+additional known issue as a regression that needs investigation.
 
 ## Privacy
 

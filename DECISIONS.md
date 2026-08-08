@@ -294,3 +294,20 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
   hosts (misleading coverage). Both rejected.
 - Reversible: yes — the new product/targets are additive and can be removed independently.
 - Confidence: high.
+
+## [CHP-1] Split raw-frame capture from Photos/committed-image pipelines
+- Why: the merged `pipeline images` feeds sparse Photos screenshots and already-committed
+  keyframes through `ScrollCaptureDriver`, which is tuned for dense temporal frames. On the six
+  ground-truth Photos fixtures it retains 3 of 6 images, invents a segment break, drops content,
+  repeats chrome, and still reports success. The production Photos path plans every selected image.
+- Decision: expose distinct raw-frame, Photos, and committed-image semantics. Photos and committed
+  inputs bypass capture selection, while raw frames explicitly exercise `ScrollCaptureDriver`;
+  video retains its real decoder → driver path. Retain `images` only as a documented legacy
+  spelling: `pipeline images` now canonicalizes to the corrected Photos path, while
+  `capture images` canonicalizes to the raw-frame component probe.
+- Shared prerequisite: move recover/input/recover-or-input planning into `StitchKit` so the app and
+  harness call the same implementation and produce the same `orderAssumed` result.
+- Alternatives considered: keep one `images` mode plus `--frames all|committed` (easy to misuse),
+  or document the current behavior only (leaves the Photos diagnostic gap and bad success output).
+- Reversible: yes — additive modes and a shared planning API can be reverted on this branch.
+- Confidence: high; reproduced against full-resolution ground-truth pixels and visually inspected.

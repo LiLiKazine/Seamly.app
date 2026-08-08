@@ -32,15 +32,11 @@ enum CaptureHarness {
         }
     }
 
-    /// Mirrors the app's `OrderStrategy`: `.recover` re-derives scroll order from pixels (broadcast),
-    /// `.inputOrder` trusts the given order (video capture order).
-    enum Order { case recover, inputOrder }
-
     /// Feed a frame *stream* through the real picker, then assemble what it banked. Use this when
     /// the input models what ReplayKit delivers (many frames, small scroll steps).
     static func capture(
         _ frames: [CGImage],
-        order: Order = .recover,
+        order: BatchStitcher.OrderStrategy = .recover,
         driver: ScrollCaptureDriver = ScrollCaptureDriver(),
         stitcher: BatchStitcher = BatchStitcher()
     ) throws -> Capture {
@@ -58,13 +54,10 @@ enum CaptureHarness {
     /// re-running it over sparse input.
     static func assemble(
         _ keyframes: [CGImage],
-        order: Order = .recover,
+        order: BatchStitcher.OrderStrategy = .recover,
         stitcher: BatchStitcher = BatchStitcher()
     ) throws -> Capture {
-        let plan: BatchStitcher.Plan = switch order {
-        case .recover: try stitcher.plan(keyframes)
-        case .inputOrder: try stitcher.plan(keyframes, assumingOrder: Array(0..<keyframes.count))
-        }
+        let plan = try stitcher.plan(keyframes, strategy: order)
         let first = keyframes[plan.order[0]]
         var session = StitchSession(
             createdAt: Date(timeIntervalSince1970: 0),
@@ -78,6 +71,7 @@ enum CaptureHarness {
         session.seams = plan.session.seams
         session.segmentBreaks = plan.session.segmentBreaks
         session.contentBands = plan.session.contentBands
+        session.orderAssumed = plan.session.orderAssumed
 
         var images: [Int: CGImage] = [:]
         for (slot, source) in plan.order.enumerated() { images[slot] = keyframes[source] }

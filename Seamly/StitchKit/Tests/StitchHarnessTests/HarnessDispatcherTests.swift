@@ -36,19 +36,27 @@ struct HarnessDispatcherTests {
         }
     }
 
-    @Test func matchUsesProductionMatcherAndOptionalMask() async throws {
-        try await withTemporaryDirectory { directory in
-            let a = directory.appendingPathComponent("a.png")
-            let b = directory.appendingPathComponent("b.png")
-            try writePNG(makeImage(width: 32, height: 64), to: a)
-            try writePNG(makeImage(width: 32, height: 64), to: b)
+    @Test func matchUsesDisplacedRealFramesAndChromeMaskImprovesConfidence() async throws {
+        let fixtures = photosFixtureDirectory()
+        let a = fixtures.appendingPathComponent("IMG_1757.PNG")
+        let b = fixtures.appendingPathComponent("IMG_1758.PNG")
 
-            let data = try await HarnessDispatcher().run(["match", a.path, b.path, "--mask-chrome"])
-            let result = try #require(try object(data)["result"] as? [String: Any])
-            #expect(result["dy"] as? Int == 0)
-            #expect(result["maskChrome"] as? Bool == true)
-            #expect(result["overlapFraction"] as? Double == 1)
-        }
+        let plain = try result(try await HarnessDispatcher().run(["match", a.path, b.path]))
+        let masked = try result(try await HarnessDispatcher().run([
+            "match", a.path, b.path, "--mask-chrome",
+        ]))
+
+        #expect(plain["dy"] as? Int == 296)
+        #expect(plain["sourceDy"] as? Int == 1326)
+        #expect(masked["dy"] as? Int == 296)
+        #expect(masked["sourceDy"] as? Int == 1326)
+        #expect(masked["maskChrome"] as? Bool == true)
+        #expect((masked["maskedRows"] as? Int ?? 0) > 0)
+        #expect(masked["geometricOverlapFraction"] as? Double == 0.5375)
+        #expect(masked["overlapFraction"] as? Double == 0.5375)
+        let plainConfidence = try #require(plain["confidence"] as? Double)
+        let maskedConfidence = try #require(masked["confidence"] as? Double)
+        #expect(maskedConfidence > plainConfidence)
     }
 
     @Test func errorEnvelopeHasStableCodeAndSortedKeys() throws {
@@ -115,6 +123,54 @@ struct HarnessDispatcherTests {
             try FileManager.default.removeItem(at: folder.appendingPathComponent("kf-0001.bgra"))
             await #expect(throws: HarnessError.keyframeMissing(folder.appendingPathComponent("kf-0001.bgra").path)) {
                 try await HarnessDispatcher().run(["session", "inspect", folder.path])
+            }
+        }
+    }
+
+    @Test func malformedManifestErrorEnvelopeRetainsDecodingCauseAndCodingPath() async throws {
+        try await withTemporaryDirectory { directory in
+            let folder = try await makeSession(in: directory, imageCount: 2)
+            try mutateManifest(at: folder.appendingPathComponent("manifest.json")) { manifest in
+                manifest["id"] = 7
+            }
+
+            do {
+                _ = try await HarnessDispatcher().run(["session", "inspect", folder.path])
+                Issue.record("expected malformed manifest to fail")
+            } catch {
+                let envelope = try object(HarnessDispatcher.errorData(
+                    for: error,
+                    arguments: ["session", "inspect", folder.path]
+                ))
+                let serialized = try #require(envelope["error"] as? [String: Any])
+                #expect(serialized["code"] as? String == "manifest_read_failed")
+                let cause = try #require(serialized["cause"] as? String)
+                #expect(cause.contains("id"), "cause must retain the decoder coding path: \(cause)")
+            }
+        }
+    }
+
+    @Test func corruptRawKeyframeErrorRetainsExpectedAndActualByteCounts() async throws {
+        try await withTemporaryDirectory { directory in
+            let folder = try await makeSession(in: directory, imageCount: 1)
+            try Data(repeating: 0, count: 7).write(
+                to: folder.appendingPathComponent("kf-0000.bgra"),
+                options: .atomic
+            )
+
+            do {
+                _ = try await HarnessDispatcher().run(["session", "inspect", folder.path])
+                Issue.record("expected corrupt raw keyframe to fail validation")
+            } catch {
+                let envelope = try object(HarnessDispatcher.errorData(
+                    for: error,
+                    arguments: ["session", "inspect", folder.path]
+                ))
+                let serialized = try #require(envelope["error"] as? [String: Any])
+                #expect(serialized["code"] as? String == "keyframe_decode_failed")
+                let cause = try #require(serialized["cause"] as? String)
+                #expect(cause.contains("expected 4608 bytes"))
+                #expect(cause.contains("actual 7 bytes"))
             }
         }
     }
@@ -262,7 +318,8 @@ struct HarnessDispatcherTests {
         }
     }
 
-    @Test func captureLoadsLexicallyAndWritesPNGKeyframes() async throws {
+    @Test(arguments: ["frames", "images"])
+    func captureLoadsLexicallyAndWritesPNGKeyframes(_ requestedSource: String) async throws {
         try await withTemporaryDirectory { directory in
             let input = directory.appendingPathComponent("input")
             let output = directory.appendingPathComponent("output")
@@ -272,9 +329,10 @@ struct HarnessDispatcherTests {
             try writePNG(makeImage(width: 24, height: 48), to: input.appendingPathComponent("skip.png"))
 
             let data = try await HarnessDispatcher().run([
-                "capture", "images", input.path, "--prefix", "p-", "--out", output.path,
+                "capture", requestedSource, input.path, "--prefix", "p-", "--out", output.path,
             ])
             let result = try #require(try object(data)["result"] as? [String: Any])
+            #expect(result["source"] as? String == "frames")
             #expect(result["files"] as? [String] == ["p-01.png", "p-02.jpg"])
             #expect(result["inputCount"] as? Int == 2)
             #expect(result["keyframeCount"] as? Int == 1)
@@ -333,6 +391,9 @@ struct HarnessDispatcherTests {
         }
         await #expect(throws: HarnessError.unsupportedCaptureSource("audio")) {
             try await dispatcher.run(["capture", "audio", "/tmp/input.wav"])
+        }
+        await #expect(throws: HarnessError.unsupportedCaptureSource("audio")) {
+            try await dispatcher.run(["capture", "audio"])
         }
     }
 
@@ -426,7 +487,7 @@ struct HarnessDispatcherTests {
         }
     }
 
-    @Test func pipelineImagesCapturesPersistsAndComposes() async throws {
+    @Test func pipelineFramesDrivesCaptureAndDefaultsToTrustedInputOrder() async throws {
         try await withTemporaryDirectory { directory in
             let input = directory.appendingPathComponent("input")
             let output = directory.appendingPathComponent("output")
@@ -438,12 +499,23 @@ struct HarnessDispatcherTests {
             }
 
             let pipeline = try result(try await HarnessDispatcher().run([
-                "pipeline", "images", input.path, "--out", output.path, "--order", "input",
+                "pipeline", "frames", input.path, "--out", output.path,
             ]))
+            #expect(pipeline["source"] as? String == "frames")
+            #expect(pipeline["orderMode"] as? String == "input")
+            #expect(pipeline["orderAssumed"] as? Bool == false)
             let stages = try #require(pipeline["stages"] as? [String: Any])
             let capture = try #require(stages["capture"] as? [String: Any])
-            #expect((capture["keyframeCount"] as? Int ?? 0) >= 2)
+            #expect(capture["source"] as? String == "frames")
+            #expect(capture["processedFrameCount"] as? Int == 9)
+            let committedCount = try #require(capture["keyframeCount"] as? Int)
+            #expect(committedCount >= 2)
+            #expect(committedCount < 9, "dense raw frames should be reduced to committed keyframes")
             #expect(capture["safetyCueCount"] is Int)
+            let plan = try #require(stages["plan"] as? [String: Any])
+            #expect(plan["orderMode"] as? String == "input")
+            #expect(plan["orderAssumed"] as? Bool == false)
+            #expect((plan["order"] as? [Int])?.count == committedCount)
             let folder = URL(fileURLWithPath: try #require(pipeline["folder"] as? String))
             let stitched = output.appendingPathComponent("stitched.png")
             #expect(folder.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent == "store")
@@ -459,6 +531,120 @@ struct HarnessDispatcherTests {
             let manifest = try #require(try JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
             let keyframes = try #require(manifest["keyframes"] as? [[String: Any]])
             #expect(keyframes.allSatisfy { ($0["filename"] as? String)?.hasSuffix(".bgra") == true })
+        }
+    }
+
+    @Test func pipelineCommittedPlansEveryKeyframeAndDefaultsToRecoverOrInput() async throws {
+        try await withTemporaryDirectory { directory in
+            let input = directory.appendingPathComponent("input")
+            let output = directory.appendingPathComponent("output")
+            try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
+            let source = makeImage(width: 48, height: 240)
+            for (index, y) in [0, 12, 24, 36, 48, 60, 72, 84, 96].enumerated() {
+                let frame = try #require(source.cropping(to: CGRect(x: 0, y: y, width: 48, height: 96)))
+                try writePNG(frame, to: input.appendingPathComponent(String(format: "frame-%02d.png", index)))
+            }
+
+            let pipeline = try result(try await HarnessDispatcher().run([
+                "pipeline", "committed", input.path, "--out", output.path,
+            ]))
+
+            #expect(pipeline["source"] as? String == "committed")
+            #expect(pipeline["orderMode"] as? String == "recover-or-input")
+            let stages = try #require(pipeline["stages"] as? [String: Any])
+            let capture = try #require(stages["capture"] as? [String: Any])
+            #expect(capture["source"] as? String == "committed")
+            #expect(capture["files"] as? [String] == (0..<9).map { String(format: "frame-%02d.png", $0) })
+            #expect(capture["processedFrameCount"] as? Int == 9)
+            #expect(capture["keyframeCount"] as? Int == 9)
+            #expect(capture["safetyCueCount"] is NSNull)
+
+            let plan = try #require(stages["plan"] as? [String: Any])
+            #expect(plan["orderMode"] as? String == "recover-or-input")
+            #expect((plan["order"] as? [Int])?.count == 9)
+            let session = try #require(stages["session"] as? [String: Any])
+            #expect(session["keyframeCount"] as? Int == 9)
+        }
+    }
+
+    @Test func pipelinePhotosAndImagesAliasUseEveryGroundTruthScreenshot() async throws {
+        let fixtures = photosFixtureDirectory()
+        try await withTemporaryDirectory { directory in
+            for requestedSource in ["photos", "images"] {
+                let output = directory.appendingPathComponent(requestedSource)
+                let pipeline = try result(try await HarnessDispatcher().run([
+                    "pipeline", requestedSource, fixtures.path, "--out", output.path,
+                ]))
+
+                #expect(pipeline["source"] as? String == "photos")
+                #expect(pipeline["orderMode"] as? String == "recover-or-input")
+                #expect(pipeline["orderAssumed"] as? Bool == false)
+                let stages = try #require(pipeline["stages"] as? [String: Any])
+                let capture = try #require(stages["capture"] as? [String: Any])
+                #expect(capture["source"] as? String == "photos")
+                #expect(capture["processedFrameCount"] as? Int == 6)
+                #expect(capture["keyframeCount"] as? Int == 6)
+
+                let plan = try #require(stages["plan"] as? [String: Any])
+                #expect(plan["orderMode"] as? String == "recover-or-input")
+                #expect(plan["orderAssumed"] as? Bool == false)
+                #expect(plan["order"] as? [Int] == Array(0..<6))
+                #expect(plan["seamCount"] as? Int == 5)
+                #expect(plan["segmentBreakCount"] as? Int == 0)
+
+                let session = try #require(stages["session"] as? [String: Any])
+                #expect(session["keyframeCount"] as? Int == 6)
+                let composition = try #require(stages["composition"] as? [String: Any])
+                #expect(composition["width"] as? Int == 1320)
+                #expect(composition["height"] as? Int == 10316)
+            }
+        }
+    }
+
+    @Test func recoverOrInputOrderIsAcceptedAndBadgesDisconnectedFallback() async throws {
+        try await withTemporaryDirectory { directory in
+            let input = directory.appendingPathComponent("input")
+            try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
+            let source = makeScrollSource(width: 120, height: 900)
+            try writePNG(
+                try #require(source.cropping(to: CGRect(x: 0, y: 0, width: 120, height: 300))),
+                to: input.appendingPathComponent("01-top.png")
+            )
+            try writePNG(
+                try #require(source.cropping(to: CGRect(x: 0, y: 600, width: 120, height: 300))),
+                to: input.appendingPathComponent("02-bottom.png")
+            )
+
+            let planned = try result(try await HarnessDispatcher().run([
+                "plan", input.path, "--out", directory.appendingPathComponent("plan").path,
+                "--order", "recover-or-input",
+            ]))
+            #expect(planned["orderMode"] as? String == "recover-or-input")
+            #expect(planned["order"] as? [Int] == [0, 1])
+            #expect(planned["orderAssumed"] as? Bool == true)
+
+            let created = try result(try await HarnessDispatcher().run([
+                "session", "create", input.path,
+                "--out", directory.appendingPathComponent("session").path,
+                "--order", "recover-or-input",
+            ]))
+            #expect(created["orderMode"] as? String == "recover-or-input")
+            #expect(created["orderAssumed"] as? Bool == true)
+            let folder = try #require(created["folder"] as? String)
+            let inspected = try result(try await HarnessDispatcher().run(["session", "inspect", folder]))
+            #expect(inspected["orderAssumed"] as? Bool == true)
+
+            let pipeline = try result(try await HarnessDispatcher().run([
+                "pipeline", "photos", input.path,
+                "--out", directory.appendingPathComponent("pipeline").path,
+                "--order", "recover-or-input",
+            ]))
+            #expect(pipeline["orderMode"] as? String == "recover-or-input")
+            #expect(pipeline["orderAssumed"] as? Bool == true)
+            let stages = try #require(pipeline["stages"] as? [String: Any])
+            let plan = try #require(stages["plan"] as? [String: Any])
+            #expect(plan["order"] as? [Int] == [0, 1])
+            #expect(plan["orderAssumed"] as? Bool == true)
         }
     }
 
@@ -518,6 +704,42 @@ struct HarnessDispatcherTests {
             context.fill(CGRect(x: width / 2, y: y, width: width - width / 2, height: 1))
         }
         return context.makeImage()!
+    }
+
+    private func makeScrollSource(width: Int, height: Int) -> CGImage {
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+        let bytesPerRow = width * 4
+        var pixels = [UInt8](repeating: 0, count: bytesPerRow * height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let value = 60.0 + Double(y) * (120.0 / Double(height))
+                    + 50 * sin(Double(x) * 0.35)
+                    + 25 * sin(Double(y) * 0.2 + Double(x) * 0.15)
+                let byte = UInt8(max(0, min(255, value)))
+                let offset = y * bytesPerRow + x * 4
+                pixels[offset] = byte
+                pixels[offset + 1] = byte
+                pixels[offset + 2] = byte
+                pixels[offset + 3] = 255
+            }
+        }
+        let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        )!
+        return context.makeImage()!
+    }
+
+    private func photosFixtureDirectory() -> URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("StitchKitTests/Fixtures/Screenshots", isDirectory: true)
     }
 
     private func scrollingFrames() throws -> [CGImage] {

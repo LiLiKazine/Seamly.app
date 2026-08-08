@@ -2,34 +2,6 @@ import CoreGraphics
 import Foundation
 import StitchKit
 
-/// How `resolveGeometry` decides scroll order.
-///
-/// The choice is really "how much do we trust the order the images arrived in?", and that
-/// depends entirely on where they came from — a photo pick order is a user's guess, while a
-/// broadcast's or a video's is a timeline.
-///
-/// Note the fallback never *merges* anything. It only stops re-ordering: the assumed-order path
-/// still runs `BatchStitcher.segmentsAlong`, which re-tests each consecutive pair for overlap and
-/// breaks where there is none. Measured on the real device fixtures — `wechat-*` (home screen →
-/// launch animation → chat list, genuinely non-overlapping) keeps its breaks after 0, 1 and 3
-/// under every strategy here.
-enum OrderStrategy {
-    /// Recover order from pixel overlap; never fall back.
-    ///
-    /// Now unused by the shipping import paths. Kept for callers that have no meaningful input
-    /// order at all — with one, `.recoverOrInputOrder` strictly dominates this, since it does the
-    /// same recovery first and only differs when that recovery is not trustworthy.
-    case recover
-    /// Recover; if the result isn't one unbroken chain, fall back to the input order and mark
-    /// `orderAssumed`. Used by "From Photos" and by broadcast import.
-    ///
-    /// A break is the only thing that makes the recovered order a guess — see `resolveGeometry`
-    /// for why a low-confidence *seam* is not, and what it cost when it was treated as one.
-    case recoverOrInputOrder
-    /// Trust the input order verbatim (capture/temporal order). Used by "From Video".
-    case inputOrder
-}
-
 /// Runs the heavy pixel compositing off the main actor. Pure, `Sendable` inputs/outputs so it
 /// can hop threads freely.
 enum StitchAssembler {
@@ -54,43 +26,12 @@ enum StitchAssembler {
     /// content bands. All user-facing fields (trims, color space, status, id, timestamps) are
     /// preserved, so the corrected manifest still composites and edits normally.
     /// A session with fewer than two keyframes has nothing to reorder and is returned unchanged.
-    nonisolated static func resolveGeometry(_ session: StitchSession, in folder: URL, strategy: OrderStrategy = .recover, stitcher: BatchStitcher = BatchStitcher()) throws -> StitchSession {
+    nonisolated static func resolveGeometry(_ session: StitchSession, in folder: URL, strategy: BatchStitcher.OrderStrategy = .recover, stitcher: BatchStitcher = BatchStitcher()) throws -> StitchSession {
         guard session.keyframes.count > 1 else { return session }
         let ordered = session.keyframes.sorted { $0.index < $1.index }
         let cs = colorSpace(for: session)
         let images = try ordered.map { try loadKeyframe($0, in: folder, colorSpace: cs) }
-        let identity = Array(0..<images.count)
-
-        let plan: BatchStitcher.Plan
-        var orderAssumed = false
-        switch strategy {
-        case .recover:
-            plan = try stitcher.plan(images)
-        case .inputOrder:
-            plan = try stitcher.plan(images, assumingOrder: identity)
-        case .recoverOrInputOrder:
-            let recovered = try stitcher.plan(images)
-            // Only a segment break is evidence about *ordering*. Components that recovery could
-            // not relate are placed by input index — a guess — so there the caller's guess is the
-            // better one, and that is what the fallback is for.
-            //
-            // This used to also require every seam to clear `isLowConfidence`, which cost the
-            // Photos path its whole reason to exist. Seam confidence is a statement about one
-            // seam's *offset*, not about the order, and the fallback re-measures that same pair
-            // with the same matcher — so a fuzzy seam stays exactly as fuzzy while a correctly
-            // recovered order is thrown away. Measured on `Fixtures/Screenshots`: recovery nails
-            // that six-screenshot set from any permutation, yet its seam 2→3 scores 0.368, so
-            // every import fell back. With the photos picked in scroll order the fallback is a
-            // no-op and nothing looks wrong, which is why this only surfaced as "stitching works
-            // in order, shatters out of order" (`PhotoPickOrderTests`).
-            let clean = recovered.session.segmentBreaks.isEmpty
-            if clean {
-                plan = recovered
-            } else {
-                plan = try stitcher.plan(images, assumingOrder: identity)
-                orderAssumed = true
-            }
-        }
+        let plan = try stitcher.plan(images, strategy: strategy)
 
         var resolved = session
         // Reorder the real keyframes into scroll order, reindexing to match the recovered seams
@@ -103,7 +44,7 @@ enum StitchAssembler {
         resolved.seams = plan.session.seams
         resolved.segmentBreaks = plan.session.segmentBreaks
         resolved.contentBands = plan.session.contentBands
-        resolved.orderAssumed = orderAssumed
+        resolved.orderAssumed = plan.session.orderAssumed
         return resolved
     }
 
