@@ -11,6 +11,7 @@ let package = Package(
         .library(name: "StitchKit", targets: ["StitchKit"]),
         // Diagnostic driver for real captures — see Sources/stitch-cli.
         .executable(name: "stitch-cli", targets: ["stitch-cli"]),
+        .executable(name: "stitch-harness", targets: ["stitch-harness"]),
     ],
     targets: [
         .target(
@@ -22,6 +23,27 @@ let package = Package(
         .executableTarget(
             name: "stitch-cli",
             dependencies: ["StitchKit"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .target(
+            name: "StitchHarness",
+            dependencies: ["StitchKit"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .executableTarget(
+            name: "stitch-harness",
+            dependencies: ["StitchHarness"],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
+            ]
+        ),
+        .testTarget(
+            name: "StitchHarnessTests",
+            dependencies: ["StitchHarness"],
             swiftSettings: [
                 .swiftLanguageMode(.v6),
             ]
