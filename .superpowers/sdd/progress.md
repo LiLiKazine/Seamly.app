@@ -245,3 +245,60 @@ Branch: feat/video-and-photo-import. Base: 06825c3.
   - StitchKit `swift test`: 101 tests / 18 suites, exit 0, 7 expected known-issue xfails (RealFrameStitch×3, RealDeviceStitch×2, CaptureVideo×2 — all pre-existing documented deferrals; +1 test vs prior 100 = new throttledCadenceKeepsKeyframesHealthy, passing).
   - App + UI `xcodebuild test`: TEST SUCCEEDED (exit 0); app+extension built. (One transient FBSOpenApplication UI-runner launch error, recovered by retry.)
   - PENDING (manual, non-autonomous): Task 8 Step 4 smoke — seed simulator Photos with a screenshot set + a scroll screen recording, exercise From Photos / From Video / order-assumed badge / video progress bar on device or sim.
+
+---
+
+# Component Harness CLI — active
+
+**Goal:** Add a scriptable `stitch-harness` CLI that independently drives each production
+`StitchKit` component and emits stable JSON diagnostics plus optional visual artifacts.
+
+**Branch:** `feat/component-harness-cli` in `/Users/leo/Developer/Seamly.app`, based on
+`origin/main` at `7935e93`.
+
+**Done-criteria:**
+1. `profile`, `match`, `capture`, `plan`, `session`, `compose`, and `pipeline` commands exist.
+2. Existing `stitch-cli images|video` behavior remains unchanged.
+3. Each command has focused fast tests for JSON semantics, artifacts, and invalid input.
+4. Targeted harness tests and the complete `swift test` suite pass; package builds cleanly.
+5. README/CLI usage describes component mapping and the ReplayKit/SwiftUI boundary honestly.
+6. Final specialist review has no unresolved Critical or Important findings.
+
+**Hard-stop allowlist:** no force-push, publishing/release, external communication, new
+worktree, or destructive changes. No commit or push unless the user asks.
+
+## CH task status
+| # | Task | Status |
+|---|------|--------|
+| CH1 | Command/API and fixture contract | done |
+| CH2a | Harness scaffold + profile/match/image-capture/plan | done |
+| CH2b | Session persistence + compose + contract corrections | done |
+| CH2c | Video capture + full pipeline + focused tests | done |
+| CH3 | Usage documentation and decision log | done |
+| CH4 | Full verification and specialist review | done |
+| CH5 | Review fixes and final handoff | done |
+
+## CH log
+- CH2a: additive `StitchHarness` library + thin `stitch-harness` executable; commands
+  `profile`, `match`, `capture images`, and `plan`; 5 focused tests pass; product build and
+  JSON-error smoke green. Existing `stitch-cli` untouched. Controller review carried three
+  corrections into CH2b: summarize profile rows, report match overlap, and add stable error codes.
+- CH2b: added real `SessionStore` create/inspect and `Compositor` PNG output, including raw
+  keyframes reordered into planned slots; profile summaries, match overlap, and typed error codes
+  landed. 9 focused tests pass, including recovered-order pixel identity and missing-file failure.
+- CH2c: dispatcher made async; added real video capture plus image/video full pipelines through
+  capture → plan → raw session store → composition. README documents all commands and the honest
+  ReplayKit/SwiftUI boundary. 12 focused tests pass; product build, JSON error smoke, and Example
+  fixture command/pipeline smokes green. Controller review queued three small integration fixes
+  before specialist review (duplicate guard, unavailable video cue count, persisted-session compose).
+- CH4: specialist review found external-manifest validation, eager image retention, one-keyframe
+  inspection, and positive video coverage gaps. Fixes now validate manifest topology and safe local
+  filenames before file access, stream/lazy-load capture/session images, report one-frame sessions as
+  non-stitchable, and generate a deterministic MP4 for successful video command tests. The focused
+  harness suite passes 19 tests.
+- CH5 verification: complete `swift test` passes 121 tests across 24 suites in 615.9 seconds with one
+  pre-existing recorded `RealDeviceStitchTests` known issue. Both CLI products build; complete strict
+  concurrency with warnings-as-errors builds; `git diff --check` passes. Direct executable smoke
+  confirms success emits only one JSON stdout envelope, while failure emits only one JSON stderr
+  envelope and exits 1. Final read-only specialist audit reports no remaining Critical or Important
+  findings.
