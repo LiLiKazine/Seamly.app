@@ -92,8 +92,16 @@ top candidate is refused (0.303) while the bottom is believed (1.000), and both 
   `readsAsChrome` accepts it. New `longestMovingRun` / `readsAsChrome` helpers and a
   `minChromeStaticFraction` init parameter (default 0.75, documented with the table above).
 - `Tests/StitchKitTests/DynamicChromeBandTests.swift` — new. Asserts the measured band against the
-  raw-pixel ground truth; counts toolbar occurrences in the *composited pixels*; and pins the
-  guard from both sides on `Screenshots` (band unchanged at 242 px with it, >1000 px without).
+  raw-pixel ground truth; counts toolbar occurrences in the *composited pixels* on **both**
+  screenshot sets; and pins the guard from both sides on `Screenshots` (band unchanged at 242 px
+  with it, >1000 px without).
+
+  The occurrence check runs over both sets deliberately: they reach "toolbar appears once" by
+  opposite routes — `Screenshots2` needs the content-run inference, `Screenshots` needs it refused
+  — so a change that fixes one by breaking the other passes neither. Each set also composites once
+  with its band zeroed and asserts the toolbar then repeats once per keyframe; without that
+  counter-check a green "appears once" would prove nothing, since a check that can't see
+  duplicates at all reports the same number.
 - `Tests/StitchKitTests/Fixtures/Screenshots2/` — the five screenshots plus a `README.md` carrying
   the row-by-row ground truth and recovered geometry.
 - `Package.swift` — `Screenshots2` copied as a test resource.
