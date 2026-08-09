@@ -20,13 +20,13 @@ enum StitchAssembler {
 
     /// Re-derive scroll order and geometry for a session with `BatchStitcher`, using `strategy`
     /// to decide how much to trust the input order, and returning a corrected manifest. Run
-    /// **once at import**: the extension's live-tracked order, seams, and bands are unreliable
-    /// (the whole on-device failure), so we recover them from the keyframes themselves —
-    /// reordering the keyframes into scroll order and replacing the seams, segment breaks, and
-    /// content bands. All user-facing fields (trims, color space, status, id, timestamps) are
-    /// preserved, so the corrected manifest still composites and edits normally.
+    /// **once at import**: the extension's live-tracked seams and bands are unreliable (the whole
+    /// on-device failure), so we plan again from the keyframes under the caller's explicit source
+    /// policy — recovering order when requested and replacing seams, segment breaks, and content
+    /// bands. All user-facing fields (trims, color space, status, id, timestamps) are preserved, so
+    /// the corrected manifest still composites and edits normally.
     /// A session with fewer than two keyframes has nothing to reorder and is returned unchanged.
-    nonisolated static func resolveGeometry(_ session: StitchSession, in folder: URL, strategy: BatchStitcher.OrderStrategy = .recover, stitcher: BatchStitcher = BatchStitcher()) throws -> StitchSession {
+    nonisolated static func resolveGeometry(_ session: StitchSession, in folder: URL, strategy: BatchStitcher.OrderStrategy, stitcher: BatchStitcher = BatchStitcher()) throws -> StitchSession {
         guard session.keyframes.count > 1 else { return session }
         let ordered = session.keyframes.sorted { $0.index < $1.index }
         let cs = colorSpace(for: session)

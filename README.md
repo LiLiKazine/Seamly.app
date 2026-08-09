@@ -114,26 +114,25 @@ swift run stitch-harness profile Tests/StitchKitTests/Fixtures/Example/20260718-
 |---|---|
 | `profile` | `stitch-harness profile <image>` |
 | `match` | `stitch-harness match <a> <b> [--mask-chrome]` |
-| `capture` | `stitch-harness capture frames <dir> [--prefix P] [--out DIR]`<br>`stitch-harness capture images <dir> [--prefix P] [--out DIR]` (compatibility alias for `frames`)<br>`stitch-harness capture video <file> [--fps N] [--out DIR]` |
+| `capture` | `stitch-harness capture frames <dir> [--prefix P] [--out DIR]`<br>`stitch-harness capture video <file> [--fps N] [--out DIR]` |
 | `plan` | `stitch-harness plan <dir> [--prefix P] [--order recover\|recover-or-input\|input] [--out DIR]` |
 | `session` | `stitch-harness session create <dir> --out <container> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness session inspect <session-folder>` |
 | `compose` | `stitch-harness compose <session-folder> --out <image.png>` |
-| `pipeline` | `stitch-harness pipeline photos <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline committed <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline frames <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline video <file> --out <dir> [--fps N] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline images <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]` (legacy spelling for `photos`) |
+| `pipeline` | `stitch-harness pipeline photos <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline committed <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline frames <dir> --out <dir> [--prefix P] [--order recover\|recover-or-input\|input]`<br>`stitch-harness pipeline video <file> --out <dir> [--fps N] [--order recover\|recover-or-input\|input]` |
 
 Pipeline source names select a production-shaped ingestion path, not merely a file format:
 
 | Source | Ingestion and default planning |
 |---|---|
-| `photos` (`pipeline images` legacy spelling) | Treat every discovered file as an already selected Photos item. All images reach `BatchStitcher`; none are re-selected. Defaults to `recover-or-input`, matching Photos import. |
+| `photos` | Treat every discovered file as an already selected Photos item. All images reach `BatchStitcher`; none are re-selected. Defaults to `recover-or-input`, matching Photos import. |
 | `committed` | Treat every discovered file as a keyframe already committed by the broadcast driver. All keyframes go directly to planning without another selection pass. Defaults to `recover-or-input`, matching broadcast import. |
 | `frames` | Treat the directory as dense, chronological raw frames and pass them through `ScrollCaptureDriver`, which emits committed keyframes. Defaults to `input`. |
 | `video` | Decode the video chronologically and pass decoded frames through `ScrollCaptureDriver`. Defaults to `input`. |
 
 Directory inputs are discovered after prefix filtering and ingested in lexical filename order. For
 `recover-or-input`, a fallback to input order therefore means that lexical order; a directory does
-not retain the user's original Photos picker order. The `pipeline images` spelling is retained for
-old invocations, but its behavior changed from the original harness's driver path to the
-production-shaped `photos` path. Use `frames` when the input really is a dense raw-frame stream.
+not retain the user's original Photos picker order. Use `frames` when the input really is a dense
+raw-frame stream.
 
 For ordering, `recover` requires pixel-overlap recovery, `input` trusts the supplied chronology,
 and `recover-or-input` tries recovery first but falls back to input order when recovery cannot form
@@ -141,9 +140,18 @@ one continuous chain. `orderAssumed` is `true` only when that fallback was used;
 for successfully recovered order and for an explicitly trusted `input` order. The value is persisted
 in the session manifest and reported by planning, pipeline, and session-inspection results.
 
-`match.geometricOverlapFraction` reports the fraction of profile rows that geometrically overlap at
-the chosen offset; it deliberately does not use the chrome mask or the matcher's countable-row
-floor. `overlapFraction` is the legacy JSON-field alias for the same value.
+`match.geometricOverlapFraction` reports the fraction of profile rows that geometrically intersect
+at the chosen offset. It is independent of any chrome mask. `match.matcherOverlap` reports the
+accounting used by the core matcher for that same candidate:
+
+- `countedRows`: rows that contributed to the candidate after applying its offset and mask;
+- `countableRows`: rows eligible to contribute after applying the mask;
+- `minimumRequiredRows`: the core matcher's overlap floor;
+- `fraction`: the core matcher's counted-row fraction; and
+- `passesMinimum`: whether the candidate cleared the core overlap floor.
+
+These values come from the core `Match` result rather than being re-derived by the harness, so a
+diagnostic cannot silently disagree with the matcher it is probing.
 
 `match` is a symmetric, bounded `OffsetMatcher` component probe: it searches both offset signs and
 reports the best candidate. Production planning and pipeline commands additionally perform
@@ -156,9 +164,32 @@ and either `result` or a stable `error.code` plus message. When an operation wra
 error, the error object also carries the optional `cause` field so diagnostics retain the original
 failure; automation should branch on `error.code`, not parse `message` or `cause`. `swift run` may
 additionally emit SwiftPM build diagnostics on stderr, so scripts that require clean JSON should
-invoke the built `.build/.../stitch-harness` executable. Capture reports measured safety-cue counts
-for frame directories; video reports that field as `null` because its decoder result does not
-expose cue decisions.
+invoke the built `.build/.../stitch-harness` executable.
+
+A successful pipeline result has one canonical shape: `source` plus four named stages.
+
+```json
+{
+  "source": "photos",
+  "stages": {
+    "ingestion": {},
+    "plan": {},
+    "session": {},
+    "composition": {}
+  }
+}
+```
+
+Each ingestion source reports only measurements it can actually produce. Source-specific values
+such as decoded-frame failures, sampling rate, safety-cue count, or discovered filenames are omitted
+when unavailable; absence does not mean zero. Pipeline-wide planning, persistence, and composition
+details live only in their corresponding stage rather than being repeated at the result's top level.
+
+`StitchHarness` is an in-package implementation seam behind the executable and its tests, not a
+supported library API. Any error caught from its dispatcher must be serialized through
+`HarnessDispatcher.errorData` before crossing the executable boundary; that preserves the stable
+error code and any underlying cause without exposing implementation-only error wrappers.
+
 Capture `--out` directories contain committed keyframes as PNGs. Plan output can contain a
 manifest. Session output uses raw BGRA keyframes plus `manifest.json`; pipeline output places
 that real `SessionStore` at `<out>/store/sessions/<session-id>/` and writes

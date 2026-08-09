@@ -296,6 +296,8 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
 - Confidence: high.
 
 ## [CHP-1] Split raw-frame capture from Photos/committed-image pipelines
+- **Superseded for the unreleased CLI surface by [HPC-1] below:** the production-path split remains
+  current, but its temporary `images` compatibility spellings were removed before v1 release.
 - Why: the merged `pipeline images` feeds sparse Photos screenshots and already-committed
   keyframes through `ScrollCaptureDriver`, which is tuned for dense temporal frames. On the six
   ground-truth Photos fixtures it retains 3 of 6 images, invents a segment break, drops content,
@@ -311,3 +313,22 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
   or document the current behavior only (leaves the Photos diagnostic gap and bad success output).
 - Reversible: yes — additive modes and a shared planning API can be reverted on this branch.
 - Confidence: high; reproduced against full-resolution ground-truth pixels and visually inspected.
+
+## [HPC-1] Freeze the unreleased harness contract around canonical sources and stages
+- Why: `stitch-harness.v1` has not been released, so keeping one-day-old compatibility spellings and
+  duplicate output aliases would turn known ambiguity into permanent maintenance cost.
+- Decision: accept only canonical source names; make pipeline output `source + stages` with
+  `ingestion` as the first stage; omit measurements a source cannot produce; keep distinct
+  processed-frame and committed-keyframe counts. Correct v1 in place before its first release.
+- Error boundary: `StitchHarness` is an executable-support target, not a library product. Expose its
+  dispatcher/error API at package scope, keep wrapped implementation failures private, and preserve
+  their typed code/cause through `errorData` and the real process boundary.
+- Matcher accounting: expose the winning counted, countable, and required rows from `OffsetMatcher`
+  through `Match`; the harness must report that accounting rather than reproducing private matcher
+  arithmetic. Keep geometric overlap as a separately named measurement.
+- Alternatives considered: retain aliases until v2 (unneeded before release), publish
+  `HarnessFailure` (unnecessarily enlarges API), or rederive masked accounting in the harness
+  (guarantees drift from production).
+- Reversible: yes, before release; after release this JSON/CLI surface becomes a compatibility
+  boundary and future removals require a version change.
+- Confidence: high; contract scope and production consumer mapping were independently reviewed.

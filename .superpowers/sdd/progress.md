@@ -355,3 +355,57 @@ new worktree, destructive user-data operations, or commit/push unless the user s
 - Final four-dimension review: GO, overall 4/5 (Structure 4, Interface 4, Testing 4, Agentic 5),
   with no remaining Critical or Important findings. Remaining schema redundancy, double decoding,
   and summary cleanup are non-blocking cleanup/performance suggestions.
+
+---
+
+# Harness Pre-release Contract Cleanup — complete
+
+**Goal:** Freeze a small, truthful first release of `stitch-harness` now that the user confirmed it
+has no released consumers, while making source-order policy and matcher overlap accounting explicit.
+
+**Branch:** `refactor/harness-prerelease-contract`, based on `origin/main` at `245ac0b`.
+
+**Done-criteria:**
+1. App geometry resolution requires every caller to choose an order policy, and current comments
+   describe segment-break-only fallback, broadcast badging, and current fixture measurements.
+2. `capture` accepts only `frames|video`; `pipeline` accepts only
+   `photos|committed|frames|video`; ambiguous `images` and `overlapFraction` aliases are rejected or
+   absent and pinned by tests.
+3. Pipeline JSON has one canonical `source + stages` shape with an `ingestion` stage, no top-level
+   stage aliases, and no synonymous count/path fields. Source-specific unavailable measurements are
+   omitted rather than fabricated or encoded as misleading zeroes.
+4. Matcher output exposes authoritative winning overlap accounting from `OffsetMatcher`, and the
+   harness reports it with a non-vacuous masked-row oracle distinct from geometric overlap.
+5. Harness implementation visibility matches its executable-support role; wrapped causes remain
+   observable through the executable boundary and have process-level coverage.
+6. Compressed keyframes are decoded once during composition, canonicalized session paths remain
+   accepted, escape paths remain rejected, and insufficient-input errors use source-neutral wording.
+7. Focused tests, full SwiftPM tests, selected app tests/build, strict concurrency with
+   warnings-as-errors, diff checks, and final specialist review are green.
+
+**Hard stops:** no commit, push, merge, branch deletion, release, or external communication unless
+the user separately asks. No new worktree or destructive user-data operation.
+
+## HPC task status
+| # | Task | Status |
+|---|------|--------|
+| HPC1 | Core policy/accounting + authoritative comments | done |
+| HPC2 | Canonical harness contract + boundary tests | done |
+| HPC3 | Documentation and decision trail | done |
+| HPC4 | Integrated verification and final review | done |
+
+## HPC verification
+
+- Focused core/order tests: **17 tests in 2 suites passed**.
+- Harness dispatcher tests: **28/28 passed**, including the six-photo 6-frame/5-seam/0-break,
+  1320×10316 production-path oracle and exact schema assertions.
+- Executable process-contract tests: **3/3 passed**, covering stdout/stderr/exit-code separation and
+  wrapped-cause serialization.
+- Complete StitchKit package: **139 tests in 26 suites passed** in 590.332 seconds, with the one
+  pre-existing documented RealDevice known issue.
+- Strict package build with complete concurrency checking and warnings as errors: **passed**.
+- Selected app integration tests (`PhotoPickOrderTests`, `BroadcastOrderStrategyTests`, and
+  `MediaImportTests`) and the simulator app build: **TEST SUCCEEDED** / **BUILD SUCCEEDED**.
+- Final structure, interface/security, testing, and agentic-readiness reviews: **GO**, with no
+  remaining Critical or Important findings.
+- `git diff --check` and active-contract spelling/schema audits: **clean**.

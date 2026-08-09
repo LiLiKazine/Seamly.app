@@ -26,6 +26,11 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
 @Suite struct OffsetMatcherTests {
     let matcher = OffsetMatcher()
 
+    @Test func manuallyConstructedMatchLeavesOverlapAccountingUnavailable() {
+        let match = Match(dy: 12, confidence: 0.8)
+        #expect(match.overlap == nil)
+    }
+
     @Test func recoversExactPositiveShift() {
         let full = contentSignal(count: 120)
         let a = profile(Array(full[0..<100]))
@@ -122,7 +127,7 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
         #expect(m.dy == 0)   // chrome wins — the bug we are fixing
     }
 
-    @Test func rowMaskExcludesChromeAndRecoversContentShift() {
+    @Test func rowMaskExcludesChromeAndRecoversContentShift() throws {
         let full = contentSignal(count: 140).map { 0.5 + ($0 - 0.5) * 0.05 }
         let chrome = (0..<40).map { Float(($0 * 37) % 100) / 100 }
         let a = framedProfile(chrome: 20, total: 140, content: Array(full[0..<100]), chromePattern: chrome)
@@ -134,9 +139,18 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
         let m = matcher.match(a, b, searchRange: -30...30, rowMask: mask)
         #expect(m.dy == 15)   // chrome excluded -> the true content shift wins
         #expect(m.confidence > 0.3)
+        let overlap = try #require(m.overlap)
+        #expect(overlap.countedRows == 85)
+        #expect(overlap.countableRows == 100)
+        #expect(overlap.minimumRequiredRows == 25)
+        #expect(abs(overlap.fraction - 0.85) < 0.000_001)
+        #expect(overlap.passedMinimumOverlap)
+
+        let geometricFraction = Double(140 - abs(m.dy)) / 140
+        #expect(abs(overlap.fraction - geometricFraction) > 0.04)
     }
 
-    @Test func rowMaskWithTooFewContentRowsYieldsNoMatch() {
+    @Test func rowMaskWithTooFewContentRowsYieldsNoMatch() throws {
         // A mask leaving fewer than minimumOverlap content rows -> no candidate qualifies.
         let a = profile(contentSignal(count: 100))
         let b = profile(contentSignal(count: 100, seed: 2))
@@ -145,6 +159,12 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
         let m = matcher.match(a, b, searchRange: -20...20, rowMask: mask)
         #expect(m.dy == 0)
         #expect(m.confidence == 0)
+        let overlap = try #require(m.overlap)
+        #expect(overlap.countedRows == 0)
+        #expect(overlap.countableRows == 4)
+        #expect(overlap.minimumRequiredRows == 8)
+        #expect(overlap.fraction == 0)
+        #expect(!overlap.passedMinimumOverlap)
     }
 
     @Test func nilMaskIsIdenticalToUnmasked() {

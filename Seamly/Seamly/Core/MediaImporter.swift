@@ -2,8 +2,8 @@ import CoreGraphics
 import Foundation
 import StitchKit
 
-/// Turns an ordered set of images (photo picks, or video-decoded keyframes) into a persisted
-/// session in app storage — the shared path behind "From Photos" and "From Video". Mirrors the
+/// Turns a set of images in source arrival order (Photos pick order or video decode order) into a
+/// persisted session in app storage — the shared path behind "From Photos" and "From Video". Mirrors the
 /// broadcast import (write raw keyframes → base manifest → resolveGeometry) minus the App Group,
 /// staleness, and per-session move logic that only the cross-process handoff needs. Pure and
 /// off-actor: `nonisolated`, `Sendable` inputs/outputs.
@@ -11,9 +11,10 @@ enum MediaImporter {
     enum Source: String { case photos, video }
     enum ImportError: Error, Equatable { case notEnoughContent }
 
-    /// Write `images` (in final display order) into `store` as a new session and resolve its
-    /// geometry with `strategy`. Returns the new session id. Throws `.notEnoughContent` for
-    /// fewer than two images (a single frame is not a stitch).
+    /// Write `images` in their source arrival order into `store`, then resolve geometry with
+    /// `strategy`. Photos arrive in user pick order and may be reordered; decoded video arrives in
+    /// authoritative chronology. Returns the new session id. Throws `.notEnoughContent` for fewer
+    /// than two images (a single frame is not a stitch).
     ///
     /// `source` is recorded in the diagnostic trace: a capture's origin is otherwise
     /// indistinguishable after import, and photo picks and video decodes fail differently.

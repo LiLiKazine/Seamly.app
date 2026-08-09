@@ -114,9 +114,10 @@ public struct StitchSession: Codable, Sendable, Equatable, Identifiable {
     /// non-destructive manifest edit, so it re-composites instantly from the keyframes.
     public var topTrim: Int
     public var bottomTrim: Int
-    /// True when scroll order was *assumed* from input order rather than confidently recovered
-    /// from pixel overlap (the photos pick-order fallback). Drives an "order assumed" badge.
-    /// Never set for confidently recovered order or for trusted capture order (video/broadcast).
+    /// True when scroll order was *assumed* from input order because overlap recovery produced
+    /// segment breaks. Drives an "order assumed" badge for Photos picks and broadcast imports that
+    /// take that fallback. Never set for recovered order or authoritative `.inputOrder` sources
+    /// such as decoded video.
     public var orderAssumed: Bool
 
     public init(

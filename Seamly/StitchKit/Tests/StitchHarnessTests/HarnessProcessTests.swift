@@ -3,6 +3,8 @@ import Foundation
 import ImageIO
 import Testing
 
+private final class HarnessProcessBundleToken: NSObject {}
+
 struct HarnessProcessTests {
     @Test func executableWritesSuccessEnvelopeOnlyToStandardOutput() throws {
         try withTemporaryDirectory { directory in
@@ -31,7 +33,23 @@ struct HarnessProcessTests {
         #expect(envelope["schemaVersion"] as? String == "stitch-harness.v1")
         #expect(envelope["command"] as? String == "capture")
         #expect(envelope["ok"] as? Bool == false)
-        #expect(error["code"] as? String == "unsupported_capture_source")
+        #expect(error["code"] as? String == "unsupported_source")
+        #expect(error["message"] as? String == "unsupported source: audio")
+    }
+
+    @Test func executablePreservesWrappedImageReadCauseOnStandardError() throws {
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("missing-profile-\(UUID().uuidString).png")
+        let result = try runHarness(["profile", missing.path])
+
+        #expect(result.terminationStatus == 1)
+        #expect(result.standardOutput.isEmpty)
+        let envelope = try jsonObject(result.standardError)
+        let error = try #require(envelope["error"] as? [String: Any])
+        #expect(envelope["command"] as? String == "profile")
+        #expect(envelope["ok"] as? Bool == false)
+        #expect(error["code"] as? String == "image_read_failed")
+        #expect((error["cause"] as? String)?.isEmpty == false)
     }
 
     private struct ProcessResult {
@@ -63,21 +81,28 @@ struct HarnessProcessTests {
         let fileManager = FileManager.default
         var candidates: [URL] = []
 
+        let launchLocations = [
+            Bundle(for: HarnessProcessBundleToken.self).bundleURL,
+            Bundle.main.executableURL,
+            Bundle.main.bundleURL,
+            URL(fileURLWithPath: CommandLine.arguments[0]),
+        ].compactMap { $0 }
+        for location in launchLocations {
+            var ancestor = location.standardizedFileURL.deletingLastPathComponent()
+            while ancestor.path != "/" {
+                if ancestor.lastPathComponent == "debug" || ancestor.lastPathComponent == "release" {
+                    candidates.append(ancestor.appendingPathComponent("stitch-harness"))
+                    break
+                }
+                ancestor.deleteLastPathComponent()
+            }
+        }
+
         if let builtProductsDirectory = ProcessInfo.processInfo.environment["BUILT_PRODUCTS_DIR"] {
             candidates.append(
                 URL(fileURLWithPath: builtProductsDirectory, isDirectory: true)
                     .appendingPathComponent("stitch-harness")
             )
-        }
-
-        var ancestor = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
-            .deletingLastPathComponent()
-        while ancestor.path != "/" {
-            if ancestor.lastPathComponent == "debug" || ancestor.lastPathComponent == "release" {
-                candidates.append(ancestor.appendingPathComponent("stitch-harness"))
-                break
-            }
-            ancestor.deleteLastPathComponent()
         }
 
         let packageRoot = URL(fileURLWithPath: #filePath)

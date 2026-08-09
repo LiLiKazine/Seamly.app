@@ -53,7 +53,23 @@ struct HarnessDispatcherTests {
         #expect(masked["maskChrome"] as? Bool == true)
         #expect((masked["maskedRows"] as? Int ?? 0) > 0)
         #expect(masked["geometricOverlapFraction"] as? Double == 0.5375)
-        #expect(masked["overlapFraction"] as? Double == 0.5375)
+        #expect(masked["overlapFraction"] == nil)
+        let matcherOverlap = try #require(masked["matcherOverlap"] as? [String: Any])
+        #expect(Set(matcherOverlap.keys) == [
+            "countedRows", "countableRows", "minimumRequiredRows", "fraction", "passesMinimum",
+        ])
+        #expect((matcherOverlap["countedRows"] as? Int ?? 0) > 0)
+        #expect((matcherOverlap["countableRows"] as? Int ?? 0) > 0)
+        #expect((matcherOverlap["minimumRequiredRows"] as? Int ?? 0) > 0)
+        #expect(matcherOverlap["passesMinimum"] as? Bool == true)
+        let countedRows = try #require(matcherOverlap["countedRows"] as? Int)
+        let countableRows = try #require(matcherOverlap["countableRows"] as? Int)
+        let minimumRequiredRows = try #require(matcherOverlap["minimumRequiredRows"] as? Int)
+        let matcherFraction = try #require(matcherOverlap["fraction"] as? Double)
+        #expect(countedRows <= countableRows)
+        #expect(minimumRequiredRows <= countedRows)
+        #expect(matcherFraction == Double(countedRows) / Double(countableRows))
+        #expect(matcherFraction != 0.5375)
         let plainConfidence = try #require(plain["confidence"] as? Double)
         let maskedConfidence = try #require(masked["confidence"] as? Double)
         #expect(maskedConfidence > plainConfidence)
@@ -237,6 +253,76 @@ struct HarnessDispatcherTests {
             )) {
                 try await HarnessDispatcher().run(["session", "inspect", folder.path])
             }
+            await #expect(throws: HarnessError.invalidSession(
+                "keyframe must resolve directly inside session folder: kf-0000.bgra"
+            )) {
+                try await HarnessDispatcher().run([
+                    "compose", folder.path, "--out", directory.appendingPathComponent("out.png").path,
+                ])
+            }
+        }
+    }
+
+    @Test func canonicalSessionPathValidationAcceptsSymlinkedSessionFolder() async throws {
+        try await withTemporaryDirectory { directory in
+            let folder = try await makeSession(in: directory, imageCount: 2)
+            let alias = directory.appendingPathComponent("session-alias", isDirectory: true)
+            try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: folder)
+
+            let inspected = try result(try await HarnessDispatcher().run([
+                "session", "inspect", alias.path,
+            ]))
+            #expect(inspected["valid"] as? Bool == true)
+
+            let output = directory.appendingPathComponent("symlinked-session.png")
+            let composed = try result(try await HarnessDispatcher().run([
+                "compose", alias.path, "--out", output.path,
+            ]))
+            #expect(composed["frameCount"] as? Int == 2)
+            #expect(FileManager.default.fileExists(atPath: output.path))
+        }
+    }
+
+    @Test func composeAcceptsCompressedKeyframes() async throws {
+        try await withTemporaryDirectory { directory in
+            let folder = try await makeSession(in: directory, imageCount: 2)
+            try replaceRawKeyframesWithPNGs(in: folder, count: 2)
+
+            let output = directory.appendingPathComponent("compressed.png")
+            let composed = try result(try await HarnessDispatcher().run([
+                "compose", folder.path, "--out", output.path,
+            ]))
+            #expect(composed["frameCount"] as? Int == 2)
+            let source = try #require(CGImageSourceCreateWithURL(output as CFURL, nil))
+            let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+            #expect(composed["width"] as? Int == image.width)
+            #expect(composed["height"] as? Int == image.height)
+        }
+    }
+
+    @Test func inspectAndComposeCorruptCompressedKeyframeRetainDecodeCause() async throws {
+        try await withTemporaryDirectory { directory in
+            let folder = try await makeSession(in: directory, imageCount: 2)
+            try replaceRawKeyframesWithPNGs(in: folder, count: 2)
+            try Data("not an image".utf8).write(
+                to: folder.appendingPathComponent("kf-0001.png"), options: .atomic
+            )
+
+            for arguments in [
+                ["session", "inspect", folder.path],
+                ["compose", folder.path, "--out", directory.appendingPathComponent("out.png").path],
+            ] {
+                do {
+                    _ = try await HarnessDispatcher().run(arguments)
+                    Issue.record("expected corrupt compressed keyframe to fail: \(arguments)")
+                } catch {
+                    let serialized = try #require(try object(HarnessDispatcher.errorData(
+                        for: error, arguments: arguments
+                    ))["error"] as? [String: Any])
+                    #expect(serialized["code"] as? String == "keyframe_decode_failed")
+                    #expect((serialized["cause"] as? String)?.isEmpty == false)
+                }
+            }
         }
     }
 
@@ -318,8 +404,7 @@ struct HarnessDispatcherTests {
         }
     }
 
-    @Test(arguments: ["frames", "images"])
-    func captureLoadsLexicallyAndWritesPNGKeyframes(_ requestedSource: String) async throws {
+    @Test func captureFramesLoadsLexicallyAndReportsCanonicalShape() async throws {
         try await withTemporaryDirectory { directory in
             let input = directory.appendingPathComponent("input")
             let output = directory.appendingPathComponent("output")
@@ -329,12 +414,16 @@ struct HarnessDispatcherTests {
             try writePNG(makeImage(width: 24, height: 48), to: input.appendingPathComponent("skip.png"))
 
             let data = try await HarnessDispatcher().run([
-                "capture", requestedSource, input.path, "--prefix", "p-", "--out", output.path,
+                "capture", "frames", input.path, "--prefix", "p-", "--out", output.path,
             ])
             let result = try #require(try object(data)["result"] as? [String: Any])
+            #expect(Set(result.keys) == [
+                "source", "input", "processedFrameCount", "keyframeCount", "safetyCueCount",
+                "keyframes", "outDirectory", "files",
+            ])
             #expect(result["source"] as? String == "frames")
             #expect(result["files"] as? [String] == ["p-01.png", "p-02.jpg"])
-            #expect(result["inputCount"] as? Int == 2)
+            #expect(result["processedFrameCount"] as? Int == 2)
             #expect(result["keyframeCount"] as? Int == 1)
             #expect(result["safetyCueCount"] is Int)
             #expect(FileManager.default.fileExists(atPath: output.appendingPathComponent("kf-0000.png").path))
@@ -365,7 +454,7 @@ struct HarnessDispatcherTests {
             try await dispatcher.run(["plan", "/tmp", "--wat", "x"])
         }
         await #expect(throws: HarnessError.missingValue("--prefix")) {
-            try await dispatcher.run(["capture", "images", "/tmp", "--prefix"])
+            try await dispatcher.run(["capture", "frames", "/tmp", "--prefix"])
         }
         await #expect(throws: HarnessError.duplicateOption("--out")) {
             try await dispatcher.run(["plan", "/tmp", "--out", "a", "--out", "b"])
@@ -381,6 +470,16 @@ struct HarnessDispatcherTests {
         }
     }
 
+    @Test func rejectsRemovedImagesAliases() async throws {
+        let dispatcher = HarnessDispatcher()
+        await #expect(throws: HarnessError.unsupportedSource("images")) {
+            try await dispatcher.run(["capture", "images", "/tmp"])
+        }
+        await #expect(throws: HarnessError.unsupportedSource("images")) {
+            try await dispatcher.run(["pipeline", "images", "/tmp", "--out", "/tmp/out"])
+        }
+    }
+
     @Test func videoCaptureRejectsInvalidFPSAndMissingFile() async throws {
         let dispatcher = HarnessDispatcher()
         await #expect(throws: HarnessError.invalidFPS("0")) {
@@ -389,15 +488,15 @@ struct HarnessDispatcherTests {
         await #expect(throws: HarnessError.videoReadFailed("/tmp/missing.mp4")) {
             try await dispatcher.run(["capture", "video", "/tmp/missing.mp4"])
         }
-        await #expect(throws: HarnessError.unsupportedCaptureSource("audio")) {
+        await #expect(throws: HarnessError.unsupportedSource("audio")) {
             try await dispatcher.run(["capture", "audio", "/tmp/input.wav"])
         }
-        await #expect(throws: HarnessError.unsupportedCaptureSource("audio")) {
+        await #expect(throws: HarnessError.unsupportedSource("audio")) {
             try await dispatcher.run(["capture", "audio"])
         }
     }
 
-    @Test func captureVideoReportsNullCueCountAndWritesKeyframePNGs() async throws {
+    @Test func captureVideoOmitsInapplicableFieldsAndWritesKeyframePNGs() async throws {
         try await withTemporaryDirectory { directory in
             let video = directory.appendingPathComponent("scroll.mp4")
             let output = directory.appendingPathComponent("keyframes")
@@ -407,12 +506,16 @@ struct HarnessDispatcherTests {
                 "capture", "video", video.path, "--fps", "30", "--out", output.path,
             ]))
 
+            #expect(Set(capture.keys) == [
+                "source", "input", "processedFrameCount", "decodeFailureCount", "keyframeCount",
+                "keyframes", "outDirectory", "fps",
+            ])
             #expect(capture["source"] as? String == "video")
             #expect(capture["input"] as? String == video.path)
             #expect(capture["fps"] as? Double == 30)
             #expect(capture["processedFrameCount"] as? Int == 9)
             #expect(capture["decodeFailureCount"] as? Int == 0)
-            #expect(capture["safetyCueCount"] is NSNull)
+            #expect(capture["safetyCueCount"] == nil)
             let keyframeCount = try #require(capture["keyframeCount"] as? Int)
             #expect(keyframeCount >= 2)
             for index in 0..<keyframeCount {
@@ -423,14 +526,19 @@ struct HarnessDispatcherTests {
         }
     }
 
-    @Test func pipelineRejectsUnderCapturedInput() async throws {
+    @Test func pipelineRejectsInsufficientImagesAfterIngestion() async throws {
         try await withTemporaryDirectory { directory in
             let input = directory.appendingPathComponent("input")
             try FileManager.default.createDirectory(at: input, withIntermediateDirectories: true)
             try writePNG(makeImage(width: 32, height: 64), to: input.appendingPathComponent("only.png"))
-            await #expect(throws: HarnessError.underCapturedPipeline(1)) {
+            #expect(HarnessError.insufficientPipelineImages(1).code == "insufficient_pipeline_images")
+            #expect(
+                HarnessError.insufficientPipelineImages(1).errorDescription
+                    == "pipeline requires at least 2 images after ingestion; available 1"
+            )
+            await #expect(throws: HarnessError.insufficientPipelineImages(1)) {
                 try await HarnessDispatcher().run([
-                    "pipeline", "images", input.path, "--out", directory.appendingPathComponent("out").path,
+                    "pipeline", "photos", input.path, "--out", directory.appendingPathComponent("out").path,
                 ])
             }
         }
@@ -446,15 +554,20 @@ struct HarnessDispatcherTests {
                 "pipeline", "video", video.path, "--out", output.path, "--fps", "30",
             ]))
 
+            #expect(Set(pipeline.keys) == ["source", "stages"])
             #expect(pipeline["source"] as? String == "video")
-            #expect(pipeline["orderMode"] as? String == "input")
             let stages = try #require(pipeline["stages"] as? [String: Any])
-            let capture = try #require(stages["capture"] as? [String: Any])
-            #expect(capture["source"] as? String == "video")
-            #expect(capture["fps"] as? Double == 30)
-            #expect(capture["processedFrameCount"] as? Int == 9)
-            #expect(capture["decodeFailureCount"] as? Int == 0)
-            #expect(capture["safetyCueCount"] is NSNull)
+            #expect(Set(stages.keys) == ["ingestion", "plan", "session", "composition"])
+            let ingestion = try #require(stages["ingestion"] as? [String: Any])
+            #expect(Set(ingestion.keys) == [
+                "input", "processedFrameCount", "decodeFailureCount", "keyframeCount",
+                "keyframes", "fps",
+            ])
+            #expect(ingestion["source"] == nil)
+            #expect(ingestion["fps"] as? Double == 30)
+            #expect(ingestion["processedFrameCount"] as? Int == 9)
+            #expect(ingestion["decodeFailureCount"] as? Int == 0)
+            #expect(ingestion["safetyCueCount"] == nil)
 
             let plan = try #require(stages["plan"] as? [String: Any])
             #expect(plan["orderMode"] as? String == "input")
@@ -464,6 +577,7 @@ struct HarnessDispatcherTests {
             #expect(order.count >= 2)
 
             let session = try #require(stages["session"] as? [String: Any])
+            #expect(Set(session.keys) == ["sessionID", "folder", "manifest", "keyframeCount"])
             let folder = URL(fileURLWithPath: try #require(session["folder"] as? String))
             #expect(folder.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent == "store")
             #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("manifest.json").path))
@@ -480,7 +594,8 @@ struct HarnessDispatcherTests {
             let stitched = output.appendingPathComponent("stitched.png")
             let imageSource = try #require(CGImageSourceCreateWithURL(stitched as CFURL, nil))
             let stitchedImage = try #require(CGImageSourceCreateImageAtIndex(imageSource, 0, nil))
-            let composition = try #require(pipeline["composition"] as? [String: Any])
+            let composition = try #require(stages["composition"] as? [String: Any])
+            #expect(Set(composition.keys) == ["width", "height", "path"])
             #expect(composition["path"] as? String == stitched.path)
             #expect(composition["width"] as? Int == stitchedImage.width)
             #expect(composition["height"] as? Int == stitchedImage.height)
@@ -501,22 +616,31 @@ struct HarnessDispatcherTests {
             let pipeline = try result(try await HarnessDispatcher().run([
                 "pipeline", "frames", input.path, "--out", output.path,
             ]))
+            #expect(Set(pipeline.keys) == ["source", "stages"])
             #expect(pipeline["source"] as? String == "frames")
-            #expect(pipeline["orderMode"] as? String == "input")
-            #expect(pipeline["orderAssumed"] as? Bool == false)
             let stages = try #require(pipeline["stages"] as? [String: Any])
-            let capture = try #require(stages["capture"] as? [String: Any])
-            #expect(capture["source"] as? String == "frames")
-            #expect(capture["processedFrameCount"] as? Int == 9)
-            let committedCount = try #require(capture["keyframeCount"] as? Int)
+            #expect(Set(stages.keys) == ["ingestion", "plan", "session", "composition"])
+            let ingestion = try #require(stages["ingestion"] as? [String: Any])
+            #expect(Set(ingestion.keys) == [
+                "input", "processedFrameCount", "keyframeCount", "safetyCueCount",
+                "keyframes", "files",
+            ])
+            #expect(ingestion["source"] == nil)
+            #expect(ingestion["processedFrameCount"] as? Int == 9)
+            let committedCount = try #require(ingestion["keyframeCount"] as? Int)
             #expect(committedCount >= 2)
             #expect(committedCount < 9, "dense raw frames should be reduced to committed keyframes")
-            #expect(capture["safetyCueCount"] is Int)
+            #expect(ingestion["safetyCueCount"] is Int)
             let plan = try #require(stages["plan"] as? [String: Any])
+            #expect(Set(plan.keys) == [
+                "orderMode", "orderAssumed", "order", "seamCount", "segmentBreakCount",
+                "contentBandCount",
+            ])
             #expect(plan["orderMode"] as? String == "input")
             #expect(plan["orderAssumed"] as? Bool == false)
             #expect((plan["order"] as? [Int])?.count == committedCount)
-            let folder = URL(fileURLWithPath: try #require(pipeline["folder"] as? String))
+            let session = try #require(stages["session"] as? [String: Any])
+            let folder = URL(fileURLWithPath: try #require(session["folder"] as? String))
             let stitched = output.appendingPathComponent("stitched.png")
             #expect(folder.deletingLastPathComponent().deletingLastPathComponent().lastPathComponent == "store")
             #expect(FileManager.default.fileExists(atPath: folder.appendingPathComponent("manifest.json").path))
@@ -524,7 +648,7 @@ struct HarnessDispatcherTests {
             #expect((inspected["keyframeCount"] as? Int ?? 0) >= 2)
             let imageSource = try #require(CGImageSourceCreateWithURL(stitched as CFURL, nil))
             let stitchedImage = try #require(CGImageSourceCreateImageAtIndex(imageSource, 0, nil))
-            let composition = try #require(pipeline["composition"] as? [String: Any])
+            let composition = try #require(stages["composition"] as? [String: Any])
             #expect(composition["width"] as? Int == stitchedImage.width)
             #expect(composition["height"] as? Int == stitchedImage.height)
             let manifestData = try Data(contentsOf: folder.appendingPathComponent("manifest.json"))
@@ -549,15 +673,19 @@ struct HarnessDispatcherTests {
                 "pipeline", "committed", input.path, "--out", output.path,
             ]))
 
+            #expect(Set(pipeline.keys) == ["source", "stages"])
             #expect(pipeline["source"] as? String == "committed")
-            #expect(pipeline["orderMode"] as? String == "recover-or-input")
             let stages = try #require(pipeline["stages"] as? [String: Any])
-            let capture = try #require(stages["capture"] as? [String: Any])
-            #expect(capture["source"] as? String == "committed")
-            #expect(capture["files"] as? [String] == (0..<9).map { String(format: "frame-%02d.png", $0) })
-            #expect(capture["processedFrameCount"] as? Int == 9)
-            #expect(capture["keyframeCount"] as? Int == 9)
-            #expect(capture["safetyCueCount"] is NSNull)
+            #expect(Set(stages.keys) == ["ingestion", "plan", "session", "composition"])
+            let ingestion = try #require(stages["ingestion"] as? [String: Any])
+            #expect(Set(ingestion.keys) == [
+                "input", "processedFrameCount", "keyframeCount", "keyframes", "files",
+            ])
+            #expect(ingestion["source"] == nil)
+            #expect(ingestion["files"] as? [String] == (0..<9).map { String(format: "frame-%02d.png", $0) })
+            #expect(ingestion["processedFrameCount"] as? Int == 9)
+            #expect(ingestion["keyframeCount"] as? Int == 9)
+            #expect(ingestion["safetyCueCount"] == nil)
 
             let plan = try #require(stages["plan"] as? [String: Any])
             #expect(plan["orderMode"] as? String == "recover-or-input")
@@ -567,37 +695,38 @@ struct HarnessDispatcherTests {
         }
     }
 
-    @Test func pipelinePhotosAndImagesAliasUseEveryGroundTruthScreenshot() async throws {
+    @Test func pipelinePhotosUsesEveryGroundTruthScreenshotAndCanonicalSchema() async throws {
         let fixtures = photosFixtureDirectory()
         try await withTemporaryDirectory { directory in
-            for requestedSource in ["photos", "images"] {
-                let output = directory.appendingPathComponent(requestedSource)
-                let pipeline = try result(try await HarnessDispatcher().run([
-                    "pipeline", requestedSource, fixtures.path, "--out", output.path,
-                ]))
+            let output = directory.appendingPathComponent("photos")
+            let pipeline = try result(try await HarnessDispatcher().run([
+                "pipeline", "photos", fixtures.path, "--out", output.path,
+            ]))
 
-                #expect(pipeline["source"] as? String == "photos")
-                #expect(pipeline["orderMode"] as? String == "recover-or-input")
-                #expect(pipeline["orderAssumed"] as? Bool == false)
-                let stages = try #require(pipeline["stages"] as? [String: Any])
-                let capture = try #require(stages["capture"] as? [String: Any])
-                #expect(capture["source"] as? String == "photos")
-                #expect(capture["processedFrameCount"] as? Int == 6)
-                #expect(capture["keyframeCount"] as? Int == 6)
+            #expect(Set(pipeline.keys) == ["source", "stages"])
+            #expect(pipeline["source"] as? String == "photos")
+            let stages = try #require(pipeline["stages"] as? [String: Any])
+            #expect(Set(stages.keys) == ["ingestion", "plan", "session", "composition"])
+            let ingestion = try #require(stages["ingestion"] as? [String: Any])
+            #expect(Set(ingestion.keys) == [
+                "input", "processedFrameCount", "keyframeCount", "keyframes", "files",
+            ])
+            #expect(ingestion["source"] == nil)
+            #expect(ingestion["processedFrameCount"] as? Int == 6)
+            #expect(ingestion["keyframeCount"] as? Int == 6)
 
-                let plan = try #require(stages["plan"] as? [String: Any])
-                #expect(plan["orderMode"] as? String == "recover-or-input")
-                #expect(plan["orderAssumed"] as? Bool == false)
-                #expect(plan["order"] as? [Int] == Array(0..<6))
-                #expect(plan["seamCount"] as? Int == 5)
-                #expect(plan["segmentBreakCount"] as? Int == 0)
+            let plan = try #require(stages["plan"] as? [String: Any])
+            #expect(plan["orderMode"] as? String == "recover-or-input")
+            #expect(plan["orderAssumed"] as? Bool == false)
+            #expect(plan["order"] as? [Int] == Array(0..<6))
+            #expect(plan["seamCount"] as? Int == 5)
+            #expect(plan["segmentBreakCount"] as? Int == 0)
 
-                let session = try #require(stages["session"] as? [String: Any])
-                #expect(session["keyframeCount"] as? Int == 6)
-                let composition = try #require(stages["composition"] as? [String: Any])
-                #expect(composition["width"] as? Int == 1320)
-                #expect(composition["height"] as? Int == 10316)
-            }
+            let session = try #require(stages["session"] as? [String: Any])
+            #expect(session["keyframeCount"] as? Int == 6)
+            let composition = try #require(stages["composition"] as? [String: Any])
+            #expect(composition["width"] as? Int == 1320)
+            #expect(composition["height"] as? Int == 10316)
         }
     }
 
@@ -639,8 +768,6 @@ struct HarnessDispatcherTests {
                 "--out", directory.appendingPathComponent("pipeline").path,
                 "--order", "recover-or-input",
             ]))
-            #expect(pipeline["orderMode"] as? String == "recover-or-input")
-            #expect(pipeline["orderAssumed"] as? Bool == true)
             let stages = try #require(pipeline["stages"] as? [String: Any])
             let plan = try #require(stages["plan"] as? [String: Any])
             #expect(plan["order"] as? [Int] == [0, 1])
@@ -682,6 +809,22 @@ struct HarnessDispatcherTests {
         try mutation(&manifest)
         let data = try JSONSerialization.data(withJSONObject: manifest, options: [.prettyPrinted, .sortedKeys])
         try data.write(to: url, options: .atomic)
+    }
+
+    private func replaceRawKeyframesWithPNGs(in folder: URL, count: Int) throws {
+        for index in 0..<count {
+            let raw = folder.appendingPathComponent(String(format: "kf-%04d.bgra", index))
+            let png = folder.appendingPathComponent(String(format: "kf-%04d.png", index))
+            try writePNG(makeImage(width: 24, height: 48), to: png)
+            try FileManager.default.removeItem(at: raw)
+        }
+        try mutateManifest(at: folder.appendingPathComponent("manifest.json")) { manifest in
+            var keyframes = try #require(manifest["keyframes"] as? [[String: Any]])
+            for index in keyframes.indices {
+                keyframes[index]["filename"] = String(format: "kf-%04d.png", index)
+            }
+            manifest["keyframes"] = keyframes
+        }
     }
 
     private func makeImage(width: Int, height: Int) -> CGImage {

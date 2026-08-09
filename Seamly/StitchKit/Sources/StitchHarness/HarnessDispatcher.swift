@@ -5,13 +5,14 @@ import StitchKit
 import UniformTypeIdentifiers
 
 /// In-process command dispatcher for component diagnostics. It never prints or exits.
-public struct HarnessDispatcher: Sendable {
-    public static let schemaVersion = "stitch-harness.v1"
+package struct HarnessDispatcher: Sendable {
+    package static let schemaVersion = "stitch-harness.v1"
 
-    public init() {}
+    package init() {}
 
     /// Runs one command and returns its single pretty-printed, sorted JSON success envelope.
-    public func run(_ arguments: [String]) async throws -> Data {
+    /// The executable boundary must serialize every thrown error through `errorData`.
+    package func run(_ arguments: [String]) async throws -> Data {
         guard let command = arguments.first else { throw HarnessError.missingCommand }
 
         let result: [String: Any]
@@ -42,7 +43,7 @@ public struct HarnessDispatcher: Sendable {
     }
 
     /// Builds the one JSON error object emitted by the executable boundary.
-    public static func errorData(for error: any Error, arguments: [String]) -> Data {
+    package static func errorData(for error: any Error, arguments: [String]) -> Data {
         let command = arguments.first ?? ""
         let cause: String?
         if let wrapped = error as? HarnessFailure {
@@ -106,6 +107,15 @@ public struct HarnessDispatcher: Sendable {
         let geometricOverlapFraction = commonRows == 0
             ? 0
             : min(1, max(0, Double(commonRows - abs(matched.dy)) / Double(commonRows)))
+        let matcherOverlap: Any = matched.overlap.map { overlap in
+            [
+                "countedRows": overlap.countedRows,
+                "countableRows": overlap.countableRows,
+                "minimumRequiredRows": overlap.minimumRequiredRows,
+                "fraction": overlap.fraction,
+                "passesMinimum": overlap.passedMinimumOverlap,
+            ] as [String: Any]
+        } ?? NSNull()
         return [
             "a": arguments[0],
             "b": arguments[1],
@@ -117,12 +127,12 @@ public struct HarnessDispatcher: Sendable {
             "maskedRows": mask?.filter { !$0 }.count ?? 0,
             // This is geometric row overlap, not the matcher's mask-aware overlap floor.
             "geometricOverlapFraction": geometricOverlapFraction,
-            "overlapFraction": geometricOverlapFraction,
+            "matcherOverlap": matcherOverlap,
         ]
     }
 
     private func summary(_ values: [Float]) -> [String: Double] {
-        guard let minimum = values.min(), let maximum = values.max(), !values.isEmpty else {
+        guard let minimum = values.min(), let maximum = values.max() else {
             return ["min": 0, "max": 0, "average": 0]
         }
         return [
@@ -139,13 +149,66 @@ public struct HarnessDispatcher: Sendable {
         let safetyCueCount: Int?
     }
 
-    private enum CaptureSource {
+    private struct KeyframeReport: Encodable {
+        let index: Int
+        let pixelWidth: Int
+        let pixelHeight: Int
+    }
+
+    private struct IngestionReport: Encodable {
+        let source: String?
+        let input: String
+        let processedFrameCount: Int
+        let decodeFailureCount: Int?
+        let keyframeCount: Int
+        let safetyCueCount: Int?
+        let keyframes: [KeyframeReport]
+        let outDirectory: String?
+        let files: [String]?
+        let fps: Double?
+    }
+
+    private struct PlanStage: Encodable {
+        let orderMode: String
+        let orderAssumed: Bool
+        let order: [Int]
+        let seamCount: Int
+        let segmentBreakCount: Int
+        let contentBandCount: Int
+    }
+
+    private struct SessionStage: Encodable {
+        let sessionID: String
+        let folder: String
+        let manifest: String
+        let keyframeCount: Int
+    }
+
+    private struct CompositionStage: Encodable {
+        let width: Int
+        let height: Int
+        let path: String
+    }
+
+    private struct PipelineStages: Encodable {
+        let ingestion: IngestionReport
+        let plan: PlanStage
+        let session: SessionStage
+        let composition: CompositionStage
+    }
+
+    private struct PipelineResult: Encodable {
+        let source: String
+        let stages: PipelineStages
+    }
+
+    private enum CaptureSource: Equatable {
         case frames
         case video
 
         init?(argument: String) {
             switch argument {
-            case "frames", "images": self = .frames
+            case "frames": self = .frames
             case "video": self = .video
             default: return nil
             }
@@ -164,7 +227,7 @@ public struct HarnessDispatcher: Sendable {
             throw HarnessError.usage("capture frames <dir> [--prefix P] [--out DIR] | capture video <file> [--fps N] [--out DIR]")
         }
         guard let source = CaptureSource(argument: requestedSource) else {
-            throw HarnessError.unsupportedCaptureSource(requestedSource)
+            throw HarnessError.unsupportedSource(requestedSource)
         }
         guard arguments.count >= 2 else {
             throw HarnessError.usage("capture \(source.name) <source> [options]")
@@ -175,27 +238,30 @@ public struct HarnessDispatcher: Sendable {
             let discovered = try discoverImages(in: arguments[1], prefix: options["--prefix"])
             let captured = try selectKeyframes(fromRawFrames: discovered.urls)
             try dumpKeyframes(captured.keyframes, to: options["--out"])
-            return captureReport(
+            return try Self.dictionary(for: captureReport(
                 captured,
-                source: "frames",
+                source: .frames,
+                includeSource: true,
                 input: arguments[1],
                 files: discovered.names,
-                outDirectory: options["--out"]
-            )
+                outDirectory: options["--out"],
+                fps: nil
+            ))
         case .video:
             let options = try parseOptions(Array(arguments.dropFirst(2)), allowed: ["--fps", "--out"])
             let fps = try parseFPS(options["--fps"])
             let captured = try await captureVideo(path: arguments[1], fps: fps)
             try dumpKeyframes(captured.keyframes, to: options["--out"])
-            var report = captureReport(
+            let report = captureReport(
                 captured,
-                source: "video",
+                source: .video,
+                includeSource: true,
                 input: arguments[1],
                 files: nil,
-                outDirectory: options["--out"]
+                outDirectory: options["--out"],
+                fps: fps
             )
-            report["fps"] = fps
-            return report
+            return try Self.dictionary(for: report)
         }
     }
 
@@ -258,31 +324,31 @@ public struct HarnessDispatcher: Sendable {
 
     private func captureReport(
         _ capture: CaptureResult,
-        source: String,
+        source: CaptureSource,
+        includeSource: Bool,
         input: String,
         files: [String]?,
-        outDirectory: String?
-    ) -> [String: Any] {
-        var report: [String: Any] = [
-            "source": source,
-            "input": input,
-            "processedFrameCount": capture.processedFrameCount,
-            "decodeFailureCount": capture.decodeFailureCount,
-            "inputCount": capture.processedFrameCount,
-            "keyframeCount": capture.keyframes.count,
-            "safetyCueCount": capture.safetyCueCount.map { $0 as Any } ?? NSNull(),
-            "keyframes": capture.keyframes.map { keyframe in
-                [
-                    "index": keyframe.metadata.index,
-                    "pixelWidth": keyframe.metadata.pixelWidth,
-                    "pixelHeight": keyframe.metadata.pixelHeight,
-                ]
+        outDirectory: String?,
+        fps: Double?
+    ) -> IngestionReport {
+        IngestionReport(
+            source: includeSource ? source.name : nil,
+            input: input,
+            processedFrameCount: capture.processedFrameCount,
+            decodeFailureCount: source == .video ? capture.decodeFailureCount : nil,
+            keyframeCount: capture.keyframes.count,
+            safetyCueCount: source == .frames ? capture.safetyCueCount : nil,
+            keyframes: capture.keyframes.map { keyframe in
+                KeyframeReport(
+                    index: keyframe.metadata.index,
+                    pixelWidth: keyframe.metadata.pixelWidth,
+                    pixelHeight: keyframe.metadata.pixelHeight
+                )
             },
-            "outDirectory": outDirectory ?? NSNull(),
-        ]
-        if source == "frames" { report["directory"] = input }
-        if let files { report["files"] = files }
-        return report
+            outDirectory: outDirectory,
+            files: files,
+            fps: fps
+        )
     }
 
     private enum PipelineSource {
@@ -293,7 +359,7 @@ public struct HarnessDispatcher: Sendable {
 
         init?(argument: String) {
             switch argument {
-            case "photos", "images": self = .photos
+            case "photos": self = .photos
             case "committed": self = .committed
             case "frames": self = .frames
             case "video": self = .video
@@ -330,7 +396,7 @@ public struct HarnessDispatcher: Sendable {
             throw HarnessError.usage("pipeline photos|committed|frames <dir> --out <dir> [--prefix P] [--order recover|recover-or-input|input] | pipeline video <file> --out <dir> [--fps N] [--order recover|recover-or-input|input]")
         }
         guard let source = PipelineSource(argument: requestedSource) else {
-            throw HarnessError.unsupportedCaptureSource(requestedSource)
+            throw HarnessError.unsupportedSource(requestedSource)
         }
         guard arguments.count >= 2 else {
             throw HarnessError.usage("pipeline \(source.name) <source> --out <dir> [options]")
@@ -355,38 +421,31 @@ public struct HarnessDispatcher: Sendable {
         let stitchedURL = output.appendingPathComponent("stitched.png")
         try autoreleasepool { try writePNG(composed.image, to: stitchedURL) }
 
-        let sessionStage: [String: Any] = [
-            "sessionID": prepared.session.id.uuidString,
-            "folder": prepared.folder.path,
-            "manifest": prepared.folder.appendingPathComponent("manifest.json").path,
-            "keyframeCount": prepared.session.keyframes.count,
-            "orderAssumed": prepared.session.orderAssumed,
-        ]
-        let compositionStage: [String: Any] = [
-            "width": composed.image.width,
-            "height": composed.image.height,
-            "path": stitchedURL.path,
-        ]
-        return [
-            "source": source.name,
-            "orderMode": order.mode,
-            "orderAssumed": prepared.session.orderAssumed,
-            "sessionID": prepared.session.id.uuidString,
-            "folder": prepared.folder.path,
-            "plan": prepared.planStage,
-            "composition": compositionStage,
-            "stages": [
-                "capture": prepared.captureStage,
-                "plan": prepared.planStage,
-                "session": sessionStage,
-                "composition": compositionStage,
-            ],
-        ]
+        let sessionStage = SessionStage(
+            sessionID: prepared.session.id.uuidString,
+            folder: prepared.folder.path,
+            manifest: prepared.folder.appendingPathComponent("manifest.json").path,
+            keyframeCount: prepared.session.keyframes.count
+        )
+        let compositionStage = CompositionStage(
+            width: composed.image.width,
+            height: composed.image.height,
+            path: stitchedURL.path
+        )
+        return try Self.dictionary(for: PipelineResult(
+            source: source.name,
+            stages: PipelineStages(
+                ingestion: prepared.ingestionStage,
+                plan: prepared.planStage,
+                session: sessionStage,
+                composition: compositionStage
+            )
+        ))
     }
 
     private struct PipelinePreparation {
-        let captureStage: [String: Any]
-        let planStage: [String: Any]
+        let ingestionStage: IngestionReport
+        let planStage: PlanStage
         let session: StitchSession
         let folder: URL
     }
@@ -399,13 +458,12 @@ public struct HarnessDispatcher: Sendable {
         output: URL
     ) async throws -> PipelinePreparation {
         let images: [CGImage]
-        let captureStage: [String: Any]
+        let ingestionStage: IngestionReport
         switch source {
         case .photos, .committed:
             let loaded = try loadImages(in: input, prefix: options["--prefix"])
             images = loaded.images
-            captureStage = directInputReport(
-                source: source.name,
+            ingestionStage = directInputReport(
                 images: images,
                 input: input,
                 files: loaded.names
@@ -414,29 +472,31 @@ public struct HarnessDispatcher: Sendable {
             let discovered = try discoverImages(in: input, prefix: options["--prefix"])
             let captured = try selectKeyframes(fromRawFrames: discovered.urls)
             images = captured.keyframes.map(\.image)
-            captureStage = captureReport(
+            ingestionStage = captureReport(
                 captured,
-                source: source.name,
+                source: .frames,
+                includeSource: false,
                 input: input,
                 files: discovered.names,
-                outDirectory: nil
+                outDirectory: nil,
+                fps: nil
             )
         case .video:
             let parsedFPS = try parseFPS(options["--fps"])
             let captured = try await captureVideo(path: input, fps: parsedFPS)
             images = captured.keyframes.map(\.image)
-            var report = captureReport(
+            ingestionStage = captureReport(
                 captured,
-                source: source.name,
+                source: .video,
+                includeSource: false,
                 input: input,
                 files: nil,
-                outDirectory: nil
+                outDirectory: nil,
+                fps: parsedFPS
             )
-            report["fps"] = parsedFPS
-            captureStage = report
         }
         guard images.count >= 2 else {
-            throw HarnessError.underCapturedPipeline(images.count)
+            throw HarnessError.insufficientPipelineImages(images.count)
         }
 
         let plan = try BatchStitcher().plan(images, strategy: order.strategy)
@@ -445,16 +505,16 @@ public struct HarnessDispatcher: Sendable {
             images: images,
             container: output.appendingPathComponent("store")
         )
-        let planStage: [String: Any] = [
-            "orderMode": order.mode,
-            "orderAssumed": stored.session.orderAssumed,
-            "order": plan.order,
-            "seamCount": plan.session.seams.count,
-            "segmentBreakCount": plan.session.segmentBreaks.count,
-            "contentBandCount": plan.session.contentBands.count,
-        ]
+        let planStage = PlanStage(
+            orderMode: order.mode,
+            orderAssumed: stored.session.orderAssumed,
+            order: plan.order,
+            seamCount: plan.session.seams.count,
+            segmentBreakCount: plan.session.segmentBreaks.count,
+            contentBandCount: plan.session.contentBands.count
+        )
         return PipelinePreparation(
-            captureStage: captureStage,
+            ingestionStage: ingestionStage,
             planStage: planStage,
             session: stored.session,
             folder: stored.folder
@@ -462,30 +522,24 @@ public struct HarnessDispatcher: Sendable {
     }
 
     private func directInputReport(
-        source: String,
         images: [CGImage],
         input: String,
         files: [String]
-    ) -> [String: Any] {
-        [
-            "source": source,
-            "input": input,
-            "directory": input,
-            "processedFrameCount": images.count,
-            "decodeFailureCount": 0,
-            "inputCount": images.count,
-            "keyframeCount": images.count,
-            "safetyCueCount": NSNull(),
-            "keyframes": images.enumerated().map { index, image in
-                [
-                    "index": index,
-                    "pixelWidth": image.width,
-                    "pixelHeight": image.height,
-                ]
+    ) -> IngestionReport {
+        IngestionReport(
+            source: nil,
+            input: input,
+            processedFrameCount: images.count,
+            decodeFailureCount: nil,
+            keyframeCount: images.count,
+            safetyCueCount: nil,
+            keyframes: images.enumerated().map { index, image in
+                KeyframeReport(index: index, pixelWidth: image.width, pixelHeight: image.height)
             },
-            "outDirectory": NSNull(),
-            "files": files,
-        ]
+            outDirectory: nil,
+            files: files,
+            fps: nil
+        )
     }
 
     private struct ParsedOrder {
@@ -718,24 +772,27 @@ public struct HarnessDispatcher: Sendable {
         }
     }
 
-    private func validateKeyframeFiles(_ session: StitchSession, folder: URL) throws {
-        let resolvedFolder = folder.resolvingSymlinksInPath().standardizedFileURL
-        for keyframe in session.keyframes {
-            let url = folder.appendingPathComponent(keyframe.filename)
-            guard FileManager.default.fileExists(atPath: url.path) else {
-                throw HarnessError.keyframeMissing(url.path)
-            }
-            let resolvedURL = url.resolvingSymlinksInPath().standardizedFileURL
-            guard resolvedURL.deletingLastPathComponent() == resolvedFolder else {
-                throw HarnessError.invalidSession(
-                    "keyframe must resolve directly inside session folder: \(keyframe.filename)"
-                )
-            }
+    private struct ValidatedKeyframeFile {
+        let keyframe: Keyframe
+        let url: URL
+    }
+
+    private func validateKeyframeFiles(
+        _ session: StitchSession,
+        folder: URL,
+        decodeEncodedImages: Bool = true
+    ) throws {
+        let files = try resolvedKeyframeFiles(session, folder: folder)
+        for file in files {
             do {
-                if url.pathExtension.lowercased() == "bgra" {
-                    try validateRawKeyframe(url, width: keyframe.pixelWidth, height: keyframe.pixelHeight)
-                } else {
-                    try autoreleasepool { _ = try KeyframeIO.read(from: url) }
+                if file.url.pathExtension.lowercased() == "bgra" {
+                    try validateRawKeyframe(
+                        file.url,
+                        width: file.keyframe.pixelWidth,
+                        height: file.keyframe.pixelHeight
+                    )
+                } else if decodeEncodedImages {
+                    try autoreleasepool { _ = try KeyframeIO.read(from: file.url) }
                 }
             } catch let failure as HarnessFailure {
                 throw failure
@@ -743,10 +800,31 @@ public struct HarnessDispatcher: Sendable {
                 throw error
             } catch {
                 throw HarnessFailure(
-                    error: .keyframeDecodeFailed(url.path),
+                    error: .keyframeDecodeFailed(file.url.path),
                     cause: Self.causeDescription(error)
                 )
             }
+        }
+    }
+
+    /// Resolves every path before any keyframe content is accessed.
+    private func resolvedKeyframeFiles(
+        _ session: StitchSession,
+        folder: URL
+    ) throws -> [ValidatedKeyframeFile] {
+        let resolvedFolder = folder.resolvingSymlinksInPath().standardizedFileURL
+        return try session.keyframes.map { keyframe in
+            let url = folder.appendingPathComponent(keyframe.filename)
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw HarnessError.keyframeMissing(url.path)
+            }
+            let resolvedURL = url.resolvingSymlinksInPath().standardizedFileURL
+            guard resolvedURL.deletingLastPathComponent().path == resolvedFolder.path else {
+                throw HarnessError.invalidSession(
+                    "keyframe must resolve directly inside session folder: \(keyframe.filename)"
+                )
+            }
+            return ValidatedKeyframeFile(keyframe: keyframe, url: url)
         }
     }
 
@@ -817,10 +895,10 @@ public struct HarnessDispatcher: Sendable {
         folder: URL
     ) throws -> (session: StitchSession, image: CGImage) {
         let session = try readAndValidateManifest(folder: folder)
+        try validateKeyframeFiles(session, folder: folder, decodeEncodedImages: false)
         guard session.hasStitchableContent else {
             throw HarnessError.insufficientKeyframes(session.keyframes.count)
         }
-        try validateKeyframeFiles(session, folder: folder)
         let image = try Compositor(refinementDelta: 16).composite(session) { keyframe in
             try loadPersistedImage(keyframe, session: session, folder: folder)
         }
@@ -948,6 +1026,20 @@ public struct HarnessDispatcher: Sendable {
         try JSONSerialization.jsonObject(with: encoded(value))
     }
 
+    private static func dictionary<T: Encodable>(for value: T) throws -> [String: Any] {
+        let object = try jsonObject(for: value)
+        guard let dictionary = object as? [String: Any] else {
+            throw EncodingError.invalidValue(
+                value,
+                EncodingError.Context(
+                    codingPath: [],
+                    debugDescription: "top-level harness result must encode as a JSON object"
+                )
+            )
+        }
+        return dictionary
+    }
+
     private static func jsonData(_ object: Any) throws -> Data {
         var data = try JSONSerialization.data(
             withJSONObject: object,
@@ -965,7 +1057,7 @@ private struct HarnessFailure: LocalizedError {
     var errorDescription: String? { error.errorDescription }
 }
 
-public enum HarnessError: LocalizedError, Equatable {
+package enum HarnessError: LocalizedError, Equatable {
     case missingCommand
     case unknownCommand(String)
     case usage(String)
@@ -974,8 +1066,8 @@ public enum HarnessError: LocalizedError, Equatable {
     case missingValue(String)
     case invalidValue(option: String, value: String)
     case invalidFPS(String)
-    case unsupportedCaptureSource(String)
-    case underCapturedPipeline(Int)
+    case unsupportedSource(String)
+    case insufficientPipelineImages(Int)
     case videoReadFailed(String)
     case directoryReadFailed(String)
     case noImages(String, String?)
@@ -990,7 +1082,7 @@ public enum HarnessError: LocalizedError, Equatable {
     case keyframeDecodeFailed(String)
     case keyframeWriteFailed(String)
 
-    public var code: String {
+    package var code: String {
         switch self {
         case .missingCommand: "missing_command"
         case .unknownCommand: "unknown_command"
@@ -1000,8 +1092,8 @@ public enum HarnessError: LocalizedError, Equatable {
         case .missingValue: "missing_value"
         case .invalidValue: "invalid_value"
         case .invalidFPS: "invalid_fps"
-        case .unsupportedCaptureSource: "unsupported_capture_source"
-        case .underCapturedPipeline: "under_captured_pipeline"
+        case .unsupportedSource: "unsupported_source"
+        case .insufficientPipelineImages: "insufficient_pipeline_images"
         case .videoReadFailed: "video_read_failed"
         case .directoryReadFailed: "directory_read_failed"
         case .noImages: "no_images"
@@ -1018,7 +1110,7 @@ public enum HarnessError: LocalizedError, Equatable {
         }
     }
 
-    public var errorDescription: String? {
+    package var errorDescription: String? {
         switch self {
         case .missingCommand: "missing command"
         case .unknownCommand(let command): "unknown command: \(command)"
@@ -1028,8 +1120,9 @@ public enum HarnessError: LocalizedError, Equatable {
         case .missingValue(let option): "missing value for option: \(option)"
         case .invalidValue(let option, let value): "invalid value for \(option): \(value)"
         case .invalidFPS(let value): "fps must be a finite number greater than 0; got \(value)"
-        case .unsupportedCaptureSource(let source): "unsupported capture source: \(source)"
-        case .underCapturedPipeline(let count): "pipeline requires at least 2 committed keyframes; captured \(count)"
+        case .unsupportedSource(let source): "unsupported source: \(source)"
+        case .insufficientPipelineImages(let count):
+            "pipeline requires at least 2 images after ingestion; available \(count)"
         case .videoReadFailed(let path): "could not read video: \(path)"
         case .directoryReadFailed(let path): "could not read directory: \(path)"
         case .noImages(let path, let prefix):

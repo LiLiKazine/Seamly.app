@@ -57,9 +57,9 @@ struct BroadcastOrderStrategyTests {
         #expect(resolved.seams.isEmpty)
     }
 
-    /// When recovery cannot produce one clean confident chain, the fallback engages and says so.
-    /// `orderAssumed` is what surfaces that to the user, and it is the whole point of the switch:
-    /// broadcast previously took the mis-recovered result silently.
+    /// When recovery leaves a segment break, the fallback preserves capture order and says so.
+    /// Seam confidence alone does not engage it. `orderAssumed` is what surfaces that choice to the
+    /// user; broadcast previously took the mis-recovered result silently.
     @Test func unrecoverableBroadcastFallsBackAndBadges() throws {
         let root = tempRoot()
         defer { try? FileManager.default.removeItem(at: root) }

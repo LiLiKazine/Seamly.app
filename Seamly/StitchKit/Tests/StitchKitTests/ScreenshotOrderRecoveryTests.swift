@@ -13,15 +13,16 @@ import Foundation
 ///
 /// 1. Recovery on this set is exact and **permutation-invariant** — feed the six in any order and
 ///    `plan` returns the same scroll order and the same five seams.
-/// 2. Its weakest seam scores **0.368**, under the 0.4 that `buildPlan` flags as
-///    `isLowConfidence`, while the chain itself is complete (one segment, no breaks).
+/// 2. Its weakest seam historically scored **0.368**, under the shipping 0.4 flag threshold,
+///    while the chain itself was complete. It now scores about 0.726 after the masked-overlap-floor
+///    fix, so the regression test injects a 0.8 threshold to keep that policy condition alive.
 ///
 /// `StitchAssembler.resolveGeometry` used to read that flag as "the recovered order can't be
 /// trusted" and fall back to the user's pick order, so on this set a *correct* recovered order was
 /// thrown away every time — invisible when the photos happened to be picked in order, and a
 /// scrambled stitch when they weren't. A low seam confidence says the seam's *offset* is fuzzy; it
-/// says nothing about whether the ordering is right, and the fallback re-measures the very same
-/// pair with the very same matcher, so it cannot improve it.
+/// says nothing about whether the ordering is right. Fallback is now triggered only by a segment
+/// break, where recovery has not established one continuous ordering.
 @Suite struct ScreenshotOrderRecoveryTests {
 
     /// Scroll order, top→bottom.
