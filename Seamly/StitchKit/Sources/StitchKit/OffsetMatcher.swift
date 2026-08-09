@@ -54,7 +54,7 @@ public struct OffsetMatcher: Sendable {
     public func match(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>, rowMask: [Bool]? = nil) -> Match {
         var bestOffset = 0
         var bestScore = Float.greatestFiniteMagnitude
-        var scored: [(offset: Int, score: Float)] = []
+        var scored: [(offset: Int, candidate: CandidateScore)] = []
 
         // Effective overlap floor: the absolute minimum, or a fraction of the rows this match can
         // actually count, whichever is larger. Rejecting tiny-overlap offsets is what keeps the
@@ -85,19 +85,39 @@ public struct OffsetMatcher: Sendable {
         // explain" — and only the first is about what the mask made available.
         let frameRows = min(a.rowCount, b.rowCount)
         let referenceRows = frameRows
-        let minOverlap = max(minimumOverlap, Int((minimumOverlapFraction * Double(countableRows(rowMask, upTo: frameRows))).rounded()))
+        let countableRows = countableRows(rowMask, upTo: frameRows)
+        let minOverlap = max(
+            minimumOverlap,
+            Int((minimumOverlapFraction * Double(countableRows)).rounded())
+        )
 
         for offset in searchRange {
-            guard let score = weightedMAD(a, b, offset: offset, rowMask: rowMask, minOverlap: minOverlap, referenceRows: referenceRows) else { continue }
-            scored.append((offset, score))
-            if score < bestScore {
-                bestScore = score
+            guard let candidate = weightedMAD(
+                a,
+                b,
+                offset: offset,
+                rowMask: rowMask,
+                minOverlap: minOverlap,
+                referenceRows: referenceRows
+            ) else { continue }
+            scored.append((offset, candidate))
+            if candidate.cost < bestScore {
+                bestScore = candidate.cost
                 bestOffset = offset
             }
         }
 
         guard let bestIndex = scored.firstIndex(where: { $0.offset == bestOffset }) else {
-            return Match(dy: 0, confidence: 0)
+            return Match(
+                dy: 0,
+                confidence: 0,
+                overlap: Match.OverlapAccounting(
+                    countedRows: 0,
+                    countableRows: countableRows,
+                    minimumRequiredRows: minOverlap,
+                    passedMinimumOverlap: false
+                )
+            )
         }
 
         // Runner-up = best score *outside the winning offset's valley*. The valley is the
@@ -106,19 +126,29 @@ public struct OffsetMatcher: Sendable {
         // real geometry, ~1 at 1:1) so the runner-up is a truly distinct alignment, not a
         // near-neighbor of the same peak. `scored` is ordered by offset and contiguous through
         // the central region where the valley lives, so index walking tracks adjacent offsets.
-        let worstScore = scored.max { $0.score < $1.score }!.score
+        let worstScore = scored.max { $0.candidate.cost < $1.candidate.cost }!.candidate.cost
         let valleyLevel = bestScore + valleyProminence * (worstScore - bestScore)
         var lo = bestIndex, hi = bestIndex
-        while lo - 1 >= 0, scored[lo - 1].score <= valleyLevel { lo -= 1 }
-        while hi + 1 < scored.count, scored[hi + 1].score <= valleyLevel { hi += 1 }
+        while lo - 1 >= 0, scored[lo - 1].candidate.cost <= valleyLevel { lo -= 1 }
+        while hi + 1 < scored.count, scored[hi + 1].candidate.cost <= valleyLevel { hi += 1 }
 
         var runnerUp = Float.greatestFiniteMagnitude
         for i in scored.indices where i < lo || i > hi {
-            runnerUp = min(runnerUp, scored[i].score)
+            runnerUp = min(runnerUp, scored[i].candidate.cost)
         }
 
         let confidence = confidenceMargin(best: bestScore, runnerUp: runnerUp)
-        return Match(dy: bestOffset, confidence: confidence, cost: bestScore)
+        return Match(
+            dy: bestOffset,
+            confidence: confidence,
+            cost: bestScore,
+            overlap: Match.OverlapAccounting(
+                countedRows: scored[bestIndex].candidate.countedRows,
+                countableRows: countableRows,
+                minimumRequiredRows: minOverlap,
+                passedMinimumOverlap: true
+            )
+        )
     }
 
     /// The most rows any offset could contribute to the score: every overlapping row for an
@@ -133,10 +163,15 @@ public struct OffsetMatcher: Sendable {
         return counted
     }
 
-    /// Variance-weighted mean absolute difference over the overlap, or `nil` if the counted
-    /// overlap is below `minOverlap` or carries no structure. When `rowMask` is supplied, only
-    /// rows unmasked in both frames count toward the score and the overlap guard.
-    private func weightedMAD(_ a: FrameProfile, _ b: FrameProfile, offset: Int, rowMask: [Bool]?, minOverlap: Int, referenceRows: Int) -> Float? {
+    private struct CandidateScore {
+        let cost: Float
+        let countedRows: Int
+    }
+
+    /// Variance-weighted mean absolute difference and its actual counted overlap, or `nil` if the
+    /// overlap is below `minOverlap` or carries no structure. When `rowMask` is supplied, only rows
+    /// unmasked in both frames count toward the score and the overlap guard.
+    private func weightedMAD(_ a: FrameProfile, _ b: FrameProfile, offset: Int, rowMask: [Bool]?, minOverlap: Int, referenceRows: Int) -> CandidateScore? {
         // b[k] aligns with a[offset + k]; k must be valid in both.
         let kStart = max(0, -offset)
         let kEnd = min(b.rowCount, a.rowCount - offset)
@@ -160,7 +195,8 @@ public struct OffsetMatcher: Sendable {
         // Reward overlap: an offset that explains more of the frame is genuinely cheaper, so a
         // partial-overlap alignment can't tie the full-overlap true offset on the raw average.
         let overlapFraction = Float(counted) / Float(referenceRows)
-        return (weightedSum / weightTotal) * (1 + overlapPenalty * (1 - overlapFraction))
+        let cost = (weightedSum / weightTotal) * (1 + overlapPenalty * (1 - overlapFraction))
+        return CandidateScore(cost: cost, countedRows: counted)
     }
 
     /// Mean absolute difference between two row luminance signatures. With single-value

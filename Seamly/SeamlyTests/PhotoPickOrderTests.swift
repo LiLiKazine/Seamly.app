@@ -10,16 +10,15 @@ import StitchKit
 /// Order recovery was not at fault. `BatchStitcher.plan` recovers this set exactly from any
 /// permutation (`ScreenshotOrderRecoveryTests` pins that on the same pixels). The loss happened
 /// one layer up: `resolveGeometry`'s `.recoverOrInputOrder` gate treated a low-confidence *seam*
-/// as evidence that the recovered *order* was untrustworthy, and this set's seam 2→3 measures
-/// 0.368 — under the 0.4 floor. So the correct recovered order was discarded in favour of the pick
-/// order on every import. In pick-order-is-scroll-order that fallback is a harmless no-op, which
-/// is exactly why it only showed up when the photos were picked out of order.
+/// as evidence that the recovered *order* was untrustworthy. At the time, this set's seam 2→3
+/// measured 0.368 — under the 0.4 floor — so the correct recovered order was discarded in favour
+/// of pick order on every import. It now measures about 0.726; the policy test injects a 0.8 flag
+/// threshold to reproduce the historical condition without relying on stale matcher output.
 ///
-/// Seam confidence is a statement about one seam's *offset*, and the fallback re-measures that
-/// same pair with the same matcher, so it cannot improve it — the gate traded a correct order for
-/// an arbitrary one and got nothing. Only a segment break is evidence about ordering: separate
-/// components have no measured relation to each other, so their relative order comes from input
-/// index, i.e. a guess, and there the caller's guess is the better one.
+/// Seam confidence is a statement about one seam's *offset*, not whether ordering succeeded. Only
+/// a segment break engages fallback: separate components have no measured relation to each other,
+/// so their relative order comes from input index, i.e. a guess, and there the caller's guess is
+/// the better one. The assumed-order pass still measures neighbours and keeps genuine breaks.
 ///
 /// Real pixels, not synthetic: no synthetic ramp lands a seam in (0, 0.4) while still chaining
 /// correctly, and a set that *doesn't* reproduce the trap cannot pin this fix. The fixtures are
@@ -29,7 +28,8 @@ import StitchKit
 struct PhotoPickOrderTests {
 
     /// Three consecutive screenshots of the same scroll, in true scroll order. This subset is the
-    /// minimal reproduction: it chains into one segment and its 1→2 seam is the 0.368 one.
+    /// minimal reproduction: it chains into one segment and contains the seam that historically
+    /// scored 0.368 (about 0.726 now, flagged by the injected 0.8 threshold).
     static let scrollOrder = ["IMG_1758.PNG", "IMG_1759.PNG", "IMG_1760.PNG"]
 
     static let fixtures = URL(fileURLWithPath: #filePath)

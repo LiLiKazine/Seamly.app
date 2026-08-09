@@ -17,7 +17,7 @@ every seam clean.
 |------|---------|------------|
 | 0→1  | 1326    | 0.727 |
 | 1→2  | 1636    | 0.613 |
-| 2→3  | 1416    | **0.368** |
+| 2→3  | 1416    | **~0.726** |
 | 3→4  | 1533    | 0.867 |
 | 4→5  | 1537    | 0.822 |
 
@@ -25,11 +25,12 @@ One segment, no breaks. Content band: `topChrome=242 bottomChrome=238`.
 
 ## Why this set is kept
 
-Seam 2→3's **0.368** is the point. It sits under the 0.4 floor that `buildPlan` stamps as
-`isLowConfidence`, on a chain that is otherwise complete and correctly ordered — a combination no
-synthetic fixture here produces, and one the app got wrong: `StitchAssembler` read that flag as
-"the recovered order can't be trusted" and fell back to the user's pick order, silently discarding
-a correct order on every import. See `docs/logs/2026-07-25-08-photo-pick-order-trust.md`.
+Seam 2→3 historically scored **0.368**, below the shipping 0.4 flag threshold, on a chain that was
+otherwise complete and correctly ordered. That exposed an app policy bug: `StitchAssembler` read
+the seam flag as "the recovered order can't be trusted" and fell back to pick order. After the
+masked-overlap-floor fix the same seam and offset score about **0.726**. The regression tests inject
+a 0.8 flag threshold so the original condition remains non-vacuous without recording 0.368 as a
+current measurement. See `docs/logs/2026-07-25-08-photo-pick-order-trust.md`.
 
 So this directory pins two things at once, and both matter:
 
@@ -38,6 +39,5 @@ So this directory pins two things at once, and both matter:
   these by source-relative path rather than duplicating the PNGs into the app test bundle.
 
 Kept at native resolution, like `RealDevice/`: a downscaled copy changes `rowScale` and the
-matcher's downsample, and 0.368 is precisely the kind of number that would not survive it. If a
-future matcher change lifts that seam above 0.4, `aCompleteChainStillCarriesALowConfidenceSeam`
-fails loudly — the fixture has stopped exercising the trap and something else must.
+matcher's downsample. `aCompleteChainStillCarriesALowConfidenceSeam` uses the real pixels with an
+injected 0.8 threshold and fails loudly if the fixture stops exercising the policy trap.

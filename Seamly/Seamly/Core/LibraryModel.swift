@@ -24,7 +24,7 @@ struct Capture: Identifiable {
     /// Segments whose chrome band didn't lock confidently — composited whole-frame (chrome may
     /// repeat) and awaiting an editor override. Surfaced so the failure isn't silent.
     var lowConfidenceBandCount: Int { session.contentBands.filter(\.isLowConfidence).count }
-    /// Scroll order was assumed from input order (pick-order fallback), not confidently recovered.
+    /// Scroll order used the input-order fallback for Photos or broadcast rather than recovery.
     var orderAssumed: Bool { session.orderAssumed }
 }
 
@@ -208,9 +208,10 @@ final class LibraryModel {
                             // Its *order*, however, is trustworthy: `ScrollCaptureDriver` numbers
                             // keyframes monotonically as it banks them, so a broadcast's stored
                             // order is capture order — the same temporal ordering that justifies
-                            // `.inputOrder` for video. So recovery gets first refusal, and when it
-                            // can't produce one clean confident chain we fall back to that order
-                            // and badge `orderAssumed` rather than shipping a mis-recovered one.
+                            // `.inputOrder` for video. So recovery gets first refusal, and only
+                            // when it leaves segment breaks do we fall back to capture order and
+                            // badge `orderAssumed`. Fallback preserves those genuine breaks; seam
+                            // confidence alone never changes the ordering policy.
                             do {
                                 let resolved = try StitchAssembler.resolveGeometry(session, in: dest, strategy: .recoverOrInputOrder)
                                 try appStore.writeManifest(resolved)

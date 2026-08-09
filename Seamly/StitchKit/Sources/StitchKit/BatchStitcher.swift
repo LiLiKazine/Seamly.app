@@ -28,14 +28,23 @@ public struct BatchStitcher: Sendable {
     }
 
     /// How planning treats the order in which images arrived.
+    ///
+    /// Source policy is intentional: unordered diagnostic sets use `.recover`; Photos picks and
+    /// committed broadcast keyframes use `.recoverOrInputOrder`; dense driver frames and decoded
+    /// video keyframes use `.inputOrder` because their chronology is authoritative.
     public enum OrderStrategy: Sendable {
-        /// Recover scroll order from pixel overlap and never fall back.
+        /// Recover scroll order from pixel overlap and never fall back to arrival order.
         case recover
-        /// Recover first; if recovery cannot form one continuous chain, use input order and badge it
-        /// as assumed. Low-confidence seams do not trigger the fallback: they describe alignment,
-        /// not whether the recovered relative order is known.
+        /// Recover first; if and only if recovery contains a segment break, use input order and
+        /// badge it as assumed. Low-confidence seams do not trigger the fallback: they describe
+        /// alignment, not whether the recovered relative order is known.
+        ///
+        /// Falling back stops reordering; it never forces disconnected content together. Every
+        /// consecutive input-order pair is measured again and non-overlapping neighbours remain
+        /// separated by segment breaks.
         case recoverOrInputOrder
-        /// Trust input order as chronology. This is not badged because the order is authoritative.
+        /// Trust input order as chronology while still segmenting non-overlapping neighbours.
+        /// This is not badged because the order is authoritative.
         case inputOrder
     }
 
@@ -173,6 +182,8 @@ public struct BatchStitcher: Sendable {
 
     /// Plan using a source-aware ordering policy. This preserves the two lower-level planning
     /// overloads above while providing one shared implementation for app and diagnostic callers.
+    /// A fallback changes ordering policy only: `plan(_:assumingOrder:)` still detects genuine
+    /// discontinuities and retains their segment breaks.
     public func plan(_ images: [CGImage], strategy: OrderStrategy) throws -> Plan {
         switch strategy {
         case .recover:
