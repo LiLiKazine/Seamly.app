@@ -9,14 +9,21 @@ import Foundation
 /// beats the next distinct candidate — low confidence flags ambiguous cases (uniform
 /// bands, periodic list rows) for the caller to handle (relocalize / flag the seam).
 public struct OffsetMatcher: Sendable {
-    /// Absolute floor on overlapping rows required for a candidate offset to be considered.
+    /// Absolute floor on *scored* rows required for a candidate offset to be considered — the
+    /// signal floor. This is the only overlap gate a `rowMask` can affect: a masked match counts
+    /// content rows only, and below a handful of them there is nothing to judge an alignment on.
     public let minimumOverlap: Int
-    /// Overlap floor as a fraction of the smaller frame's row count. The score is a per-row
-    /// average, so it does **not** penalize small overlaps on its own — an offset that overlaps
-    /// only a handful of rows can average a lower error than the true, well-overlapped offset
-    /// and win, pinning the match to an extreme boundary shift. Requiring the overlap to be a
-    /// real fraction of the frame rejects those. Kept below the ~30% overlap a legitimate fast
-    /// scroll still reaches (the safety-cue threshold), so real scrolls are not rejected.
+    /// Overlap floor as a fraction of the smaller frame's row count, applied to the **geometric**
+    /// overlap at a candidate offset (`frameRows − |dy|`). The score is a per-row average, so it
+    /// does not penalize small overlaps on its own — an offset that overlaps only a handful of
+    /// rows can average a lower error than the true, well-overlapped offset and win, pinning the
+    /// match to an extreme boundary shift. Requiring the overlap to be a real fraction of the
+    /// frame rejects those. Kept below the ~30% overlap a legitimate fast scroll still reaches
+    /// (the safety-cue threshold), so real scrolls are not rejected.
+    ///
+    /// Geometric on purpose: how much two frames share at offset `dy` is a property of `dy`, not
+    /// of what a mask later excluded from scoring. Measuring this against the masked count instead
+    /// caps the largest offset a masked match can measure — see `match`.
     public let minimumOverlapFraction: Double
     /// Half-prominence level (0...1) that bounds the winning offset's *valley* when picking the
     /// confidence runner-up. The score curve dips into a valley around the true offset; at
@@ -56,48 +63,62 @@ public struct OffsetMatcher: Sendable {
         var bestScore = Float.greatestFiniteMagnitude
         var scored: [(offset: Int, candidate: CandidateScore)] = []
 
-        // Effective overlap floor: the absolute minimum, or a fraction of the rows this match can
-        // actually count, whichever is larger. Rejecting tiny-overlap offsets is what keeps the
-        // matcher from latching onto an extreme boundary shift at real (heavily downscaled)
-        // geometry.
+        // Two separate gates, because "is this a plausible scroll" and "did this offset have enough
+        // signal to score" are different questions and only the second is about the mask.
         //
-        // The reference is the *countable* rows, not the frame's rows, and the difference is not
-        // cosmetic. A masked match only ever counts content rows — chrome is excluded at both ends
-        // of the shift — so measuring the floor against the full frame silently caps how far a
-        // masked match can measure. Measured on `Recordings/DSNN4777.MP4` (640 profile rows, 471
-        // of them content): at the true offset `dy=354` a masked match counts 124 rows against a
-        // floor of 160, so the correct offset was discarded and the match returned `dy=0` — while
-        // the same match with the floor lifted finds 354 at confidence 0.704, against plain
-        // matching's 0.207.
+        // **Plausibility is geometric.** Rejecting tiny-overlap offsets is what keeps the matcher
+        // from latching onto an extreme boundary shift, and how much two frames overlap at offset
+        // `dy` is a fact about `dy` — `frameRows − |dy|` rows, whatever a mask later excludes from
+        // scoring. So the fractional floor is applied to that geometric overlap, against the
+        // frame's rows.
         //
-        // That ceiling landed just above `KeyframeSelector.commitFraction`: a commit needed
-        // `dy ≥ 320` and the mask made anything past ~345 unmeasurable, leaving a 25-row window.
-        // A fast flick stepped 273 → 319 → 354 straight over it, the selector never committed a
-        // second keyframe, and every later frame had scrolled past the first one entirely — so a
-        // 6.4 s scroll banked exactly **one** keyframe and produced no stitch at all.
+        // Applying a *fraction of the countable rows* to the masked count instead — what this did
+        // before — makes the floor forbid large offsets by construction. A masked match counts only
+        // rows that are content at both ends of the shift, so its count falls as `dy` grows; a
+        // floor of `0.25 · countable` therefore caps any masked match at `dy ≈ 0.75 · countable`,
+        // regardless of how clean the alignment is. That is a limit on the *capture*, not a test of
+        // the match. `docs/logs/2026-08-08-02` moved this reference from the frame's rows to the
+        // countable rows and so raised the ceiling from `content − 160` to `0.75 · content`, which
+        // fixed the fixture in hand; `Screenshots3`/`Screenshots4` simply scroll further and cross
+        // it again. Measured at their true offsets (`docs/logs/2026-08-09-03`):
         //
-        // `overlapPenalty` below deliberately keeps the **frame** as its denominator. Moving it to
-        // the countable rows as well was tried and reverted: it lowers every offset's penalty, but
-        // lowers a well-overlapped one's much further (at `dy=0`, 1.21 → 1.00; at `dy=354`, 1.65 →
-        // 1.59), which tilts the whole score curve toward `dy=0`. On baidu that flipped a real
-        // downward pair to `dy=0` outright. The floor and the penalty answer different questions —
-        // "did this offset count enough rows to be trusted" versus "how much of the frame does it
-        // explain" — and only the first is about what the mask made available.
+        // | pair | true dy | masked counted | old floor | verdict |
+        // |------|---------|----------------|-----------|---------|
+        // | `Screenshots4` 1870→1871 | 372 | 96 | 116 | rejected, ceiling 346 |
+        // | `Screenshots4` 1872→1873 | 409 | 93 | 116 | rejected, ceiling 348 |
+        // | `Screenshots3` 1864→1865 | 416 | 77 |  97 | rejected, ceiling 290 |
+        //
+        // Each rejection then *won*: `BatchStitcher.downwardMatch` keeps whichever variant is more
+        // confident, masking usually scores better, so the masked match's best surviving offset
+        // overrode a plain match that had the true one.
+        //
+        // The invariant this restores is that **masking changes how an offset is scored, never
+        // which offsets are admissible** — the unmasked path is unchanged by construction, since
+        // without a mask `counted` *is* the geometric overlap.
+        //
+        // What the mask still gates is signal: `minimumOverlap` rows must survive it, and
+        // `weightTotal` must be non-degenerate. `overlapPenalty` below — which deliberately keeps
+        // the **frame** as its denominator — is what expresses "more overlap is better" as a
+        // continuous preference rather than a cliff. Moving *it* to the countable rows was tried
+        // and reverted: it lowers every offset's penalty but lowers a well-overlapped one's much
+        // further (at `dy=0`, 1.21 → 1.00; at `dy=354`, 1.65 → 1.59), tilting the whole curve
+        // toward `dy=0`, which flipped a real downward baidu pair to `dy=0` outright.
         let frameRows = min(a.rowCount, b.rowCount)
         let referenceRows = frameRows
         let countableRows = countableRows(rowMask, upTo: frameRows)
-        let minOverlap = max(
+        let minGeometricOverlap = max(
             minimumOverlap,
-            Int((minimumOverlapFraction * Double(countableRows)).rounded())
+            Int((minimumOverlapFraction * Double(frameRows)).rounded())
         )
 
         for offset in searchRange {
+            guard frameRows - abs(offset) >= minGeometricOverlap else { continue }
             guard let candidate = weightedMAD(
                 a,
                 b,
                 offset: offset,
                 rowMask: rowMask,
-                minOverlap: minOverlap,
+                minOverlap: minimumOverlap,
                 referenceRows: referenceRows
             ) else { continue }
             scored.append((offset, candidate))
@@ -114,7 +135,7 @@ public struct OffsetMatcher: Sendable {
                 overlap: Match.OverlapAccounting(
                     countedRows: 0,
                     countableRows: countableRows,
-                    minimumRequiredRows: minOverlap,
+                    minimumRequiredRows: minimumOverlap,
                     passedMinimumOverlap: false
                 )
             )
@@ -145,7 +166,7 @@ public struct OffsetMatcher: Sendable {
             overlap: Match.OverlapAccounting(
                 countedRows: scored[bestIndex].candidate.countedRows,
                 countableRows: countableRows,
-                minimumRequiredRows: minOverlap,
+                minimumRequiredRows: minimumOverlap,
                 passedMinimumOverlap: true
             )
         )

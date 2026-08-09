@@ -151,9 +151,11 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
   `Seamly/SeamlyTests/` (app-level import/assembly) · `Seamly/SeamlyUITests/`
 - **Fixtures:** `Seamly/StitchKit/Tests/StitchKitTests/Fixtures/` — synthetic, `wikipedia.png`,
   `Example/`, `RealDevice/` (broadcast keyframes), `Screenshots/` (Photos-app screenshots),
-  `Screenshots2/` (same, but with a live clock inside the bars), `Recordings/` (an untrimmed
-  handheld screen recording, with a fast flick and pauses). The last four carry a `README.md`
-  with ground truth and resolution — read it before measuring.
+  `Screenshots2/` (same, but with a live clock inside the bars), `Screenshots3/` (a large scroll
+  step, and a bottom bar that *collapses* after the first shot), `Screenshots4/` (a very large
+  scroll step — one pair overlaps only 4.6%), `Recordings/` (three untrimmed handheld screen
+  recordings). The last five carry a `README.md` with ground truth and resolution — read it before
+  measuring.
 - **Why the code is like this:** `DECISIONS.md` + `docs/logs/` (one log per significant
   change) · `docs/superpowers/plans/` and `docs/superpowers/specs/`
 

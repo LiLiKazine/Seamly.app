@@ -57,6 +57,8 @@ let package = Package(
                 .copy("Fixtures/Example"),
                 .copy("Fixtures/Screenshots"),
                 .copy("Fixtures/Screenshots2"),
+                .copy("Fixtures/Screenshots3"),
+                .copy("Fixtures/Screenshots4"),
                 .copy("Fixtures/Recordings"),
             ],
             swiftSettings: [

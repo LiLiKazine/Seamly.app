@@ -400,9 +400,23 @@ public struct BatchStitcher: Sendable {
             }
         }
         let segmentCount = (segmentOfSlot.max() ?? 0) + (order.isEmpty ? 0 : 1)
+        let pairsBySegment = (0..<segmentCount).map { seg -> [(FrameProfile, FrameProfile)] in
+            let slots = order.indices.filter { segmentOfSlot[$0] == seg }
+            return zip(slots, slots.dropFirst()).map { (profiles[order[$0]], profiles[order[$1]]) }
+        }
+        // A segment holding a single frame has no pair of its own to measure a band from, and
+        // `chromeBand` answers `.unlocked` for no pairs — so that frame was composited with its
+        // status bar and browser toolbar intact, stamped through the middle of the finished page
+        // while the manifest still read as healthy. Its bars are the *capture's* bars: one device,
+        // one app, one session. So fall back to every within-segment pair in the capture.
+        //
+        // Only within-segment pairs, never a pair spanning a break: those two frames don't overlap,
+        // so `isStatic` across them is comparing unrelated screens. When the whole capture is
+        // single-frame segments there is genuinely nothing to measure and `.unlocked` stands.
+        let capturePairs = pairsBySegment.flatMap { $0 }
         for seg in 0..<segmentCount {
             let slots = order.indices.filter { segmentOfSlot[$0] == seg }
-            let pairs = zip(slots, slots.dropFirst()).map { (profiles[order[$0]], profiles[order[$1]]) }
+            let pairs = pairsBySegment[seg].isEmpty ? capturePairs : pairsBySegment[seg]
             session.contentBands.append(chromeBand(pairs, rowScale: profiles[order[slots[0]]].rowScale))
         }
         return Plan(order: order, session: session)
@@ -426,7 +440,11 @@ public struct BatchStitcher: Sendable {
     /// genuinely improves it: `youtube` 3-4 scores 0.824 masked against 0.340 plain, baidu 3-4
     /// 0.387 against 0.032. Picking on confidence is right for that purpose; picking a *direction*
     /// on confidence was the bug, and `layout` now uses `cost` for it.
-    private func downwardMatch(_ a: FrameProfile, _ b: FrameProfile) -> Match {
+    /// Internal rather than private so tests can pin the offset a pair actually resolves to. A
+    /// plan-level assertion cannot tell "the matcher found the offset" from "the ordering routed
+    /// around a bad one", and a test-local reimplementation is exactly the drift `CaptureHarness`
+    /// documents.
+    func downwardMatch(_ a: FrameProfile, _ b: FrameProfile) -> Match {
         let bound = min(a.rowCount, b.rowCount) - matcher.minimumOverlap
         guard bound >= 1 else { return Match(dy: 0, confidence: 0) }
         let mask = ContentBandDetector(meanTolerance: chromeTolerance, varianceTolerance: chromeTolerance).staticMask(a, b)

@@ -18,7 +18,9 @@ public struct Match: Sendable, Equatable {
         public let countedRows: Int
         /// Most rows this match could count: all frame rows without a mask, or unmasked rows.
         public let countableRows: Int
-        /// Effective gate: the larger of the absolute and fractional overlap floors.
+        /// The floor applied to `countedRows` — the absolute signal floor. The *fractional* floor
+        /// is a separate, geometric gate on the candidate offset and is not expressed in counted
+        /// rows; see `OffsetMatcher.minimumOverlapFraction`.
         public let minimumRequiredRows: Int
         /// Whether a winning candidate cleared the effective minimum-overlap gate.
         public let passedMinimumOverlap: Bool

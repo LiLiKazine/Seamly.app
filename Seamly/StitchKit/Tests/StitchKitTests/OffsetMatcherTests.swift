@@ -142,12 +142,52 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
         let overlap = try #require(m.overlap)
         #expect(overlap.countedRows == 85)
         #expect(overlap.countableRows == 100)
-        #expect(overlap.minimumRequiredRows == 25)
+        // The floor reported here is the *absolute* signal floor, the only overlap gate a mask
+        // governs. The fractional floor is a separate, geometric test on the candidate offset and
+        // is deliberately not expressed in counted rows — see `maskingDoesNotNarrowAdmissibility`.
+        #expect(overlap.minimumRequiredRows == matcher.minimumOverlap)
         #expect(abs(overlap.fraction - 0.85) < 0.000_001)
         #expect(overlap.passedMinimumOverlap)
 
         let geometricFraction = Double(140 - abs(m.dy)) / 140
         #expect(abs(overlap.fraction - geometricFraction) > 0.04)
+    }
+
+    /// Masking changes how an offset is *scored*, never which offsets are *admissible*.
+    ///
+    /// The fractional overlap floor used to be applied to the masked row count, and a masked match
+    /// only counts rows that are content at both ends of the shift — so its count falls as `dy`
+    /// grows and the floor capped any masked match at `dy ≈ 0.75 · countable`, however clean the
+    /// alignment. That ceiling is what discarded the true offset on four of the eight pairs in
+    /// `Fixtures/Screenshots3`/`Screenshots4` (`docs/logs/2026-08-09-03`).
+    ///
+    /// Asserted as an equivalence over the whole search range rather than at one offset, because a
+    /// ceiling is invisible at any offset below it — which is exactly why the previous correction
+    /// (`2026-08-08-02`) looked complete while only raising it.
+    @Test func maskingDoesNotNarrowAdmissibility() {
+        let a = profile(contentSignal(count: 200))
+        let b = profile(contentSignal(count: 200, seed: 2))
+        // Mask out 100 of 200 rows, so a masked match can never count more than half the frame.
+        var mask = [Bool](repeating: true, count: 200)
+        for i in 0..<50 { mask[i] = false }
+        for i in 150..<200 { mask[i] = false }
+
+        var checked = 0
+        for dy in 1...199 {
+            // Rows the mask actually leaves at this offset. Below `minimumOverlap` the match is
+            // rejected for want of *signal*, which is the mask's legitimate business; this test is
+            // about everything above that line.
+            let achievable = (0..<(200 - dy)).count { mask[$0] && mask[$0 + dy] }
+            guard achievable >= matcher.minimumOverlap else { continue }
+            guard matcher.match(a, b, searchRange: dy...dy).cost < .greatestFiniteMagnitude else { continue }
+            let masked = matcher.match(a, b, searchRange: dy...dy, rowMask: mask)
+            #expect(masked.cost < .greatestFiniteMagnitude,
+                    "dy=\(dy): plain scores this offset and the mask leaves \(achievable) rows, but masked rejects it — the mask is capping how far a match can measure")
+            checked += 1
+        }
+        // The old floor capped this mask at dy ≈ 75; without a range that reaches past it the
+        // equivalence above would hold vacuously.
+        #expect(checked > 80, "only \(checked) offsets exercised — the range no longer crosses the old ceiling")
     }
 
     @Test func rowMaskWithTooFewContentRowsYieldsNoMatch() throws {
