@@ -1,0 +1,294 @@
+{
+  "$comment": "Binary test fixtures are hosted as GitHub Release assets, not committed. Run scripts/fetch-fixtures.sh. Each set's README.md, carrying its ground truth, stays in the repo. Per-file sha256 makes 'the pixels on disk are the pixels the ground truth was measured from' checkable.",
+  "repo": "LiLiKazine/Seamly.app",
+  "release": "fixtures-v1",
+  "root": "Seamly/StitchKit/Tests/StitchKitTests/Fixtures",
+  "sets": [
+    {
+      "name": "Example",
+      "asset": "Example.tar.gz",
+      "sha256": "08ec734b6d5ab7b33e1df705a7b2c476e9678c51f76f8458593d435dfa0bcd3c",
+      "bytes": 3323117,
+      "files": [
+        {
+          "name": "20260718-225057.png",
+          "sha256": "eb9cd11328c51cfccd2e1082aca1cf2ab938957c4bc286b56915f8a420b189d3",
+          "bytes": 1391199
+        },
+        {
+          "name": "20260718-225102.png",
+          "sha256": "9fe18512923149931bc2c3f7469d334aee7376522c959443d8c8254d08ffe108",
+          "bytes": 1318867
+        },
+        {
+          "name": "20260718-225107.png",
+          "sha256": "3c7ea7f74d53d16122dd853627d946fb115a631953e3e01c5f29f1b00a682de8",
+          "bytes": 684078
+        }
+      ]
+    },
+    {
+      "name": "RealDevice",
+      "asset": "RealDevice.tar.gz",
+      "sha256": "3b1b6eea6f92c9f3062486f533fa4b0e1f3fa640d1b9b477bab87c3bc4241eea",
+      "bytes": 29558068,
+      "files": [
+        {
+          "name": "baidu-00.png",
+          "sha256": "10a49f648cfe6713f0db42a83f0635aa9027c840b0ebe0f2644e448eec63bf3d",
+          "bytes": 943087
+        },
+        {
+          "name": "baidu-01.png",
+          "sha256": "33cddbcd7396942a6585f00c08a7238227fa0b824fdd7e3beaeea5a14b0f211a",
+          "bytes": 1198491
+        },
+        {
+          "name": "baidu-02.png",
+          "sha256": "b2c4946ae87835bbbc58a6c8125a92d4f0c8122fb23645d0e781c5f2369b12e9",
+          "bytes": 1368989
+        },
+        {
+          "name": "baidu-03.png",
+          "sha256": "f91562e384649538045edbb209ce2e9a9808cac4ecce7b7fe558051f8085e5f0",
+          "bytes": 1322875
+        },
+        {
+          "name": "baidu-04.png",
+          "sha256": "70626c4169bc570e1bd331be316329685b6e4284d63493c1577e852b57e9c40f",
+          "bytes": 1157229
+        },
+        {
+          "name": "baidu-05.png",
+          "sha256": "5aa47edbbe8dc60990d234f6d3b7518e94a100a49bf4c4d96f77922e79861925",
+          "bytes": 1280178
+        },
+        {
+          "name": "baidu-06.png",
+          "sha256": "d2bddc5f6ae1879f6d81c0d02333c1c55664d58d3be7c6fdacf4f50b2683c94a",
+          "bytes": 1546352
+        },
+        {
+          "name": "scroll-recording.mp4",
+          "sha256": "800d71c3635800bc732ba81feedd114c4db80bf2c012695288047fe757d4dbac",
+          "bytes": 11006717
+        },
+        {
+          "name": "wechat-00.png",
+          "sha256": "119235da8fb040904281595db1a91890c585a30948c18c4d7516458d37d17424",
+          "bytes": 1637428
+        },
+        {
+          "name": "wechat-01.png",
+          "sha256": "0e567db91b5a3da3c4f0435815e5756b7bb9c1f3ae83e0016c706d12b0f413d9",
+          "bytes": 1302011
+        },
+        {
+          "name": "wechat-02.png",
+          "sha256": "891c3aa63eb7267774d9b63fc8fe126e6f142c65987cbda6e504ccc64cbe0ec4",
+          "bytes": 704266
+        },
+        {
+          "name": "wechat-03.png",
+          "sha256": "4063d42f22830253aa182969e35d7482c92e2d9c8068499c58d482f5484111ef",
+          "bytes": 719229
+        },
+        {
+          "name": "wechat-04.png",
+          "sha256": "af55c40bc3606fe6e072546867ce1424a7fdfabb36f2d18091f791458afc0088",
+          "bytes": 698139
+        },
+        {
+          "name": "youtube-00.png",
+          "sha256": "3df5c1c2eec6a7ac36cbe55eeb5fe258359ec9a2339a70698cad67361c67f94b",
+          "bytes": 701787
+        },
+        {
+          "name": "youtube-01.png",
+          "sha256": "495ae18f79b37aacdb8f42a3b43683a92c306cce6f258c39d0a5330ea976e50c",
+          "bytes": 1088618
+        },
+        {
+          "name": "youtube-02.png",
+          "sha256": "7c6ed29ab3c6da8fb4c91189260a30caf25f7ed2592152a6b4fe7407144308e5",
+          "bytes": 800927
+        },
+        {
+          "name": "youtube-03.png",
+          "sha256": "508f1e58edde90b93a8823f381021b4afd5cb7510aae61a6682d22d801b0185c",
+          "bytes": 647921
+        },
+        {
+          "name": "youtube-04.png",
+          "sha256": "50633762eb3df8ef5602fc183451450b2986d1bc7392e0560ebdff7a01a8e91b",
+          "bytes": 813886
+        },
+        {
+          "name": "youtube-05.png",
+          "sha256": "362e897256652ca26943cdf8a4b1a08fce1b464dd77706d7c02bdc5ef7a08aeb",
+          "bytes": 828207
+        }
+      ]
+    },
+    {
+      "name": "Recordings",
+      "asset": "Recordings.tar.gz",
+      "sha256": "12dc07e6954db0b3786109a2298e3cdf583e0797a9f86354c93552caa09f0994",
+      "bytes": 40423256,
+      "files": [
+        {
+          "name": "CKHQ1876.MP4",
+          "sha256": "33448d390ff8441e3004b58e9048f6efb2c3b5594a513f6bfb11b862755cc32c",
+          "bytes": 13804711
+        },
+        {
+          "name": "DSNN4777.MP4",
+          "sha256": "802089f21feb7c66d3cbeff57794f3ab295e992a219f00d8bcd0ce90a0705db8",
+          "bytes": 11662146
+        },
+        {
+          "name": "KMZK1521.MP4",
+          "sha256": "c19a3f0168d69742a11dae20beeba72c3b96b6291ddffcc715bffb57a6490fcb",
+          "bytes": 15097738
+        }
+      ]
+    },
+    {
+      "name": "Screenshots",
+      "asset": "Screenshots.tar.gz",
+      "sha256": "8c2f0b8ac5527f3079cfc35b735064a2b473e3307278ceca20bc3becc1a385f8",
+      "bytes": 8902524,
+      "files": [
+        {
+          "name": "IMG_1757.PNG",
+          "sha256": "ed02f2684acd195497172fe25485d9965ce88c4cdb349eeb1dacc55468261000",
+          "bytes": 551675
+        },
+        {
+          "name": "IMG_1758.PNG",
+          "sha256": "bdcfa8a26edc97e45036f2db226b580c141b0c3e066df975a5c6dc5b15f64d5f",
+          "bytes": 1408224
+        },
+        {
+          "name": "IMG_1759.PNG",
+          "sha256": "0c3d9cae40f4e2699a3d044ce3e4d364c07e5e899735e8b21603074f56297305",
+          "bytes": 2301100
+        },
+        {
+          "name": "IMG_1760.PNG",
+          "sha256": "ac98002abedfcf0d116f587e21f87f6f3797f6814a805bddb29a4eab20dea59d",
+          "bytes": 1801821
+        },
+        {
+          "name": "IMG_1761.PNG",
+          "sha256": "5302d2b7485ccb79446ffc2e65cb19832b91280c29652f2f6f7c80a8530287d0",
+          "bytes": 1504132
+        },
+        {
+          "name": "IMG_1762.PNG",
+          "sha256": "2ed1768379049761e7291293ad09873c8eab21b66b437c652e9a2659393b3c15",
+          "bytes": 1468573
+        }
+      ]
+    },
+    {
+      "name": "Screenshots2",
+      "asset": "Screenshots2.tar.gz",
+      "sha256": "981dec5cc886025693e1a7ca15026390504d66f8b38cbd2b5e523904f65dc9c3",
+      "bytes": 8768485,
+      "files": [
+        {
+          "name": "IMG_1850.PNG",
+          "sha256": "996831ef5678aa6246a3a4735f3e2016056320d6abd287f2f2acdfb55ebf5ab7",
+          "bytes": 2019690
+        },
+        {
+          "name": "IMG_1851.PNG",
+          "sha256": "a4417afe512aeaa0fbb86d2fb51630c71578e22caeac735e8fbef5b4b898447c",
+          "bytes": 2018140
+        },
+        {
+          "name": "IMG_1852.PNG",
+          "sha256": "c21c9e445263c04a9f8fe9fbbbf4365e071d76e71b508c40082e4bc44b0f6f4c",
+          "bytes": 1896014
+        },
+        {
+          "name": "IMG_1853.PNG",
+          "sha256": "96ddbc1c5e0853351e332b4ea72908ed85d593f60df441ac62bf07e84d26b772",
+          "bytes": 1502493
+        },
+        {
+          "name": "IMG_1854.PNG",
+          "sha256": "e20a46f6f4e05ef0ff3a6aed2c3921fad70c40e94616b0db5f64e0702360cff7",
+          "bytes": 1437108
+        }
+      ]
+    },
+    {
+      "name": "Screenshots3",
+      "asset": "Screenshots3.tar.gz",
+      "sha256": "321481bb1a3ee637338c75a83ac5d4f146280f8ee85ef0560ee2c799e6954c2b",
+      "bytes": 9763301,
+      "files": [
+        {
+          "name": "IMG_1863.PNG",
+          "sha256": "0570d5604a91a98e906df9cdfd944292949d6baea8a9d436ab03edd360343c22",
+          "bytes": 2119266
+        },
+        {
+          "name": "IMG_1864.PNG",
+          "sha256": "7e7c5e5af664c0304e9925018249dcbf0897732a6bbe5f67d8ebe70ec3687d4b",
+          "bytes": 1854548
+        },
+        {
+          "name": "IMG_1865.PNG",
+          "sha256": "4e57cdba84ca9d0061d07f9963c373f21995aafd0db724e9ec871fea7c73be65",
+          "bytes": 1979734
+        },
+        {
+          "name": "IMG_1866.PNG",
+          "sha256": "df4f3dd91ae9e2e79816a9d4d32941798a20605a7f855f20d9b6bda0d6b0689d",
+          "bytes": 2087551
+        },
+        {
+          "name": "IMG_1867.PNG",
+          "sha256": "d8f3ee0cff32165c3db7a9a694e0a0ef2d6dcb3506cc781ff9e78fb4c2786f01",
+          "bytes": 1774471
+        }
+      ]
+    },
+    {
+      "name": "Screenshots4",
+      "asset": "Screenshots4.tar.gz",
+      "sha256": "6e0d74d8c9646446096f54c285b25165fe1dc7d61cd03a76127b124ce62bdab8",
+      "bytes": 9814093,
+      "files": [
+        {
+          "name": "IMG_1870.PNG",
+          "sha256": "7955f5a73b979f8dc96cc68349951b5847f7a74163757097b02956b519f1a1a9",
+          "bytes": 1166960
+        },
+        {
+          "name": "IMG_1871.PNG",
+          "sha256": "c2f39c7e51c2de091f1955c3fc49c99f4300817d22527ab3381f3f086768d9b4",
+          "bytes": 2697093
+        },
+        {
+          "name": "IMG_1872.PNG",
+          "sha256": "2cfa19e64390c058ef13954d6029de4dfeeb440cc523a478a542c4e53b6a3990",
+          "bytes": 1426651
+        },
+        {
+          "name": "IMG_1873.PNG",
+          "sha256": "38a22d17b82b4a6270f66a38405674314571155b56a38b411ac053af7812a0f7",
+          "bytes": 1783039
+        },
+        {
+          "name": "IMG_1874.PNG",
+          "sha256": "f3735d00a9431b41b8d633e9371e5045763ef6b3b8b3bb9d6a982cbf4ef3f15c",
+          "bytes": 2850455
+        }
+      ]
+    }
+  ]
+}

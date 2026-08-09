@@ -107,6 +107,10 @@ go to `Diagnostics` (unified log + a durable App Group file `DiagnosticsView` re
 ## Commands
 
 ```bash
+# Fetch the binary test fixtures — REQUIRED ONCE on a fresh clone, before any test run.
+# They are GitHub Release assets, not committed; see "Fixtures" below.
+scripts/fetch-fixtures.sh
+
 # StitchKit tests — the fast, primary loop (no simulator, no signing).
 swift test --package-path Seamly/StitchKit
 
@@ -164,8 +168,20 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
 - Use **Swift Testing** (`import Testing`, `@Test`, `#expect`) — not XCTest, except
   `SeamlyUITests` (XCUIApplication requires it).
 - Keep the stitching core pure and testable, and cover it with TDD before wiring up UI.
-- Fixtures are checked in and read from disk — never the photo library. Bundled
-  (`Bundle.module`) or source-relative `#filePath`, either is fine.
+- Fixtures are read from disk — never the photo library. Bundled (`Bundle.module`) or
+  source-relative `#filePath`, either is fine.
+- **The binary fixtures are not committed.** They are hosted as assets on the `fixtures-v1`
+  GitHub Release and fetched by `scripts/fetch-fixtures.sh`, which verifies each set's SHA-256
+  against `Fixtures/manifest.json`. Every set's `README.md` — the ground truth — *is* in the repo
+  and must stay there; only the pixels live outside. `wikipedia.png` is also still committed,
+  because `Package.swift` declares it as a single-file resource and SwiftPM fails the whole
+  **build** when a declared resource path is missing.
+- **Adding a fixture set is a three-step change:** drop it in `Fixtures/`, write its `README.md`
+  with raw-pixel ground truth, then re-cut and upload its tarball and update `manifest.json`.
+  `FixturePresenceTests` fails if a set on disk is missing from the manifest — otherwise it would
+  work here and be absent from every fresh clone.
+- A missing fixture must **fail**, never skip. `FixturePresenceTests` is the single actionable
+  failure for an unfetched checkout; do not add `withKnownIssue` or an early return to it.
 
 **A green suite here has lied three times** — synthetic fixtures built upside-down cancelled out
 a flip in `VerticalProfile`, and a later cycle passed at half resolution. Every real capture

@@ -22,3 +22,14 @@ Carthage/Build/
 
 # CodeGraph index (local, machine-specific)
 .codegraph/
+
+# Binary test fixtures are hosted as GitHub Release assets, not committed — see
+# scripts/fetch-fixtures.sh and Fixtures/manifest.json. Their README.md files carry the ground
+# truth and stay tracked; only the pixels are ignored. `wikipedia.png` is deliberately exempt:
+# Package.swift declares it as a single-file resource, and SwiftPM fails the *build* when a
+# declared resource path is absent, which is a far worse failure than a missing-fixture test error.
+Seamly/StitchKit/Tests/StitchKitTests/Fixtures/*/*.png
+Seamly/StitchKit/Tests/StitchKitTests/Fixtures/*/*.PNG
+Seamly/StitchKit/Tests/StitchKitTests/Fixtures/*/*.mp4
+Seamly/StitchKit/Tests/StitchKitTests/Fixtures/*/*.MP4
+Seamly/StitchKit/Tests/StitchKitTests/Fixtures/*/.fixture-sha256
