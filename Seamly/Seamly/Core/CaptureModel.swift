@@ -3,7 +3,7 @@ import Foundation
 import Observation
 import StitchKit
 
-/// One capture in the Library — a stored session plus its derived display state.
+/// One stored capture — a session on disk plus its derived display state.
 @MainActor
 struct Capture: Identifiable {
     enum Phase: Equatable {
@@ -19,13 +19,6 @@ struct Capture: Identifiable {
     var proxy: CGImage?
 
     var id: UUID { session.id }
-    var isIncomplete: Bool { session.status == .recording }
-    var flaggedSeamCount: Int { session.seams.filter(\.isLowConfidence).count }
-    /// Keyframes with no safe automatic or user-authored chrome crop. Surfaced so the compositor's
-    /// whole-frame fallback is visible and the user can supply an override.
-    var unresolvedChromeCount: Int {
-        session.keyframes.filter { !session.chromeEdgesNeedingReview(for: $0).isEmpty }.count
-    }
     /// Scroll order used the input-order fallback for Photos or broadcast rather than recovery.
     var orderAssumed: Bool { session.orderAssumed }
 }

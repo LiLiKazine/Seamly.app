@@ -6,6 +6,9 @@ import SwiftUI
 ///
 /// Shows the **primary** observation only. A disclosure reveals the rest; presenting four
 /// badges to someone who wanted a screenshot is what made the old UI read as a tool.
+///
+/// Owns its own insets, so a condition with nothing to say occupies no space at all rather
+/// than leaving an empty strip above every clean capture.
 struct ConditionNotice: View {
     let condition: CaptureCondition
 
@@ -13,24 +16,16 @@ struct ConditionNotice: View {
 
     var body: some View {
         switch condition {
-        case .clean, .stitching:
+        // `.nothingToStitch` and `.failed` never render inline: `ResultView` gives each of them
+        // a whole screen (`NothingToStitchView` / `CaptureFailureView`). They used to have rows
+        // here too, which meant a second, differently worded copy of the same user-facing
+        // strings inside the one type that exists to keep there being exactly one.
+        case .clean, .stitching, .nothingToStitch, .failed:
             EmptyView()
         case .imperfect(let primary, let all):
             imperfect(primary: primary, all: all)
-        case .nothingToStitch:
-            row(
-                symbol: "arrow.up.and.down",
-                headline: "Nothing to stitch",
-                detail: "This recording didn't scroll, so there was nothing to join together.",
-                severity: .guidance
-            )
-        case .failed(let message):
-            row(
-                symbol: "exclamationmark.triangle",
-                headline: "Couldn't finish this one",
-                detail: message,
-                severity: .warning
-            )
+                .padding(.horizontal)
+                .padding(.vertical, 8)
         }
     }
 
@@ -93,9 +88,4 @@ struct ConditionNotice: View {
             ready: CaptureFacts(segmentBreaks: 2, flaggedSeams: 1, orderAssumed: true)
         )
     )
-    .padding()
-}
-
-#Preview("Nothing to stitch") {
-    ConditionNotice(condition: .nothingToStitch).padding()
 }

@@ -34,12 +34,13 @@ struct ResultView: View {
                 ProcessingView(progress: model.importProgress)
             case .failed(let message):
                 CaptureFailureView(message: message, onRecordAgain: onRecordAgain)
-            case .clean, .imperfect, .nothingToStitch:
+            // Everything left is a capture that stitched: `.clean` or `.imperfect`. (`condition`
+            // can't produce `.nothingToStitch` — a pickup with nothing in it is discarded at
+            // import and surfaced on home, so it never becomes a capture with a phase.)
+            default:
                 if let proxy = capture?.proxy {
                     VStack(spacing: 0) {
                         ConditionNotice(condition: condition)
-                            .padding(.horizontal)
-                            .padding(.vertical, 8)
                         CaptureCanvas(proxy: proxy)
                     }
                 } else {
