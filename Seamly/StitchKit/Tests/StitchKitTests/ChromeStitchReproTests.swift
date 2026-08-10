@@ -144,8 +144,9 @@ import Foundation
         for s in session.seams {
             print("  seam \(s.fromIndex)->\(s.fromIndex + 1): dy=\(s.provisionalDy)px  conf=\(String(format: "%.2f", s.confidence))  lowConf=\(s.isLowConfidence)")
         }
-        for (i, band) in session.contentBands.enumerated() {
-            print("  segment \(i) band: top=\(band.topChrome)px  bottom=\(band.bottomChrome)px  lowConf=\(band.isLowConfidence)")
+        for keyframe in session.keyframes.sorted(by: { $0.index < $1.index }) {
+            let chrome = session.resolvedChrome(for: keyframe)
+            print("  frame \(keyframe.index) chrome: top=\(chrome.insets.top)px  bottom=\(chrome.insets.bottom)px  unlocked=\(chrome.isUnlocked)")
         }
         for b in session.segmentBreaks { print("  break after kf \(b.afterKeyframeIndex): \(b.reason)") }
         let expected = Self.topChromeH + Self.docH + Self.bottomChromeH
@@ -196,11 +197,10 @@ import Foundation
         #expect(abs(out.height - expected) <= Int(Double(expected) * 0.1),
                 "output \(out.height)px should be ≈\(expected)px of unique content — got ratio \(String(format: "%.2f", Double(out.height) / Double(expected)))")
 
-        // Chrome was detected once for the single segment, at the true band.
-        let band = session.contentBand(forSegment: 0)
-        #expect(!band.isLowConfidence)
-        #expect(abs(band.topChrome - Self.topChromeH) <= 6)
-        #expect(abs(band.bottomChrome - Self.bottomChromeH) <= 6)
+        let chrome = session.keyframes.map { session.resolvedChrome(for: $0) }
+        #expect(chrome.allSatisfy { !$0.isUnlocked })
+        #expect(chrome.allSatisfy { abs($0.insets.top - Self.topChromeH) <= 6 })
+        #expect(chrome.allSatisfy { abs($0.insets.bottom - Self.bottomChromeH) <= 6 })
 
         // The unique bright marker stripe appears exactly once (not duplicated at a seam).
         #expect(bandCount(rowMeans(out), where: { $0 > 0.97 }) == 1)
@@ -218,10 +218,10 @@ import Foundation
         #expect(abs(out.height - expected) <= Int(Double(expected) * 0.1),
                 "output \(out.height)px should be ≈\(expected)px of unique content — got ratio \(String(format: "%.2f", Double(out.height) / Double(expected)))")
 
-        let band = session.contentBand(forSegment: 0)
-        #expect(!band.isLowConfidence)
-        #expect(abs(band.topChrome - Self.topChromeH) <= 6)
-        #expect(abs(band.bottomChrome - Self.bottomChromeH) <= 6)
+        let chrome = session.keyframes.map { session.resolvedChrome(for: $0) }
+        #expect(chrome.allSatisfy { !$0.isUnlocked })
+        #expect(chrome.allSatisfy { abs($0.insets.top - Self.topChromeH) <= 6 })
+        #expect(chrome.allSatisfy { abs($0.insets.bottom - Self.bottomChromeH) <= 6 })
 
         // The unique dark marker line appears exactly once.
         #expect(bandCount(rowMeans(out), where: { $0 < 0.03 }) == 1)

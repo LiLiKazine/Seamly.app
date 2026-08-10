@@ -366,3 +366,51 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
 - Confidence: high for the covered failure shape and all current fixtures; a candidate-local grid
   was caught and rejected by the low-variance end-to-end stitch before handoff. A future device
   capture with genuinely dynamic content remains the preferred real-pixel oracle.
+
+---
+
+# Per-Keyframe Dynamic Chrome (2026-08-10, branch fix/per-keyframe-chrome)
+
+## [PKC-1] Replace the unreleased segment-band manifest instead of carrying compatibility
+- Why: one continuous capture can change screen chrome without changing scroll topology. In
+  `Screenshots3`, frame 0 has a ~431 px expanded bottom toolbar while frames 1–4 have a ~166 px
+  collapsed toolbar. One crop owned by the segment necessarily leaves or removes the wrong pixels.
+- Decision: `StitchSession` owns UUID-keyed `KeyframeChrome` records. Automatic measurements and
+  optional per-edge user overrides are separate persisted layers; resolution is user override →
+  automatic → zero. Insets occupying more than half the canonical stored frame are refused.
+- Identity: `Keyframe.id`, not mutable index or array position, is authoritative. Planning UUIDs are
+  remapped by ordered slot onto stored keyframe UUIDs; fresh automatic measurements replace old
+  ones while user overrides remain attached to the stored image identity.
+- Migration: the app has not shipped, so `stitch-session.keyframe-chrome.v1` is required and the
+  old field/type were deleted. Missing/old format markers are rejected; no decode fallback or dual
+  write exists. The unreleased `stitch-harness.v1` contract was corrected in place to report
+  keyframe-chrome records and validate duplicate/dangling UUIDs.
+- Rejected: per-seam chrome (an interior keyframe participates in two seams), segment inheritance
+  (the reproduced bug), index keys (identity changes during reorder), and a compatibility layer
+  (maintenance cost with no released data to preserve).
+
+## [PKC-2] Measure changing edges from aligned seam residuals and keep static consensus as a floor
+- For positive profile offset `dy`, later row `k` aligns with earlier row `dy + k`. A high residual
+  run at the start observes the later frame's top chrome; scanning the residual backward observes
+  the earlier frame's bottom chrome.
+- A direct edge requires at least eight high-residual rows (`>= 3 * chromeTolerance`), at least the
+  existing static fraction, and eight following content rows (`<= 2 * chromeTolerance`), allowing
+  one-row gaps. Neighbor fill requires two observations agreeing within two profile rows.
+- The existing all-pair, same-screen/translucent detector remains a stable minimum; direct or
+  clustered seam evidence may expand an individual frame beyond it. Measurements never cross a
+  segment break. A fully unobserved keyframe retains its UUID record with `automatic == nil`.
+- Screenshots3 result: unchanged order `[0,1,2,3,4]`, one segment, seam offsets within the existing
+  oracle, and automatic bottom crops `[431,166,166,166,166]` px. The expanded-toolbar pixel row now
+  occurs zero times in the output.
+
+## [PKC-3] Refine and compose using each frame's own chrome geometry
+- `OffsetMatcher` accepts `RowMaskPair(first:second:)`; weighted and tile-consensus scoring test
+  each aligned row against its owning frame's mask. Masks still affect evidence only, never which
+  geometric offsets are admissible.
+- For adjacent frames, the compositor uses
+  `sourceStart = clamp(previousHeight - previousBottom - dy, currentTop...currentHeight-currentBottom)`
+  and adds `sourceStart..<currentContentBottom`. The first top and final bottom survive once;
+  single-keyframe segments remain full-frame and lossless.
+- Pixel-coded TDD covers both expanded→collapsed and collapsed→expanded transitions, proving
+  continuous content with neither gaps nor duplicates. Full-resolution refinement receives the two
+  independently resolved masks.

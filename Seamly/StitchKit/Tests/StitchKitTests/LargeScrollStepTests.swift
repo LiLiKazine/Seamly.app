@@ -109,14 +109,14 @@ import Foundation
         let profiler = VerticalProfile()
         let profiles = images.map { profiler.profile($0) }
         let matcher = OffsetMatcher()
-        let detector = ContentBandDetector(meanTolerance: 0.02, varianceTolerance: 0.02)
+        let detector = ChromeStaticRowDetector(meanTolerance: 0.02, varianceTolerance: 0.02)
 
         for i in 0..<(profiles.count - 1) {
             let a = profiles[i], b = profiles[i + 1]
             let mask = detector.staticMask(a, b)
             let trueRows = Int((Double(fixture.trueDy[i]) / a.rowScale).rounded())
             let plain = matcher.match(a, b, searchRange: trueRows...trueRows)
-            let masked = matcher.match(a, b, searchRange: trueRows...trueRows, rowMask: mask)
+            let masked = matcher.match(a, b, searchRange: trueRows...trueRows, rowMasks: RowMaskPair(shared: mask))
             guard plain.cost < .greatestFiniteMagnitude else { continue }   // plain can't reach it either
             let detail = "\(fixture.directory) pair \(i): plain scores the true offset dy=\(trueRows) rows but masked rejects it — the mask is capping how far a match can measure"
             #expect(masked.cost < .greatestFiniteMagnitude, "\(detail)")
@@ -148,18 +148,68 @@ import Foundation
     /// Chrome is measured against the raw-pixel ground truth, allowing `sourcePixels`' deliberate
     /// outward rounding of one profile row (~4.5 px) — cropping a little extra bar is harmless,
     /// cropping content is not.
-    @Test(arguments: fixtures)
+    @Test(arguments: [screenshots4])
     func chromeMatchesTheRawPixelGroundTruth(_ fixture: Fixture) throws {
         let plan = try BatchStitcher().plan(try load(fixture))
-        let band = try #require(plan.session.contentBands.first)
-        #expect((fixture.topChrome...(fixture.topChrome + 16)).contains(band.topChrome),
-                "\(fixture.directory): top chrome \(band.topChrome)px, expected ~\(fixture.topChrome)px")
-        #expect((fixture.bottomChrome...(fixture.bottomChrome + 16)).contains(band.bottomChrome),
-                "\(fixture.directory): bottom chrome \(band.bottomChrome)px, expected ~\(fixture.bottomChrome)px")
+        let records = Dictionary(uniqueKeysWithValues: plan.session.keyframeChrome.map { ($0.keyframeID, $0) })
+        let automatic = try plan.session.keyframes.map { keyframe -> ChromeMeasurement in
+            try #require(records[keyframe.id]?.automatic,
+                         "\(fixture.directory): missing automatic chrome for keyframe \(keyframe.index)")
+        }
+        #expect(Set(records.keys) == Set(plan.session.keyframes.map(\.id)),
+                "\(fixture.directory): automatic chrome must be keyed by planned keyframe UUIDs")
+        #expect(automatic.map(\.insets.top).allSatisfy { (fixture.topChrome...(fixture.topChrome + 16)).contains($0) },
+                "\(fixture.directory): per-keyframe tops \(automatic.map(\.insets.top))px, expected ~\(fixture.topChrome)px")
+        #expect(automatic.map(\.insets.bottom).allSatisfy { (fixture.bottomChrome...(fixture.bottomChrome + 16)).contains($0) },
+                "\(fixture.directory): per-keyframe bottoms \(automatic.map(\.insets.bottom))px, expected ~\(fixture.bottomChrome)px")
+    }
+
+    /// `Screenshots3` is a single continuous scroll, but Chrome's bottom UI changes shape after
+    /// the first frame: `IMG_1863` has the expanded toolbar (~431 source px in the 640-row
+    /// profile), while `IMG_1864`...`IMG_1867` have the collapsed toolbar (~166 px). A
+    /// segment-level band has to intersect those states and therefore cannot describe both.
+    ///
+    /// Per-keyframe automatic chrome is keyed by each planned `Keyframe.id`, never by input
+    /// filename or source index, and must preserve the same order, segmentation, and dy values
+    /// asserted above.
+    @Test func screenshots3RecordsPerKeyframeChromeForTheCollapsingBottomBar() throws {
+        let frames = try load(Self.screenshots3)
+        let plan = try BatchStitcher().plan(frames)
+
+        #expect(plan.order == Array(0..<frames.count),
+                "Screenshots3: recovered \(plan.order.map { Self.screenshots3.names[$0] })")
+        #expect(plan.session.segmentBreaks.isEmpty,
+                "Screenshots3: split at \(plan.session.segmentBreaks.map(\.afterKeyframeIndex))")
+        for (i, expected) in Self.screenshots3.trueDy.enumerated() {
+            #expect(abs(plan.session.seams[i].provisionalDy - expected) <= Self.rowTolerance,
+                    "Screenshots3 seam \(i): \(plan.session.seams[i].provisionalDy)px, true \(expected)px")
+        }
+
+        let records = Dictionary(uniqueKeysWithValues: plan.session.keyframeChrome.map { ($0.keyframeID, $0) })
+        #expect(records.count == plan.session.keyframes.count,
+                "expected one chrome record per keyframe, got \(records.count)")
+        #expect(Set(records.keys) == Set(plan.session.keyframes.map(\.id)),
+                "automatic chrome must be keyed by planned keyframe UUIDs")
+
+        let automatic = try plan.session.keyframes.map { keyframe -> ChromeMeasurement in
+            try #require(records[keyframe.id]?.automatic,
+                         "missing automatic chrome for ordered keyframe \(keyframe.index)")
+        }
+        let tops = automatic.map(\.insets.top)
+        let bottoms = automatic.map(\.insets.bottom)
+
+        #expect(tops.allSatisfy { (180...210).contains($0) },
+                "Screenshots3 tops \(tops) should stay around the ~193px status/header chrome")
+        #expect((400...455).contains(bottoms[0]),
+                "Screenshots3 first bottom \(bottoms[0]) should include the expanded toolbar (~431px)")
+        #expect(bottoms.dropFirst().allSatisfy { (145...190).contains($0) },
+                "Screenshots3 later bottoms \(bottoms) should collapse to the compact toolbar (~166px)")
+        #expect(bottoms[0] - (bottoms.dropFirst().max() ?? 0) >= 200,
+                "Screenshots3 first bottom \(bottoms[0]) should be substantially larger than later bottoms \(Array(bottoms.dropFirst()))")
     }
 
     /// How many times a reference row from `frames[0]` at `sourceRow` survives into `image`.
-    /// The technique `DynamicChromeBandTests` uses, factored out because the two tests below need
+    /// The technique `DynamicChromeTests` uses, factored out because the two tests below need
     /// opposite answers from it.
     private func barOccurrences(of sourceRow: Int, from frames: [CGImage], in image: CGImage) -> Int {
         let profiler = VerticalProfile()
@@ -192,32 +242,25 @@ import Foundation
         let count = barOccurrences(of: 2700, from: frames, in: stitched)
         #expect(count == 1, "the toolbar appears \(count)x in the \(stitched.width)x\(stitched.height) stitch")
 
-        var unbanded = plan.session
-        unbanded.contentBands = unbanded.contentBands.map { _ in ContentBand() }
-        let uncropped = try compositor.composite(unbanded, images: source)
+        var unchromed = plan.session
+        unchromed.keyframeChrome = unchromed.keyframeChrome.map { KeyframeChrome(keyframeID: $0.keyframeID) }
+        let uncropped = try compositor.composite(unchromed, images: source)
         let uncroppedCount = barOccurrences(of: 2700, from: frames, in: uncropped)
         #expect(uncroppedCount == frames.count,
                 "with the band zeroed the toolbar should repeat once per keyframe, got \(uncroppedCount); if it does not, the check above cannot see duplicates at all")
     }
 
-    /// **Known issue.** A bar that changes size *during* a capture is left in the middle of the page.
+    /// A bar that changes size during a capture is cropped using the owning frame's measurement.
     ///
     /// `IMG_1863` carries Chrome's full bottom toolbar (omnibox plus the button row); by `IMG_1864`
-    /// it has collapsed to the bare URL pill and stays collapsed. A `ContentBand` is per **segment**,
-    /// and these five frames are correctly one segment, so one pair of numbers has to describe both
-    /// bar heights. `chromeBand` intersects across every pair, so it measures only what held still
-    /// in *all* of them — 95 px — and the ~475 px of expanded toolbar in `IMG_1863`'s strip is never
-    /// cropped. It is chrome, content continues below it, and it should survive **zero** times.
+    /// it has collapsed to the bare URL pill and stays collapsed. The first keyframe's larger bottom
+    /// inset must remove the expanded toolbar while later keyframes use their compact inset.
     ///
     /// Note the shape of this defect: the bar is not *repeated*, it appears exactly once, so the
     /// occurrence-counting check above reports `1` for both the broken and the correct output and
     /// cannot see it. That is why this is a separate test with a different question.
     ///
-    /// Fixing it means chrome per keyframe rather than per segment, which changes the persisted
-    /// manifest and the editor's model — deliberately out of scope for the matcher fix in
-    /// `docs/logs/2026-08-09-03-geometric-overlap-floor.md`, and recorded here rather than by
-    /// relaxing an assertion.
-    @Test func aBarThatCollapsesMidCaptureIsLeftInThePage() throws {
+    @Test func aBarThatCollapsesMidCaptureIsRemovedFromThePage() throws {
         let frames = try load(Self.screenshots3)
         let plan = try BatchStitcher().plan(frames)
         let compositor = Compositor(refinementDelta: 16)
@@ -225,32 +268,25 @@ import Foundation
 
         // Row 2700 sits in IMG_1863's button row, which no other frame has.
         let count = barOccurrences(of: 2700, from: frames, in: stitched)
-        withKnownIssue("the expanded toolbar is cropped by a band measured across frames that no longer have it") {
-            #expect(count == 0,
-                    "IMG_1863's expanded toolbar appears \(count)x in the \(stitched.width)x\(stitched.height) stitch; it is chrome and content continues below it")
-        }
+        #expect(count == 0,
+                "IMG_1863's expanded toolbar appears \(count)x in the \(stitched.width)x\(stitched.height) stitch; it is chrome and content continues below it")
     }
 
-    /// Every segment gets a real content band, including one that holds a single frame.
-    ///
-    /// `buildPlan` measures a band from the *pairs* inside a segment, and a lone frame has none —
-    /// so `chromeBand` returned `.unlocked` and that frame was composited with its status bar and
-    /// browser toolbar intact, stamped through the middle of the finished page. The frames all come
-    /// from one capture on one device; a sibling segment's measurement describes this frame's bars
-    /// too.
+    /// A segment break is an evidence boundary: a singleton still owns a chrome record, but no
+    /// measurement is borrowed from unrelated frames across the break.
     @Test(arguments: fixtures)
-    func everySegmentCarriesAChromeBand(_ fixture: Fixture) throws {
+    func singletonSegmentsRemainExplicitlyUnmeasured(_ fixture: Fixture) throws {
         let images = try load(fixture)
         // Force the pathological shape directly rather than waiting for a fixture to break: put the
         // bottom frame first, where nothing above it can overlap, so it lands alone in segment 0
         // while the rest stay a normal multi-frame segment that does measure a band.
         let order = [images.count - 1] + Array(0..<(images.count - 1))
         let plan = try BatchStitcher().plan(images, assumingOrder: order)
-        try #require(plan.session.contentBands.count > 1,
-                     "\(fixture.directory): expected this order to segment, got one segment")
-        for (i, band) in plan.session.contentBands.enumerated() {
-            #expect(band.topChrome > 0 || band.bottomChrome > 0,
-                    "\(fixture.directory): segment \(i) has no chrome band; its frames keep their bars")
-        }
+        try #require(!plan.session.segmentBreaks.isEmpty,
+                     "\(fixture.directory): expected this order to segment")
+        let first = try #require(plan.session.keyframes.first)
+        let record = try #require(plan.session.keyframeChrome.first { $0.keyframeID == first.id })
+        #expect(record.automatic == nil)
+        #expect(plan.session.resolvedChrome(for: first).isUnlocked)
     }
 }

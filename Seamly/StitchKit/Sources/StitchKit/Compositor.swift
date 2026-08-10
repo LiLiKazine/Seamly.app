@@ -49,12 +49,12 @@ public struct Compositor: Sendable {
     /// Snap each seam's provisional offset to pixel precision, and flag seams with a
     /// nonzero horizontal component or a low-confidence vertical match.
     ///
-    /// Refinement matches with the segment's chrome band **masked out**, the same restriction
+    /// Refinement matches with each frame's resolved chrome **masked out**, the same restriction
     /// `BatchStitcher` applies to its own matching. This was the last matching path that scored
     /// chrome rows as if they were content.
     ///
-    /// Measured on `youtube-*` (660×1434, half-res, band 115/124), refined `dy` against a
-    /// full-width brute-force MAD over the content band:
+    /// Measured on `youtube-*` (660×1434, half-res, chrome 115/124), refined `dy` against a
+    /// full-width brute-force MAD over the visible content rows:
     ///
     /// | pair | truth | unmasked | masked |
     /// |------|-------|----------|--------|
@@ -79,12 +79,14 @@ public struct Compositor: Sendable {
     /// is not a horizontal-sampling artifact, so paying ~10x the render cost buys nothing.
     public func refineSeams(_ session: StitchSession, images: (Keyframe) throws -> CGImage) throws -> [Seam] {
         let byIndex = Dictionary(uniqueKeysWithValues: session.keyframes.map { ($0.index, $0) })
-        let bandByKeyframe = contentBandByKeyframeIndex(session)
         return try session.seams.map { seam in
             guard let a = byIndex[seam.fromIndex], let b = byIndex[seam.fromIndex + 1] else { return seam }
             let imgA = try images(a), imgB = try images(b)
-            let mask = contentRowMask(bandByKeyframe[seam.fromIndex], frameHeight: imgA.height)
-            let (dy, confident) = refineVertical(imgA, imgB, provisional: seam.provisionalDy, rowMask: mask)
+            let rowMasks = RowMaskPair(
+                first: contentRowMask(session.resolvedChrome(for: a), frameHeight: imgA.height),
+                second: contentRowMask(session.resolvedChrome(for: b), frameHeight: imgB.height)
+            )
+            let (dy, confident) = refineVertical(imgA, imgB, provisional: seam.provisionalDy, rowMasks: rowMasks)
             let dx = measureHorizontal(imgA, imgB, dy: dy)
             var refined = seam
             refined.provisionalDy = dy
@@ -228,56 +230,51 @@ public struct Compositor: Sendable {
         var cursor = 0
 
         for (s, seg) in segmentsKF.enumerated() {
-            // Crop chrome using *this segment's* locked band, not the first seam's globally.
-            //
-            // An implausible band is refused rather than clamped. `band` below would otherwise
-            // degrade to 1, pinning every seam to a 1px advance and collapsing the segment to
-            // roughly one frame tall — with no error and a manifest that still reads as healthy
-            // (right keyframe count, right seams, `isLowConfidence: false`). `BatchStitcher`
-            // already rejects such a measurement at source, so this guard is for the manifests
-            // it cannot vet: ones persisted before that check existed, and ones the editor's
-            // band override can produce. Cropping nothing means the chrome repeats, which is
-            // visible and honest; the alternative is content silently disappearing.
-            let h = seg[0].pixelHeight
-            let measuredBand = session.contentBand(forSegment: s)
-            let contentBand = measuredBand.isPlausible(forFrameHeight: h) ? measuredBand : .unlocked
-            let chromeTop = max(0, contentBand.topChrome)
-            let chromeBottom = max(0, contentBand.bottomChrome)
-
             if s > 0 {
                 pieces.append(Piece(keyframe: nil, srcY: 0, height: separatorHeight, destY: cursor, segmentLocalY: 0))
                 cursor += separatorHeight
             }
             var segPieces: [Piece] = []
             var localY = 0
-            let band = max(1, h - chromeTop - chromeBottom)
 
             func add(_ kf: Keyframe?, _ srcY: Int, _ height: Int) {
+                guard height > 0 else { return }
                 let p = Piece(keyframe: kf, srcY: srcY, height: height, destY: cursor, segmentLocalY: localY)
                 pieces.append(p); segPieces.append(p); cursor += height; localY += height
             }
 
             if seg.count == 1 {
-                add(seg[0], 0, h)
+                add(seg[0], 0, seg[0].pixelHeight)
             } else {
                 // Missing-seam fallback. A well-formed session has a seam for every consecutive
                 // pair in a segment, so this only fires on a malformed/partial manifest — a
                 // recoverable case where *some* placement is required (throwing would fail the
-                // whole assembly). We substitute the median of the segment's known positive
-                // offsets — a plausible scroll step — deliberately, never the full content band
-                // (which would redraw an entire frame and stack it, the bug this fix removes).
-                // Zero/negative "offsets" are excluded from the basis as non-advances; if none
-                // remain, half the band is a safe non-stacking default.
+                // whole assembly). We substitute the median of the segment's known positive offsets
+                // — a plausible scroll step. Zero/negative "offsets" are excluded from the basis as
+                // non-advances; if none remain, half the current frame's visible content is a safe
+                // non-stacking default.
                 let knownDys = seg.dropLast().compactMap { dyByFrom[$0.index] }.filter { $0 > 0 }
-                let fallbackDy = medianDy(knownDys) ?? max(1, band / 2)
 
-                add(seg[0], 0, h - chromeBottom)   // top chrome + full content
+                let firstChrome = effectiveChromeInsets(session, for: seg[0], frameHeight: seg[0].pixelHeight)
+                add(seg[0], 0, seg[0].pixelHeight - firstChrome.bottom)   // top chrome + visible content
                 for j in 1..<seg.count {
-                    let rawDy = dyByFrom[seg[j - 1].index] ?? fallbackDy
-                    let dy = min(max(rawDy, 1), band)
-                    add(seg[j], h - chromeBottom - dy, dy)
+                    let previous = seg[j - 1]
+                    let current = seg[j]
+                    let previousChrome = effectiveChromeInsets(session, for: previous, frameHeight: previous.pixelHeight)
+                    let currentChrome = effectiveChromeInsets(session, for: current, frameHeight: current.pixelHeight)
+                    let previousContentBottom = previous.pixelHeight - previousChrome.bottom
+                    let currentContentBottom = current.pixelHeight - currentChrome.bottom
+                    let currentContentHeight = max(0, currentContentBottom - currentChrome.top)
+                    let fallbackDy = medianDy(knownDys) ?? max(1, currentContentHeight / 2)
+                    let dy = dyByFrom[previous.index] ?? fallbackDy
+                    let sourceStart = clamp(previousContentBottom - dy, to: currentChrome.top...currentContentBottom)
+                    add(current, sourceStart, currentContentBottom - sourceStart)
                 }
-                if chromeBottom > 0 { add(seg.last!, h - chromeBottom, chromeBottom) }
+                let last = seg[seg.count - 1]
+                let lastChrome = effectiveChromeInsets(session, for: last, frameHeight: last.pixelHeight)
+                if lastChrome.bottom > 0 {
+                    add(last, last.pixelHeight - lastChrome.bottom, lastChrome.bottom)
+                }
             }
             segments.append(SegmentLayout(pieces: segPieces, height: localY))
         }
@@ -290,6 +287,16 @@ public struct Compositor: Sendable {
         guard !dys.isEmpty else { return nil }
         let sorted = dys.sorted()
         return sorted[sorted.count / 2]
+    }
+
+    private func effectiveChromeInsets(_ session: StitchSession, for keyframe: Keyframe, frameHeight: Int) -> ChromeInsets {
+        let insets = session.resolvedChrome(for: keyframe).insets
+        guard insets.isPlausible(forPixelHeight: frameHeight) else { return .zero }
+        return insets
+    }
+
+    private func clamp(_ value: Int, to range: ClosedRange<Int>) -> Int {
+        min(max(value, range.lowerBound), range.upperBound)
     }
 
     private func splitIntoSegments(_ session: StitchSession) -> [[Keyframe]] {
@@ -340,43 +347,33 @@ public struct Compositor: Sendable {
 
     /// Pixel-exact vertical refinement around the provisional offset; falls back to the
     /// provisional value when the local match isn't confident.
-    private func refineVertical(_ a: CGImage, _ b: CGImage, provisional: Int, rowMask: [Bool]?) -> (dy: Int, confident: Bool) {
+    private func refineVertical(_ a: CGImage, _ b: CGImage, provisional: Int, rowMasks: RowMaskPair?) -> (dy: Int, confident: Bool) {
         let h = a.height
         let pa = profiler.profile(a, forcingHeight: h)
         let pb = profiler.profile(b, forcingHeight: b.height)
         let lo = max(1, provisional - refinementDelta)
         let hi = min(h - matcher.minimumOverlap, provisional + refinementDelta)
         guard hi >= lo else { return (provisional, false) }
-        let m = matcher.match(pa, pb, searchRange: lo...hi, rowMask: rowMask)
+        let m = matcher.match(pa, pb, searchRange: lo...hi, rowMasks: rowMasks)
         if m.confidence >= refinementConfidence { return (m.dy, true) }
         return (provisional, false)
     }
 
     /// Screen-row mask marking the scrolling content of a frame `frameHeight` tall — `false`
-    /// over the segment's chrome band, `true` elsewhere. `nil` when there is nothing to mask.
+    /// over resolved chrome, `true` elsewhere. `nil` when there is nothing to mask.
     ///
     /// Chrome rows are the one thing in the frame that is *not* a function of scroll position, so
     /// including them in the refinement score adds a constant-ish floor of noise that is unrelated
     /// to the offset being measured. That noise doesn't usually move the argmin, but it badly
     /// flattens the score valley — and refinement is gated on `refinementConfidence`, which is
     /// exactly a measure of how deep that valley is. See `refineSeams` for the measurements.
-    private func contentRowMask(_ band: ContentBand?, frameHeight: Int) -> [Bool]? {
-        guard let band, band.isPlausible(forFrameHeight: frameHeight) else { return nil }
-        let top = max(0, band.topChrome)
-        let bottom = max(0, band.bottomChrome)
+    private func contentRowMask(_ chrome: ResolvedChrome, frameHeight: Int) -> [Bool]? {
+        let insets = chrome.insets
+        guard insets.isPlausible(forPixelHeight: frameHeight) else { return nil }
+        let top = insets.top
+        let bottom = insets.bottom
         guard top > 0 || bottom > 0 else { return nil }
         return (0..<frameHeight).map { $0 >= top && $0 < frameHeight - bottom }
-    }
-
-    /// Maps each keyframe index to the `ContentBand` of the segment it belongs to, so a seam can
-    /// be refined against its own segment's chrome rather than the first segment's.
-    private func contentBandByKeyframeIndex(_ session: StitchSession) -> [Int: ContentBand] {
-        var result: [Int: ContentBand] = [:]
-        for (s, segment) in splitIntoSegments(session).enumerated() {
-            let band = session.contentBand(forSegment: s)
-            for kf in segment { result[kf.index] = band }
-        }
-        return result
     }
 
     /// Lightweight incidental horizontal shift over the overlap band (monitoring only —

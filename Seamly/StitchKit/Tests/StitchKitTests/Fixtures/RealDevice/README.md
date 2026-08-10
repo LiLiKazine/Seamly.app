@@ -78,7 +78,7 @@ above, its pixels change frame to frame as bright thumbnails scroll behind it, s
 | 639 | 0.003, 0.002, **0.049**, **0.023**, **0.051** | ≤ 0.0007 | ≤ 0.024 |
 
 Three of five pairs blow past the 0.02 mean tolerance while the variance and the
-*mean-centered* shape barely move — the signature that `ContentBandDetector`'s
+*mean-centered* shape barely move — the signature that `ChromeStaticRowDetector`'s
 `structureTolerance` keys on. Ground truth: the bar's top edge sits ~124px above the frame
 bottom; rows inside the bar keep a centered difference ≤ 0.057 while the first real content
 row jumps to ≥ 0.449.

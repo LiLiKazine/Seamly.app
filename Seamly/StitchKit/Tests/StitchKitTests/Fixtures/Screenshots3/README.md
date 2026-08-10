@@ -86,19 +86,15 @@ leaving only the absolute signal floor to the mask. See
 Kept at native resolution, like every other real set here: a downscaled copy changes `rowScale` and
 so the matcher's downsample, and the overlap fractions above are exactly what the defect keys on.
 
-## Known issue: the collapsing bar
+## Closed regression: the collapsing bar
 
-Order, segmentation and every offset are correct after the fix above — and the stitch is still
-wrong, in a way no structural assertion sees. A `ContentBand` is per **segment**, these five frames
-are correctly one segment, and their bottom bar has two different heights: expanded in `IMG_1863`,
-collapsed in the rest. One pair of numbers cannot describe both, so `IMG_1863`'s toolbar is never
-cropped.
+Order, segmentation and every offset are correct, while the bottom bar has two different heights:
+expanded in `IMG_1863`, collapsed in the rest. The old segment-owned crop could not describe both.
+The manifest now stores automatic chrome per keyframe UUID, so the first frame resolves to roughly
+`193/431` px top/bottom and the remaining frames to roughly `193/166` px.
 
 Note the shape of it: the bar appears **once**, not once per keyframe, so the
 "toolbar occurrences" probe that guards `Screenshots2` reports `1` for both the broken and the
-correct output and cannot distinguish them. `LargeScrollStepTests` asks the other question instead
-— that row must appear **zero** times — and records the failure with `withKnownIssue`.
-
-Fixing it means chrome per keyframe rather than per segment, which changes the persisted manifest
-and the editor's model. That is a larger change than the matcher fix this fixture was added for,
-and it is not attempted here.
+correct output and cannot distinguish them. `LargeScrollStepTests` therefore asks the other question:
+the expanded button row must appear **zero** times. That assertion is now a hard-green pixel oracle;
+the order, seam offsets, and one-segment topology are pinned alongside it.

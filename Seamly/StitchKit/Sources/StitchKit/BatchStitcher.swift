@@ -23,7 +23,7 @@ public struct BatchStitcher: Sendable {
     public struct Plan: Sendable {
         /// Input indices in scroll order, top→bottom.
         public let order: [Int]
-        /// Keyframes (indexed by ordered position), seams, segment breaks, and per-segment bands.
+        /// Keyframes (indexed by ordered position), seams, segment breaks, and per-keyframe chrome.
         public let session: StitchSession
     }
 
@@ -94,14 +94,14 @@ public struct BatchStitcher: Sendable {
     /// Raising this without re-running them is how unrelated screens end up in one image.
     let directionalCostRatio: Double
     /// Max mean/variance delta (0...1 luminance) for a row to read as static chrome. The
-    /// translucency (shape) term of that test keeps `ContentBandDetector`'s default — it is scaled
+    /// translucency (shape) term of that test keeps `ChromeStaticRowDetector`'s default — it is scaled
     /// to the signature width, not to this luminance tolerance.
     let chromeTolerance: Float
-    /// How much of a candidate chrome band must actually have held still for `chromeBand` to
+    /// How much of a candidate baseline chrome region must actually have held still for detection to
     /// believe it, rather than fall back to the conservative inward scan.
     ///
     /// A bar contains rows that change — a clock, signal bars — so the band is derived from where
-    /// the *content* is (see `chromeBand`) and can't require every row to be static. This is the
+    /// the *content* is (see `baselineChromeRows`) and can't require every row to be static. This is the
     /// guard on that inference: content mis-read as chrome shows up as a band that is mostly
     /// moving. Measured over every real fixture, the two populations are nowhere near each other:
     ///
@@ -392,10 +392,12 @@ public struct BatchStitcher: Sendable {
         for (slot, src) in order.enumerated() {
             session.keyframes.append(Keyframe(filename: "kf-\(slot)", pixelWidth: profiles[src].sourceWidth, pixelHeight: profiles[src].sourceHeight, index: slot))
         }
+        var consecutiveMatches = Array<Match?>(repeating: nil, count: max(0, order.count - 1))
         for slot in 0..<max(0, order.count - 1) {
             if segmentOfSlot[slot] == segmentOfSlot[slot + 1] {
                 let a = profiles[order[slot]], b = profiles[order[slot + 1]]
                 let m = downwardMatch(a, b)
+                consecutiveMatches[slot] = m
                 let dyPx = Int((Double(m.dy) * a.rowScale).rounded())
                 session.seams.append(Seam(fromIndex: slot, provisionalDy: dyPx, confidence: m.confidence, isLowConfidence: m.confidence < lowConfidenceSeam))
             } else {
@@ -407,21 +409,21 @@ public struct BatchStitcher: Sendable {
             let slots = order.indices.filter { segmentOfSlot[$0] == seg }
             return zip(slots, slots.dropFirst()).map { (profiles[order[$0]], profiles[order[$1]]) }
         }
-        // A segment holding a single frame has no pair of its own to measure a band from, and
-        // `chromeBand` answers `.unlocked` for no pairs — so that frame was composited with its
-        // status bar and browser toolbar intact, stamped through the middle of the finished page
-        // while the manifest still read as healthy. Its bars are the *capture's* bars: one device,
-        // one app, one session. So fall back to every within-segment pair in the capture.
-        //
-        // Only within-segment pairs, never a pair spanning a break: those two frames don't overlap,
-        // so `isStatic` across them is comparing unrelated screens. When the whole capture is
-        // single-frame segments there is genuinely nothing to measure and `.unlocked` stands.
-        let capturePairs = pairsBySegment.flatMap { $0 }
+        // Only within-segment pairs contribute baseline evidence. A pair spanning a break compares
+        // unrelated screens, so a singleton segment deliberately keeps an unmeasured UUID record
+        // and resolves unlocked until the user supplies an override.
+        var keyframeBaselineRows: [BaselineChromeRows] = []
         for seg in 0..<segmentCount {
-            let slots = order.indices.filter { segmentOfSlot[$0] == seg }
-            let pairs = pairsBySegment[seg].isEmpty ? capturePairs : pairsBySegment[seg]
-            session.contentBands.append(chromeBand(pairs, rowScale: profiles[order[slots[0]]].rowScale))
+            keyframeBaselineRows.append(baselineChromeRows(pairsBySegment[seg]))
         }
+        session.keyframeChrome = automaticKeyframeChrome(
+            profiles: profiles,
+            order: order,
+            segmentOfSlot: segmentOfSlot,
+            keyframes: session.keyframes,
+            baselineRowsBySegment: keyframeBaselineRows,
+            consecutiveMatches: consecutiveMatches
+        )
         return Plan(order: order, session: session)
     }
 
@@ -450,22 +452,22 @@ public struct BatchStitcher: Sendable {
     func downwardMatch(_ a: FrameProfile, _ b: FrameProfile) -> Match {
         let bound = min(a.rowCount, b.rowCount) - matcher.minimumOverlap
         guard bound >= 1 else { return Match(dy: 0, confidence: 0) }
-        let mask = ContentBandDetector(meanTolerance: chromeTolerance, varianceTolerance: chromeTolerance).staticMask(a, b)
-        let masked = matcher.match(a, b, searchRange: 1...bound, rowMask: mask)
+        let mask = ChromeStaticRowDetector(meanTolerance: chromeTolerance, varianceTolerance: chromeTolerance).staticMask(a, b)
+        let masked = matcher.match(a, b, searchRange: 1...bound, rowMasks: RowMaskPair(shared: mask))
         let plain = matcher.match(a, b, searchRange: 1...bound)
         return masked.confidence >= plain.confidence ? masked : plain
     }
 
     // MARK: - Chrome
 
-    /// The chrome shared by every adjacent pair in a segment: rows static in *all* pairs.
+    /// The baseline chrome shared by every adjacent pair in a segment: rows static in *all* pairs.
     /// Intersection, not union, so a coincidentally-still content row in one pair can't over-crop.
     /// No pairs → `.unlocked`.
     ///
-    /// The static test is `ContentBandDetector`'s, not a local copy: this used to inline its own
+    /// The static test is `ChromeStaticRowDetector`'s, not a local copy: this used to inline its own
     /// mean+variance comparison, which is how the two drifted — the detector learned to recognize
     /// translucent chrome by shape while this path kept rejecting it, so a blurred tab bar produced
-    /// `bottomChrome == 0` here and got baked into the stitch once per keyframe.
+    /// a zero bottom inset here and got baked into the stitch once per keyframe.
     ///
     /// **A bar is not uniformly static, so the band is read as "everything outside the content"
     /// rather than "static rows counted inward from the edge."** A status bar carries a clock and
@@ -482,10 +484,18 @@ public struct BatchStitcher: Sendable {
     /// candidate band must itself be `minChromeStaticFraction` static to be believed, and falls back
     /// to the inward scan when it isn't. The fallback is never worse than the previous behaviour:
     /// the inward scan stops at the first row that moved, so it can only under-crop.
-    private func chromeBand(_ pairs: [(FrameProfile, FrameProfile)], rowScale: Double) -> ContentBand {
+    private struct BaselineChromeRows {
+        var top: Int
+        var bottom: Int
+        var isLowConfidence: Bool
+
+        static let unlocked = BaselineChromeRows(top: 0, bottom: 0, isLowConfidence: true)
+    }
+
+    private func baselineChromeRows(_ pairs: [(FrameProfile, FrameProfile)]) -> BaselineChromeRows {
         guard !pairs.isEmpty else { return .unlocked }
         let n = pairs.map { min($0.0.rowCount, $0.1.rowCount) }.min()!
-        let detector = ContentBandDetector(meanTolerance: chromeTolerance, varianceTolerance: chromeTolerance)
+        let detector = ChromeStaticRowDetector(meanTolerance: chromeTolerance, varianceTolerance: chromeTolerance)
         let held = (0..<n).map { i in
             pairs.allSatisfy { detector.isStatic($0.0, $0.1, row: i, allowingTranslucency: true) }
         }
@@ -498,20 +508,262 @@ public struct BatchStitcher: Sendable {
             if readsAsChrome(held[0..<overTop]) { top = overTop }
             if readsAsChrome(held[(n - underBottom)...]) { bottom = underBottom }
         }
-        // A band that eats most of the frame means the static test matched nearly every row —
+        // Insets that eat most of the frame mean the static test matched nearly every row —
         // "no content found anywhere", which is a measurement failure, not a very large bar.
         // Believing it collapses the stitch (every seam clamps to a 1px advance) while the
-        // manifest still looks healthy, so degrade to `.unlocked`: crop nothing, flag the
-        // segment, let the editor override. Checked in profile rows, the space it was measured
+        // manifest still looks healthy, so degrade to unmeasured: crop nothing and let the editor
+        // override. Checked in profile rows, the space it was measured
         // in, so no rounding can slip a rejected band back under the ceiling.
-        guard Double(top + bottom) <= Double(n) * ContentBand.maxChromeFraction else {
+        guard Double(top + bottom) <= Double(n) * ChromeInsets.maxCombinedCropFraction else {
             return .unlocked
         }
-        return ContentBand(
-            topChrome: sourcePixels(top, rowScale: rowScale),
-            bottomChrome: sourcePixels(bottom, rowScale: rowScale),
-            isLowConfidence: false
+        return BaselineChromeRows(top: top, bottom: bottom, isLowConfidence: false)
+    }
+
+    // MARK: - Per-keyframe chrome
+
+    private struct ChromeRunObservation {
+        let rows: Int
+        let confidence: Double
+    }
+
+    private struct ResolvedChromeRows {
+        let rows: Int
+        let confidence: Double
+    }
+
+    /// Calibrated together against Screenshots3. Keep these as one policy: lowering a residual
+    /// threshold without its run/content evidence floors turns isolated page changes into chrome.
+    private enum ChromeResidualPolicy {
+        static let highToleranceMultiplier: Float = 3
+        static let contentToleranceMultiplier: Float = 2
+        static let minimumRunRows = 8
+        static let allowedGapRows = 1
+        static let clusterToleranceRows = 2
+        static let minimumClusterObservations = 2
+    }
+
+    private func automaticKeyframeChrome(
+        profiles: [FrameProfile],
+        order: [Int],
+        segmentOfSlot: [Int],
+        keyframes: [Keyframe],
+        baselineRowsBySegment: [BaselineChromeRows],
+        consecutiveMatches: [Match?]
+    ) -> [KeyframeChrome] {
+        guard !order.isEmpty else { return [] }
+
+        var directTop = Array<ChromeRunObservation?>(repeating: nil, count: order.count)
+        var directBottom = Array<ChromeRunObservation?>(repeating: nil, count: order.count)
+
+        for slot in 0..<max(0, order.count - 1) where segmentOfSlot[slot] == segmentOfSlot[slot + 1] {
+            guard let match = consecutiveMatches[slot] else { continue }
+            let a = profiles[order[slot]]
+            let b = profiles[order[slot + 1]]
+            let observation = translationResidualChrome(above: a, below: b, dy: match.dy)
+            directTop[slot + 1] = observation.topForBelow
+            directBottom[slot] = observation.bottomForAbove
+        }
+
+        let segmentCount = (segmentOfSlot.max() ?? 0) + 1
+        var records: [KeyframeChrome] = []
+        records.reserveCapacity(keyframes.count)
+
+        for seg in 0..<segmentCount {
+            let slots = order.indices.filter { segmentOfSlot[$0] == seg }
+            let baseline = baselineRowsBySegment.indices.contains(seg) ? baselineRowsBySegment[seg] : .unlocked
+            let topCluster = agreeingCluster(slots.compactMap { directTop[$0] })
+            let bottomCluster = agreeingCluster(slots.compactMap { directBottom[$0] })
+
+            for slot in slots {
+                var top = edgeRows(
+                    baseline: baselineRows(edgeRows: baseline.top, baseline: baseline),
+                    direct: directTop[slot],
+                    cluster: topCluster
+                )
+                var bottom = edgeRows(
+                    baseline: baselineRows(edgeRows: baseline.bottom, baseline: baseline),
+                    direct: directBottom[slot],
+                    cluster: bottomCluster
+                )
+
+                let profile = profiles[order[slot]]
+                let topPx = sourcePixels(top.rows, rowScale: profile.rowScale)
+                let bottomPx = sourcePixels(bottom.rows, rowScale: profile.rowScale)
+                if !ChromeInsets(top: topPx, bottom: bottomPx).isPlausible(forPixelHeight: profile.sourceHeight) {
+                    top = baselineRows(edgeRows: baseline.top, baseline: baseline)
+                    bottom = baselineRows(edgeRows: baseline.bottom, baseline: baseline)
+                }
+
+                let insets = ChromeInsets(
+                    top: sourcePixels(top.rows, rowScale: profile.rowScale),
+                    bottom: sourcePixels(bottom.rows, rowScale: profile.rowScale)
+                )
+                // Keep the UUID-keyed record even for low-evidence keyframes so diagnostics can
+                // distinguish "planned but unmeasured" from "record missing". But leave the
+                // automatic layer nil when neither edge had evidence: `resolvedChrome` treats any
+                // finite confidence as an automatic source, so encoding zero/zero there would hide
+                // the UI's "no safe automatic measurement" warning for singleton/unknown frames.
+                let automatic = top.confidence == 0 && bottom.confidence == 0
+                    ? nil
+                    : ChromeMeasurement(
+                        insets: insets,
+                        topConfidence: top.confidence,
+                        bottomConfidence: bottom.confidence
+                    )
+                records.append(KeyframeChrome(keyframeID: keyframes[slot].id, automatic: automatic))
+            }
+        }
+
+        return records.sorted { lhs, rhs in
+            guard
+                let left = keyframes.firstIndex(where: { $0.id == lhs.keyframeID }),
+                let right = keyframes.firstIndex(where: { $0.id == rhs.keyframeID })
+            else {
+                return lhs.keyframeID.uuidString < rhs.keyframeID.uuidString
+            }
+            return left < right
+        }
+    }
+
+    private func baselineRows(edgeRows: Int, baseline: BaselineChromeRows) -> ResolvedChromeRows {
+        ResolvedChromeRows(rows: baseline.isLowConfidence ? 0 : edgeRows,
+                           confidence: baseline.isLowConfidence ? 0 : minChromeStaticFraction)
+    }
+
+    private func edgeRows(
+        baseline: ResolvedChromeRows,
+        direct: ChromeRunObservation?,
+        cluster: ResolvedChromeRows?
+    ) -> ResolvedChromeRows {
+        var candidates = [baseline]
+        if let direct {
+            candidates.append(ResolvedChromeRows(rows: direct.rows, confidence: direct.confidence))
+        }
+        if let cluster {
+            candidates.append(cluster)
+        }
+        return candidates.max { lhs, rhs in
+            lhs.rows != rhs.rows ? lhs.rows < rhs.rows : lhs.confidence < rhs.confidence
+        }!
+    }
+
+    /// For a positive profile offset `dy`, `below[k]` aligns with `above[dy + k]`.
+    /// A high residual at the start therefore observes the later frame's top chrome, while the
+    /// same residual scanned from the end observes the earlier frame's bottom chrome.
+    private func translationResidualChrome(
+        above: FrameProfile,
+        below: FrameProfile,
+        dy: Int
+    ) -> (topForBelow: ChromeRunObservation?, bottomForAbove: ChromeRunObservation?) {
+        guard dy > 0, dy < above.rowCount else { return (nil, nil) }
+        let overlap = min(above.rowCount - dy, below.rowCount)
+        guard overlap > 0 else { return (nil, nil) }
+
+        let residuals = (0..<overlap).map { k in
+            rowDistance(below.rows[k], above.rows[dy + k])
+        }
+        return (
+            topForBelow: directChromeRun(in: residuals),
+            bottomForAbove: directChromeRun(in: Array(residuals.reversed()))
         )
+    }
+
+    private func rowDistance(_ a: [Float], _ b: [Float]) -> Float {
+        let count = min(a.count, b.count)
+        guard count > 0 else { return .greatestFiniteMagnitude }
+        var sum: Float = 0
+        for i in 0..<count { sum += abs(a[i] - b[i]) }
+        return sum / Float(count)
+    }
+
+    /// Reads a direct seam-residual run at one frame edge. The edge must begin with at least
+    /// eight high-residual rows (allowing one-row gaps, and with at least
+    /// `minChromeStaticFraction` of the run high), followed immediately by at least eight rows
+    /// that align as content. If either half is missing, the edge is unobservable and contributes
+    /// no extra crop.
+    private func directChromeRun(in values: [Float]) -> ChromeRunObservation? {
+        let highThreshold = chromeTolerance * ChromeResidualPolicy.highToleranceMultiplier
+        let lowThreshold = chromeTolerance * ChromeResidualPolicy.contentToleranceMultiplier
+
+        guard let highRun = thresholdRun(
+            values,
+            from: values.startIndex,
+            minRows: ChromeResidualPolicy.minimumRunRows,
+            threshold: highThreshold,
+            comparison: >=
+        ) else {
+            return nil
+        }
+        guard let contentRun = thresholdRun(
+            values,
+            from: highRun.range.upperBound,
+            minRows: ChromeResidualPolicy.minimumRunRows,
+            threshold: lowThreshold,
+            comparison: <=
+        ) else {
+            return nil
+        }
+
+        let confidence = min(1, (highRun.fraction + contentRun.fraction) / 2)
+        return ChromeRunObservation(rows: highRun.range.count, confidence: confidence)
+    }
+
+    private func thresholdRun(
+        _ values: [Float],
+        from start: Int,
+        minRows: Int,
+        threshold: Float,
+        comparison: (Float, Float) -> Bool
+    ) -> (range: Range<Int>, fraction: Double)? {
+        guard start < values.count else { return nil }
+        var end = start
+        var passing = 0
+        var gapRows = 0
+        while end < values.count {
+            if comparison(values[end], threshold) {
+                passing += 1
+                gapRows = 0
+                end += 1
+            } else if gapRows < ChromeResidualPolicy.allowedGapRows,
+                      end + 1 < values.count,
+                      comparison(values[end + 1], threshold) {
+                gapRows += 1
+                end += 1
+            } else {
+                break
+            }
+        }
+        if end > start, !comparison(values[end - 1], threshold) {
+            end -= 1
+        }
+        let count = end - start
+        guard count >= minRows else { return nil }
+        let fraction = Double(passing) / Double(count)
+        guard fraction >= minChromeStaticFraction else { return nil }
+        return (start..<end, fraction)
+    }
+
+    private func agreeingCluster(_ observations: [ChromeRunObservation]) -> ResolvedChromeRows? {
+        guard observations.count >= ChromeResidualPolicy.minimumClusterObservations else { return nil }
+        let sorted = observations.sorted { $0.rows < $1.rows }
+        var best: ArraySlice<ChromeRunObservation>?
+        for start in sorted.indices {
+            var end = start
+            while end < sorted.endIndex,
+                  sorted[end].rows - sorted[start].rows <= ChromeResidualPolicy.clusterToleranceRows {
+                end += 1
+            }
+            let cluster = sorted[start..<end]
+            if cluster.count > (best?.count ?? 0) {
+                best = cluster
+            }
+        }
+        guard let cluster = best,
+              cluster.count >= ChromeResidualPolicy.minimumClusterObservations else { return nil }
+        let rows = cluster.map(\.rows).sorted()
+        let confidence = min(1, cluster.map(\.confidence).reduce(0, +) / Double(cluster.count))
+        return ResolvedChromeRows(rows: rows[rows.count / 2], confidence: confidence)
     }
 
     /// The longest run of rows that moved in at least one pair — the scrolling content — or `nil`

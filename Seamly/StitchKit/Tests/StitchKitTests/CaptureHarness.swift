@@ -15,13 +15,13 @@ import Foundation
 /// goes through here now.
 ///
 /// The division of labour this models is the real one: the extension's only job is to bank
-/// overlapping keyframes, and *all* geometry (order, seams, segment breaks, content bands) is
+/// overlapping keyframes, and *all* geometry (order, seams, segment breaks, per-keyframe chrome) is
 /// re-derived off-device by `BatchStitcher` at import.
 enum CaptureHarness {
 
     /// A finished capture, ready to composite.
     struct Capture {
-        /// Manifest with `BatchStitcher`-derived order, seams, segment breaks and content bands.
+        /// Manifest with `BatchStitcher`-derived order, seams, segment breaks and per-keyframe chrome.
         let session: StitchSession
         /// Keyframe images keyed by `Keyframe.index` (scroll-order slot), for `Compositor`.
         let images: [Int: CGImage]
@@ -70,7 +70,7 @@ enum CaptureHarness {
         session.keyframes = plan.session.keyframes
         session.seams = plan.session.seams
         session.segmentBreaks = plan.session.segmentBreaks
-        session.contentBands = plan.session.contentBands
+        session.keyframeChrome = plan.session.keyframeChrome
         session.orderAssumed = plan.session.orderAssumed
 
         var images: [Int: CGImage] = [:]

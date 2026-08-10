@@ -10,10 +10,7 @@ struct EditView: View {
 
     init(session: StitchSession, model: LibraryModel) {
         var seeded = session
-        // One editable content band per segment; fill any the extension didn't lock so every
-        // segment is adjustable (older manifests default to .unlocked).
-        let segmentCount = max(1, seeded.segmentBreaks.count + 1)
-        while seeded.contentBands.count < segmentCount { seeded.contentBands.append(.unlocked) }
+        seeded.ensureChromeRecordsForKeyframes()
         _draft = State(initialValue: seeded)
         self.model = model
     }
@@ -26,18 +23,19 @@ struct EditView: View {
                     stepperRow("Bottom", value: $draft.bottomTrim, range: 0...2000, step: 20)
                 }
 
-                if !draft.contentBands.isEmpty {
-                    Section("Chrome (crop repeated bars)") {
-                        ForEach(draft.contentBands.indices, id: \.self) { i in
-                            if draft.contentBands.count > 1 {
-                                Text("Segment \(i + 1)").font(.caption).foregroundStyle(.secondary)
+                if !draft.keyframes.isEmpty {
+                    Section("Chrome (per frame)") {
+                        ForEach(draft.keyframes.indices, id: \.self) { i in
+                            let keyframe = draft.keyframes[i]
+                            if draft.keyframes.count > 1 {
+                                Text("Frame \(keyframe.index + 1)").font(.caption).foregroundStyle(.secondary)
                             }
-                            if draft.contentBands[i].isLowConfidence {
-                                Label("Bars weren't detected confidently here — set the crop.", systemImage: "rectangle.dashed")
+                            if !draft.chromeEdgesNeedingReview(for: keyframe).isEmpty {
+                                Label("One or more bars could not be measured safely — set them manually.", systemImage: "rectangle.dashed")
                                     .font(.caption).foregroundStyle(.orange)
                             }
-                            stepperRow("Top bar", value: bandTop(i), range: 0...600, step: 5)
-                            stepperRow("Bottom bar", value: bandBottom(i), range: 0...600, step: 5)
+                            chromeEdgeRow("Top bar", edge: .top, keyframe: keyframe)
+                            chromeEdgeRow("Bottom bar", edge: .bottom, keyframe: keyframe)
                         }
                     }
                 }
@@ -73,15 +71,43 @@ struct EditView: View {
         }
     }
 
-    // Editing a band is an explicit user choice, so clear the low-confidence flag (no more
-    // "detection uncertain" warning) as the value is adjusted.
-    private func bandTop(_ i: Int) -> Binding<Int> {
-        Binding(get: { draft.contentBands[i].topChrome },
-                set: { draft.contentBands[i].topChrome = $0; draft.contentBands[i].isLowConfidence = false })
+    @ViewBuilder
+    private func chromeEdgeRow(_ title: String, edge: ChromeEdge, keyframe: Keyframe) -> some View {
+        stepperRow(
+            title,
+            value: chromeValue(edge, keyframe: keyframe),
+            range: 0...min(2000, max(0, keyframe.pixelHeight / 2)),
+            step: 5
+        )
+        if hasOverride(edge, keyframeID: keyframe.id) {
+            Button("Remove manual \(edge.rawValue) crop") {
+                clearOverride(edge, keyframeID: keyframe.id)
+            }
+            .font(.caption)
+        }
     }
-    private func bandBottom(_ i: Int) -> Binding<Int> {
-        Binding(get: { draft.contentBands[i].bottomChrome },
-                set: { draft.contentBands[i].bottomChrome = $0; draft.contentBands[i].isLowConfidence = false })
+
+    private func chromeValue(_ edge: ChromeEdge, keyframe: Keyframe) -> Binding<Int> {
+        Binding(
+            get: { rawChromeValue(edge, keyframeID: keyframe.id) },
+            set: { setOverride(edge, value: $0, keyframe: keyframe) }
+        )
+    }
+
+    private func rawChromeValue(_ edge: ChromeEdge, keyframeID: UUID) -> Int {
+        draft.chromeValueForEditing(edge, keyframeID: keyframeID)
+    }
+
+    private func setOverride(_ edge: ChromeEdge, value: Int, keyframe: Keyframe) {
+        draft.setChromeOverride(value, for: edge, keyframeID: keyframe.id)
+    }
+
+    private func hasOverride(_ edge: ChromeEdge, keyframeID: UUID) -> Bool {
+        draft.hasChromeOverride(edge, keyframeID: keyframeID)
+    }
+
+    private func clearOverride(_ edge: ChromeEdge, keyframeID: UUID) {
+        draft.setChromeOverride(nil, for: edge, keyframeID: keyframeID)
     }
     private func offset(_ i: Int) -> Binding<Int> {
         Binding(get: { draft.seams[i].provisionalDy }, set: { draft.seams[i].provisionalDy = $0 })

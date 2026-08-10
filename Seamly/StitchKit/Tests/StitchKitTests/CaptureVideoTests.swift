@@ -45,14 +45,14 @@ import Foundation
         // on the full clip).
         let profiler = VerticalProfile()
         let matcher = OffsetMatcher()
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         let profiles = r.keyframes.map { profiler.profile($0.image) }
         for i in 0..<(profiles.count - 1) {
             let a = profiles[i], b = profiles[i + 1]
             let n = min(a.rowCount, b.rowCount)
             let bound = max(1, n - matcher.minimumOverlap)
             let mask = detector.staticMask(a, b)
-            let masked = matcher.match(a, b, searchRange: 1...bound, rowMask: mask)
+            let masked = matcher.match(a, b, searchRange: 1...bound, rowMasks: RowMaskPair(shared: mask))
             let plain = matcher.match(a, b, searchRange: 1...bound)
             let m = masked.confidence >= plain.confidence ? masked : plain
             let overlap = Double(n - min(max(0, m.dy), n)) / Double(n)
@@ -114,14 +114,14 @@ import Foundation
 
         let profiler = VerticalProfile()
         let matcher = OffsetMatcher()
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         let profiles = r.keyframes.map { profiler.profile($0.image) }
         for i in 0..<(profiles.count - 1) {
             let a = profiles[i], b = profiles[i + 1]
             let n = min(a.rowCount, b.rowCount)
             let bound = max(1, n - matcher.minimumOverlap)
             let mask = detector.staticMask(a, b)
-            let masked = matcher.match(a, b, searchRange: 1...bound, rowMask: mask)
+            let masked = matcher.match(a, b, searchRange: 1...bound, rowMasks: RowMaskPair(shared: mask))
             let plain = matcher.match(a, b, searchRange: 1...bound)
             let m = masked.confidence >= plain.confidence ? masked : plain
             let overlap = Double(n - min(max(0, m.dy), n)) / Double(n)

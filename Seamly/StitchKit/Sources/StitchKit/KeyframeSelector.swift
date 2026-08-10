@@ -5,7 +5,7 @@ import Foundation
 /// This is deliberately *dumb* compared to `PositionTracker`: it keeps only the last committed
 /// frame's profile and commits whenever the view has scrolled at least `commitFraction` of a
 /// frame since then. It does not track absolute position, relocalize, break segments, or build
-/// seams/bands — the app re-derives all geometry from the captured keyframes with
+/// seams or chrome measurements — the app re-derives all geometry from captured keyframes with
 /// `BatchStitcher`. Moving that intelligence off the real-time, memory-constrained extension
 /// path is what makes capture robust: the extension's one job is to bank overlapping keyframes.
 ///
@@ -23,7 +23,7 @@ public struct KeyframeSelector: Sendable {
     }
 
     private let matcher: OffsetMatcher
-    private let detector: ContentBandDetector
+    private let detector: ChromeStaticRowDetector
     /// Fraction of a frame the view must scroll past the last keyframe before the next commit.
     /// The complement is the guaranteed overlap between consecutive keyframes.
     public let commitFraction: Double
@@ -32,11 +32,11 @@ public struct KeyframeSelector: Sendable {
 
     public init(
         matcher: OffsetMatcher = OffsetMatcher(),
-        bandDetector: ContentBandDetector = ContentBandDetector(),
+        chromeDetector: ChromeStaticRowDetector = ChromeStaticRowDetector(),
         commitFraction: Double = 0.5
     ) {
         self.matcher = matcher
-        self.detector = bandDetector
+        self.detector = chromeDetector
         self.commitFraction = commitFraction
     }
 
@@ -50,7 +50,7 @@ public struct KeyframeSelector: Sendable {
         guard n > 0 else { return Result(commit: false, overlapFraction: 1) }
         let bound = max(1, n - matcher.minimumOverlap)
         let mask = detector.staticMask(last, profile)
-        let m = matcher.match(last, profile, searchRange: 0...bound, rowMask: mask)
+        let m = matcher.match(last, profile, searchRange: 0...bound, rowMasks: RowMaskPair(shared: mask))
         let dy = min(max(0, m.dy), n)
         let overlap = Double(n - dy) / Double(n)
         if dy >= Int(commitFraction * Double(n)) {
@@ -68,7 +68,7 @@ public struct KeyframeSelector: Sendable {
         let n = profile.rowCount
         guard n > 0 else { return false }
         let bound = max(1, n - matcher.minimumOverlap)
-        let m = matcher.match(last, profile, searchRange: 0...bound, rowMask: detector.staticMask(last, profile))
+        let m = matcher.match(last, profile, searchRange: 0...bound, rowMasks: RowMaskPair(shared: detector.staticMask(last, profile)))
         return Double(min(max(0, m.dy), n)) / Double(n) >= minMotion
     }
 

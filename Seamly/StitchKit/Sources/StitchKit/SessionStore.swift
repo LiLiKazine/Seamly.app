@@ -36,6 +36,7 @@ public struct SessionStore: Sendable {
 
     /// Write a manifest atomically into the session's folder (creating it if needed).
     public func writeManifest(_ session: StitchSession) throws {
+        try session.validateKeyframeChrome()
         let dir = try createFolder(for: session.id)
         let data = try encoder.encode(session)
         try data.write(to: manifestURL(in: dir), options: .atomic)
@@ -47,7 +48,9 @@ public struct SessionStore: Sendable {
 
     public func readManifest(at url: URL) throws -> StitchSession {
         let data = try Data(contentsOf: url)
-        return try decoder.decode(StitchSession.self, from: data)
+        let session = try decoder.decode(StitchSession.self, from: data)
+        try session.validateKeyframeChrome()
+        return session
     }
 
     /// All sessions currently on disk, newest first. Folders without a readable manifest are

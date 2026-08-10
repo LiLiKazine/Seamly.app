@@ -81,6 +81,11 @@ import Foundation
         #expect(plan.order == [0])
         #expect(plan.session.keyframes.count == 1)
         #expect(plan.session.seams.isEmpty)
+        let record = try #require(plan.session.keyframeChrome.first)
+        #expect(plan.session.keyframeChrome.count == 1)
+        #expect(record.keyframeID == plan.session.keyframes[0].id)
+        #expect(record.automatic == nil)
+        #expect(plan.session.resolvedChrome(for: plan.session.keyframes[0]).isUnlocked)
     }
 
     /// Assembling in a supplied order keeps that order verbatim (no re-sort), and a truly
@@ -130,11 +135,10 @@ import Foundation
         let images = (0..<3).map { source.cropping(to: CGRect(x: 0, y: $0 * D, width: W, height: H))! }
 
         let plan = try BatchStitcher().plan(images, assumingOrder: [0, 1, 2])
-        let band = try #require(plan.session.contentBands.first)
-        // Refused, not believed: nothing cropped, and flagged so the editor can override.
-        #expect(band.topChrome == 0)
-        #expect(band.bottomChrome == 0)
-        #expect(band.isLowConfidence)
+        // Refused, not believed: nothing cropped, and left unlocked so the editor can override.
+        #expect(plan.session.keyframeChrome.count == plan.session.keyframes.count)
+        #expect(plan.session.keyframeChrome.allSatisfy { $0.automatic == nil })
+        #expect(plan.session.keyframes.allSatisfy { plan.session.resolvedChrome(for: $0).isUnlocked })
 
         // And the stitch keeps its full extent rather than collapsing to ~one frame.
         let out = try Compositor().composite(plan.session) { images[plan.order[$0.index]] }

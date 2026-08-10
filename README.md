@@ -210,7 +210,7 @@ the driver again can silently discard valid frames and invent segment breaks. Th
 ### The load-bearing decision: capture banks frames, the app derives geometry
 
 The extension's only job is to save overlapping keyframes and a list of them. It computes
-no order, no seams, no segment breaks, no chrome bands. All of that is re-derived from the
+no order, no seams, no segment breaks, no chrome measurements. All of that is re-derived from the
 keyframes at import time by `BatchStitcher`, which then *overwrites* the extension's
 manifest.
 
@@ -231,7 +231,7 @@ App Group keyframes ── LibraryModel.importFromGroup (move; recover killed br
       │
       ▼
 StitchAssembler.resolveGeometry → BatchStitcher.plan
-      │   pairwise offsets → order recovery → segments → per-segment chrome band
+      │   pairwise offsets → order recovery → segments → per-keyframe chrome
       ▼
 StitchSession (corrected manifest, persisted, user-editable)
       │ Compositor
@@ -265,11 +265,12 @@ Two details are load-bearing and were each paid for with a real bug:
 - **Orientation has exactly one convention.** Profile row 0 is the image's top row, and a
   downward scroll yields a positive `dy`. There is no compensating flip anywhere.
 
-`ContentBandDetector` finds fixed chrome as the rows that don't change between frames
-(including translucent bars, recognized by shape rather than brightness), and that band is
-both masked out of matching — so a static tab bar can't pin the alignment to `dy = 0` — and
-cropped from every strip but the first. Seams are a **hard cut**, never feathered; the app
-snaps each one to pixel-exactness with a small full-res local search before compositing.
+`ChromeStaticRowDetector` supplies the low-level same-screen static-row signal (including translucent
+bars, recognized by shape rather than brightness). `BatchStitcher` combines that signal with each
+seam's aligned residual to measure top and bottom chrome for every keyframe independently. Matching
+and full-resolution seam refinement accept a distinct mask for each side, so a collapsing toolbar
+cannot leak its old size into the next frame. `Compositor` resolves user overrides over automatic
+measurements, crops each source frame by its own chrome, and draws **hard cuts** — never feathered.
 
 ## Tech Stack
 
@@ -299,7 +300,7 @@ Seamly/                            # repo root (README, CLAUDE.md, DECISIONS.md,
     │   ├── Sources/StitchKit/
     │   │   ├── VerticalProfile, FrameProfile        # signal
     │   │   ├── OffsetMatcher, Match                 # matching
-    │   │   ├── ContentBand, ContentBandDetector     # chrome
+    │   │   ├── ChromeDomain, ChromeStaticRowDetector    # per-keyframe chrome + row signal
     │   │   ├── KeyframeSelector, ScrollCaptureDriver # frame picking
     │   │   ├── BatchStitcher, Compositor            # order recovery + assembly
     │   │   ├── StitchSession, SessionStore, KeyframeIO, Diagnostics

@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 @testable import StitchKit
 
-/// Issue #11: `ContentBandDetector.staticMask` uses the summary-statistics test only, so on iOS 26
+/// Issue #11: `ChromeStaticRowDetector.staticMask` uses the summary-statistics test only, so on iOS 26
 /// — where system bars are translucent by default — a bar's rows read as moved content and feed the
 /// live scroll measurement. That measurement decides when `KeyframeSelector` banks a keyframe, so
 /// the predicted symptom was commit-timing drift and keyframes not holding the intended ~50%
@@ -38,7 +38,7 @@ import Foundation
         for i in 0..<(profiles.count - 1) {
             let bound = min(profiles[i].rowCount, profiles[i + 1].rowCount) - stitcher.matcher.minimumOverlap
             let m = stitcher.matcher.match(profiles[i], profiles[i + 1], searchRange: 1...bound,
-                                           rowMask: ContentBandDetector().staticMask(profiles[i], profiles[i + 1]))
+                                           rowMasks: RowMaskPair(shared: ChromeStaticRowDetector().staticMask(profiles[i], profiles[i + 1])))
             let overlap = Double(n - m.dy) / Double(n)
             #expect(abs(overlap - selector.commitFraction) <= 0.05,
                     "kf\(i)->\(i + 1) overlap \(overlap) drifted from commitFraction \(selector.commitFraction)")
@@ -52,14 +52,14 @@ import Foundation
     @Test func maskChangesConfidenceNotTheRecoveredOffset() throws {
         let stitcher = BatchStitcher()
         let profiles = try fixtureImages().map { stitcher.profiler.profile($0) }
-        let detector = ContentBandDetector(meanTolerance: stitcher.chromeTolerance,
+        let detector = ChromeStaticRowDetector(meanTolerance: stitcher.chromeTolerance,
                                            varianceTolerance: stitcher.chromeTolerance)
 
         var sawConfidenceGain = false
         for i in 0..<(profiles.count - 1) {
             let a = profiles[i], b = profiles[i + 1]
             let bound = min(a.rowCount, b.rowCount) - stitcher.matcher.minimumOverlap
-            let masked = stitcher.matcher.match(a, b, searchRange: 1...bound, rowMask: detector.staticMask(a, b))
+            let masked = stitcher.matcher.match(a, b, searchRange: 1...bound, rowMasks: RowMaskPair(shared: detector.staticMask(a, b)))
             let plain = stitcher.matcher.match(a, b, searchRange: 1...bound)
             #expect(masked.dy == plain.dy,
                     "pair \(i)-\(i + 1): mask changed the offset (\(masked.dy) vs \(plain.dy)), not just its score")

@@ -83,7 +83,7 @@ import Testing
         #expect(recoveredByStrategy.order == recovered.order)
         #expect(recoveredByStrategy.session.seams == recovered.session.seams)
         #expect(recoveredByStrategy.session.segmentBreaks == recovered.session.segmentBreaks)
-        #expect(recoveredByStrategy.session.contentBands == recovered.session.contentBands)
+        #expect(recoveredByStrategy.session.keyframeChrome.map(\.automatic) == recovered.session.keyframeChrome.map(\.automatic))
         #expect(recoveredByStrategy.session.orderAssumed == false)
 
         let assumed = try stitcher.plan(images, assumingOrder: identity)
@@ -91,7 +91,7 @@ import Testing
         #expect(inputByStrategy.order == assumed.order)
         #expect(inputByStrategy.session.seams == assumed.session.seams)
         #expect(inputByStrategy.session.segmentBreaks == assumed.session.segmentBreaks)
-        #expect(inputByStrategy.session.contentBands == assumed.session.contentBands)
+        #expect(inputByStrategy.session.keyframeChrome.map(\.automatic) == assumed.session.keyframeChrome.map(\.automatic))
         #expect(inputByStrategy.session.orderAssumed == false)
     }
 

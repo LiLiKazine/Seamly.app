@@ -107,19 +107,19 @@ import Foundation
         let out = try capture.composite()
 
         let expected = Self.topChromeH + contentDocH + Self.bottomChromeH   // == shot.height
-        let band = session.contentBand(forSegment: 0)
+        let chrome = session.keyframes.map { session.resolvedChrome(for: $0) }
         print("── REAL screenshot stitch")
-        print("   frames=\(frames.count) keyframes=\(session.keyframes.count) seams=\(session.seams.count) breaks=\(session.segmentBreaks.count) segments=\(session.contentBands.count)")
-        print("   band seg0: top=\(band.topChrome) bottom=\(band.bottomChrome) lowConf=\(band.isLowConfidence) (true≈\(Self.topChromeH)/\(Self.bottomChromeH))")
+        print("   frames=\(frames.count) keyframes=\(session.keyframes.count) seams=\(session.seams.count) breaks=\(session.segmentBreaks.count)")
+        print("   chrome: top=\(chrome.map(\.insets.top)) bottom=\(chrome.map(\.insets.bottom)) (true≈\(Self.topChromeH)/\(Self.bottomChromeH))")
         print("   output=\(out.height)px expected≈\(expected)px ratio=\(String(format: "%.2f", Double(out.height)/Double(expected)))")
 
         // 1. Stitched, not stacked (too tall) or collapsed (too short): the two shipped bugs.
         #expect(abs(out.height - expected) <= Int(Double(expected) * 0.12),
                 "output \(out.height)px should be ≈\(expected)px (ratio \(String(format: "%.2f", Double(out.height)/Double(expected))))")
-        // 2. Chrome band detected confidently for the segment (the "never detected" complaint).
-        #expect(!band.isLowConfidence, "content band should lock confidently, got \(band)")
-        #expect(abs(band.topChrome - Self.topChromeH) <= 60, "top chrome \(band.topChrome) vs ~\(Self.topChromeH)")
-        #expect(abs(band.bottomChrome - Self.bottomChromeH) <= 60, "bottom chrome \(band.bottomChrome) vs ~\(Self.bottomChromeH)")
+        // 2. Chrome detected for every keyframe (the "never detected" complaint).
+        #expect(chrome.allSatisfy { !$0.isUnlocked })
+        #expect(chrome.allSatisfy { abs($0.insets.top - Self.topChromeH) <= 60 })
+        #expect(chrome.allSatisfy { abs($0.insets.bottom - Self.bottomChromeH) <= 60 })
         // 3. Capture stayed a single segment (no thrashing/relocalize breaks on real content).
         #expect(session.segmentBreaks.count == 0, "expected one clean segment, got breaks: \(session.segmentBreaks.count)")
     }
@@ -129,7 +129,7 @@ import Foundation
     ///
     /// This was the project's long-standing "pixel-only translucent-chrome detection is unsolved"
     /// gap (2026-07-05-01), asserted through `withKnownIssue`. It is now **closed** and asserted at
-    /// the same tolerances as the opaque case above: `ContentBandDetector` recognizes a translucent
+    /// the same tolerances as the opaque case above: `ChromeStaticRowDetector` recognizes a translucent
     /// bar by shape rather than brightness (see `structureTolerance` / `translucencyMeanCeiling`,
     /// and `TranslucentChromeTests` for the real-device fixture).
     ///
@@ -147,10 +147,10 @@ import Foundation
         let out = try capture.composite()
 
         let expected = Self.topChromeH + contentDocH + Self.bottomChromeH
-        let band = session.contentBand(forSegment: 0)
+        let chrome = session.keyframes.map { session.resolvedChrome(for: $0) }
         print("── REAL screenshot stitch (TRANSLUCENT top bar)")
-        print("   frames=\(frames.count) keyframes=\(session.keyframes.count) seams=\(session.seams.count) breaks=\(session.segmentBreaks.count) segments=\(session.contentBands.count)")
-        print("   band seg0: top=\(band.topChrome) bottom=\(band.bottomChrome) lowConf=\(band.isLowConfidence)")
+        print("   frames=\(frames.count) keyframes=\(session.keyframes.count) seams=\(session.seams.count) breaks=\(session.segmentBreaks.count)")
+        print("   chrome: top=\(chrome.map(\.insets.top)) bottom=\(chrome.map(\.insets.bottom)) unlocked=\(chrome.map(\.isUnlocked))")
         print("   output=\(out.height)px expected≈\(expected)px ratio=\(String(format: "%.2f", Double(out.height)/Double(expected)))")
 
         // Contract: content survives (never lost, never catastrophically stacked) and the capture
@@ -165,8 +165,8 @@ import Foundation
         // Promoted from `withKnownIssue` (2026-07-25-01): the band is measured, and no chrome or
         // segment repeats. Same assertions as the opaque case above, at the same tolerances — a
         // translucent bar is no longer a degraded mode.
-        #expect(!band.isLowConfidence, "band should be measured even under a translucent bar")
-        #expect(abs(band.topChrome - Self.topChromeH) <= 60, "top chrome \(band.topChrome) vs ~\(Self.topChromeH)")
+        #expect(chrome.allSatisfy { !$0.isUnlocked }, "chrome should be measured even under a translucent bar")
+        #expect(chrome.allSatisfy { abs($0.insets.top - Self.topChromeH) <= 60 })
         #expect(Double(out.height) <= Double(expected) * 1.12, "no chrome/segment repetition")
     }
 }

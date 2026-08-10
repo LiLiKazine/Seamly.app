@@ -78,9 +78,8 @@ struct StitchCLI {
 
     // MARK: - Reporting
 
-    /// Print the manifest the compositor will assemble from. Seam confidence, segment breaks and the
-    /// content band are the three things worth reading before opening the PNG: a zero band means
-    /// chrome will repeat, and a break means the frames didn't overlap.
+    /// Print the manifest the compositor will assemble from. Seam confidence, segment breaks, and
+    /// each keyframe's resolved chrome are the things worth reading before opening the PNG.
     static func report(_ plan: BatchStitcher.Plan, count: Int) {
         print("order: \(plan.order)\(plan.order == Array(0..<count) ? " (monotonic)" : " (recovered)")")
         for seam in plan.session.seams {
@@ -93,9 +92,11 @@ struct StitchCLI {
         } else {
             print("  segment breaks after: \(plan.session.segmentBreaks.map { $0.afterKeyframeIndex })")
         }
-        for (i, band) in plan.session.contentBands.enumerated() {
-            let warning = band.bottomChrome == 0 ? "  <- no bottom chrome; a bottom bar would repeat" : ""
-            print("  band[\(i)] topChrome=\(band.topChrome) bottomChrome=\(band.bottomChrome)\(warning)")
+        for keyframe in plan.session.keyframes.sorted(by: { $0.index < $1.index }) {
+            let chrome = plan.session.resolvedChrome(for: keyframe)
+            let warning = chrome.isUnlocked ? "  <- no safe automatic measurement" : ""
+            print("  chrome[\(keyframe.index)] top=\(chrome.insets.top) (\(chrome.topSource.rawValue)) "
+                  + "bottom=\(chrome.insets.bottom) (\(chrome.bottomSource.rawValue))\(warning)")
         }
     }
 
