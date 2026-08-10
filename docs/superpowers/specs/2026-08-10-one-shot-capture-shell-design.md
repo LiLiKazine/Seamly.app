@@ -32,7 +32,7 @@ them:
 | Hero path | **Record** (live broadcast). Video and Photos import remain, as secondary entries. |
 | End state | **One-shot** — capture → export → gone. No library to curate. |
 | Imperfect stitches | **One guided repair, no pipeline vocabulary** (Spec 2). |
-| Live scroll guidance | **Verify the haptic on a device first**, then decide whether to invest. |
+| Live scroll guidance | **Verified on device 2026-08-10 — the haptic fires and is felt.** Treated as a real channel. |
 | Visual language | **Purely native** iOS 26. No custom identity. |
 
 ## Goals
@@ -48,7 +48,9 @@ them:
 
 - **Guided repair.** Spec 2.
 - **A style token layer.** Argued against below; system values do the styling.
-- Any change to capture, stitching, order recovery, or chrome measurement.
+- Any *behavioural* change to capture, stitching, order recovery, or chrome measurement.
+  The single exception is comment-only: replacing the stale unverified-haptic caveat at
+  `SampleHandler.swift:217` with the verification result (below). No code path changes.
 - Any change to `StitchSession` or the manifest format.
 - Localization, iPad-specific layout, or App Store visual identity.
 
@@ -264,27 +266,49 @@ failed capture on a real device.
 needs a physical device, an interaction with the system picker, and a human scrolling a
 third-party app. It stays a manual pass.
 
-## Gating spike: does the haptic reach the user?
+## The safety cue — verified, and now a designed signal
 
 `SampleHandler.fireSafetyCue()` calls `AudioServicesPlayAlertSound(kSystemSoundID_Vibrate)`
-when overlap drops toward the loss threshold. The code itself marks this unverified:
+when overlap drops below `safetyMargin`. The code carried an unresolved caveat:
 
 > Whether either channel is audible from a broadcast extension is a device go/no-go
 > (see the design's early verifications); if neither works we fall back to onboarding +
 > detect-and-segment. — `SampleHandler.swift:217`
 
-**This must be answered on a physical device before the capture flow commits to it.** It
-cannot be verified in the simulator or by any automated test, and it requires a human to
-run a broadcast and scroll fast enough to trip the cue.
+**Resolved 2026-08-10: verified by hand on a physical device — the haptic fires and is
+felt mid-broadcast.** This could not have been settled in the simulator or by any
+automated test; it needed a human running a real broadcast and scrolling fast enough to
+trip the cue.
 
-- **If the cue fires:** it becomes a designed, documented signal, taught in onboarding as
-  a reliable "ease up" cue.
-- **If it does not:** onboarding stops promising a buzz — it currently does, in step 2 —
-  and the flow leans entirely on teaching the technique once plus handling imperfection
-  afterwards.
+Consequences for this spec:
 
-Either way the shell ships; only the onboarding copy and the weight placed on the cue
-change. Nothing else in this spec blocks on the answer.
+- The cue is a **real feedback channel**, and the only one that reaches a user who is
+  inside another app. Onboarding step 2 already promises a buzz; that promise is honest
+  and stays, upgraded from an aside into an explicitly taught signal ("one buzz means ease
+  up") rather than a parenthetical.
+- `SampleHandler.swift:217`'s caveat comment should be replaced with the verification
+  result and its date, so the next reader does not re-open a settled question.
+
+**Where the cue's behaviour actually lives.** The decision is pure and off-device:
+
+```swift
+let fireSafetyCue = result.overlapFraction < safetyMargin   // ScrollCaptureDriver.swift:67
+```
+
+`safetyMargin` is an injectable init parameter defaulting to `0.4`, and the extension does
+nothing but throttle (one per ~45 frames) and play. So the cue's *timing* is a `StitchKit`
+parameter exercised by the existing off-device `CaptureSimulationTests` tier — not
+extension work.
+
+**Deliberately not changed here.** There is no evidence that `0.4` is the wrong threshold,
+and tuning it on a hunch would be unfounded. If real use shows the buzz arrives too late to
+act on, that is a small, testable `StitchKit` change with its own decision log — not part
+of this shell.
+
+**Rejected: richer haptic patterns.** Distinct vibrations for distinct meanings would need
+Core Haptics in the broadcast extension, which is under a hard ~50 MB footprint ceiling and
+whose hot path `CLAUDE.md` explicitly protects. One blunt vibration carrying one meaning is
+the right ceiling for this channel.
 
 ## What is deleted
 
@@ -299,7 +323,7 @@ All of `StitchKit`. All of `Seamly/Core/` — `LibraryModel` is renamed, gains
 `pendingResult`/`consumePendingResult()`, and has two return types changed
 (`fullComposite`, `exportPDF`); its logic is otherwise untouched.
 `BroadcastPickerButton`, `PhotoImportButton`, `VideoImportButton`, `Exporter`,
-`DiagnosticsView`, `OnboardingView` (copy revised pending the spike).
+`DiagnosticsView`, `OnboardingView` (copy revised to teach the now-verified safety cue).
 
 ## Open question deferred to Spec 2
 
