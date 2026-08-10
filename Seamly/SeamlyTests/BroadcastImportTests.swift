@@ -27,7 +27,7 @@ struct BroadcastImportTests {
         try fm.createDirectory(at: sessionDir, withIntermediateDirectories: true)
         try manifestJSON(id: sessionID).write(to: sessionDir.appendingPathComponent("manifest.json"))
 
-        let model = LibraryModel(appContainer: appContainer, groupContainer: groupContainer)
+        let model = CaptureModel(appContainer: appContainer, groupContainer: groupContainer)
         await model.refresh()
 
         #expect(model.captures.contains { $0.id == sessionID })

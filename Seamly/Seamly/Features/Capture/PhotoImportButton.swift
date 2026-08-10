@@ -6,7 +6,7 @@ import ImageIO
 /// "From Photos" entry: pick several overlapping screenshots; decode each to a CGImage and hand
 /// them to the model in pick order. Requires at least two (a single image isn't a stitch).
 struct PhotoImportButton: View {
-    let model: LibraryModel
+    let model: CaptureModel
     var onStarted: () -> Void = {}
     @State private var selection: [PhotosPickerItem] = []
     @State private var loadError: String?

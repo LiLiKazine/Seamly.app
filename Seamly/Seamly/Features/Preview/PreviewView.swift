@@ -6,7 +6,7 @@ import StitchKit
 /// confidence/segment warnings, with entries into editing and export.
 struct PreviewView: View {
     let captureID: UUID
-    let model: LibraryModel
+    let model: CaptureModel
 
     @State private var showEdit = false
     @State private var showExport = false

@@ -4,7 +4,7 @@ import StitchKit
 /// The app's home surface: the Library of captures. Scans the App Group on appear and every
 /// foreground so a just-finished broadcast shows up as a new capture (processing → ready).
 struct LibraryView: View {
-    @State private var model = LibraryModel()
+    @State private var model = CaptureModel()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
 

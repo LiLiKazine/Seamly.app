@@ -3,7 +3,7 @@ import StitchKit
 
 /// A read-only view onto the shared diagnostics log (extension + app), with one-tap Share/Copy so
 /// a capture that misbehaves can be reported without a Mac attached. Reads the App Group log that
-/// both `SampleHandler` (category `capture`) and `LibraryModel` (category `app`) write to.
+/// both `SampleHandler` (category `capture`) and `CaptureModel` (category `app`) write to.
 struct DiagnosticsView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var text = "(loading…)"

@@ -6,9 +6,9 @@ import StitchKit
 struct EditView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft: StitchSession
-    let model: LibraryModel
+    let model: CaptureModel
 
-    init(session: StitchSession, model: LibraryModel) {
+    init(session: StitchSession, model: CaptureModel) {
         var seeded = session
         seeded.ensureChromeRecordsForKeyframes()
         _draft = State(initialValue: seeded)

@@ -30,12 +30,16 @@ struct Capture: Identifiable {
     var orderAssumed: Bool { session.orderAssumed }
 }
 
-/// The Library is the app's home surface and the source of truth for captures. It scans the
-/// App Group on launch and foreground, imports finished sessions into app storage, and drives
-/// assembly. `@MainActor` (UI state) with heavy work delegated off-actor.
+/// The source of truth for captures. Scans the App Group on launch and foreground, imports
+/// finished sessions into app storage, drives assembly, and composites for export.
+///
+/// Named for what it owns rather than where it is shown: the app is one-shot, so there is no
+/// library surface. `CaptureStore` was avoided deliberately — it would read as a sibling of
+/// `StitchKit.SessionStore`, which it is not. `@MainActor` (UI state) with heavy work
+/// delegated off-actor.
 @MainActor
 @Observable
-final class LibraryModel {
+final class CaptureModel {
     private(set) var captures: [Capture] = []
     /// Set when the most recent pickup produced nothing stitchable, for a friendly nudge.
     private(set) var lastPickupWasEmpty = false
@@ -49,7 +53,7 @@ final class LibraryModel {
     private let groupContainer: URL?
     private let diag: Diagnostics
 
-    init(appContainer: URL = LibraryModel.appContainerURL(), groupContainer: URL? = AppGroup.containerURL) {
+    init(appContainer: URL = CaptureModel.appContainerURL(), groupContainer: URL? = AppGroup.containerURL) {
         self.appStore = SessionStore(containerURL: appContainer)
         self.groupStore = groupContainer.map { SessionStore(containerURL: $0) }
         self.groupContainer = groupContainer

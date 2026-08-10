@@ -2,7 +2,7 @@ import SwiftUI
 
 /// The three ways to make a long screenshot: Record (live broadcast), From Video, From Photos.
 struct CaptureStartView: View {
-    let model: LibraryModel
+    let model: CaptureModel
     var showHelp: () -> Void
     var onStarted: () -> Void = {}
 

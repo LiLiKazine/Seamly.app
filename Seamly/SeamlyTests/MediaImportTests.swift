@@ -119,7 +119,7 @@ struct MediaImportTests {
         defer { try? fm.removeItem(at: root) }
         try fm.createDirectory(at: app, withIntermediateDirectories: true)
 
-        let model = LibraryModel(appContainer: app, groupContainer: nil)
+        let model = CaptureModel(appContainer: app, groupContainer: nil)
         // Pick order is the true scroll order → clean recovery, no badge.
         await model.importPhotos(Self.slices(count: 3, width: 120, sliceH: 360, dy: 140))
 

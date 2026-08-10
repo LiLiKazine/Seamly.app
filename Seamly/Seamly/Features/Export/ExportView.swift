@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 struct ExportView: View {
     @Environment(\.dismiss) private var dismiss
     let captureID: UUID
-    let model: LibraryModel
+    let model: CaptureModel
 
     @State private var pngURL: URL?
     @State private var pdfURL: URL?

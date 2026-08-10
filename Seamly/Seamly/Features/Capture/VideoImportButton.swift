@@ -22,7 +22,7 @@ struct PickedMovie: Transferable {
 /// "From Video" entry: pick one screen recording; hand its URL to the model, which decodes it
 /// into keyframes and stitches in capture order.
 struct VideoImportButton: View {
-    let model: LibraryModel
+    let model: CaptureModel
     var onStarted: () -> Void = {}
     @State private var selection: PhotosPickerItem?
     @State private var loadError: String?

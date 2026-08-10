@@ -7,7 +7,7 @@ import StitchKit
 /// The record→scroll→auto-stitch flow must produce a *correct* stitch on import: the captured
 /// keyframes are re-ordered into scroll order and stitched, regardless of the order the extension
 /// happened to write them (the on-device failure was frames stacked in the wrong order). This
-/// exercises the real flow — `LibraryModel.refresh()` imports from the App Group and assembles.
+/// exercises the real flow — `CaptureModel.refresh()` imports from the App Group and assembles.
 @MainActor
 struct BatchAssemblyTests {
 
@@ -219,7 +219,7 @@ struct BatchAssemblyTests {
         ]
         try groupStore.writeManifest(session)
 
-        let model = LibraryModel(appContainer: app, groupContainer: group)
+        let model = CaptureModel(appContainer: app, groupContainer: group)
         await model.refresh()
 
         #expect(model.captures.count == 1)
