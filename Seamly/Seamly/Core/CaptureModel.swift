@@ -452,6 +452,11 @@ final class CaptureModel {
     }
 
     /// Persist an edited manifest and re-assemble the proxy.
+    ///
+    /// **Intentionally has no caller in the shipped shell.** `EditView` was removed with the
+    /// harness UI; this is the path guided repair (Spec 2,
+    /// `docs/superpowers/specs/2026-08-10-one-shot-capture-shell-design.md`) reconnects to.
+    /// Do not delete as dead code.
     func update(_ session: StitchSession) async {
         guard let index = captures.firstIndex(where: { $0.id == session.id }) else { return }
         let folder = captures[index].folder
