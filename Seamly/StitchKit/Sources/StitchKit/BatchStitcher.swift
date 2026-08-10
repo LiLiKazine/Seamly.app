@@ -137,7 +137,10 @@ public struct BatchStitcher: Sendable {
 
     public init(
         profiler: VerticalProfile = VerticalProfile(),
-        matcher: OffsetMatcher = OffsetMatcher(),
+        // Planning runs in the app with the complete frame set, so it can afford the robust
+        // spatial scorer. `KeyframeSelector` deliberately keeps `OffsetMatcher()`'s lightweight
+        // weighted-mean default on the ReplayKit hot path.
+        matcher: OffsetMatcher = OffsetMatcher(aggregation: .tileConsensus),
         edgeConfidence: Double = 0.45,
         minEdgeDy: Int = 2,
         directionalCostRatio: Double = 0.80,

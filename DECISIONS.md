@@ -332,3 +332,37 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
 - Reversible: yes, before release; after release this JSON/CLI surface becomes a compatibility
   boundary and future removals require a version change.
 - Confidence: high; contract scope and production consumer mapping were independently reviewed.
+
+---
+
+# Tile-Consensus Offset Matching (2026-08-10, branch feat/tile-consensus-matcher)
+
+## [TCM-1] Let spatial consensus override whole-frame matching only with a supermajority
+- Why: one high-contrast changing region can dominate the variance-weighted whole-frame MAD even
+  when most of the screenshot agrees on another scroll offset. A deterministic regression with
+  three quiet content regions and one high-contrast lure makes the existing matcher choose the
+  lure (`dy=5`) instead of the majority content (`dy=15`).
+- Decision: offline geometry divides each admissible overlap into a 4×4 grid. Every informative
+  tile finds its own distinct best offset valley and casts a confidence-weighted vote. The tile
+  result may override weighted MAD only with at least 0.72 of vote weight (twelve of sixteen clean
+  tiles in the regression); weaker evidence keeps the existing result, while a strong split caps
+  confidence. Returned match cost and overlap accounting still come from weighted MAD.
+- Boundary: `BatchStitcher` and `Compositor` use tile consensus. `OffsetMatcher()` remains
+  weighted-MAD by default, so `KeyframeSelector` and the ReplayKit hot path do not pay the extra
+  pass or change capture behavior. `stitch-harness.v1` is unchanged.
+- Invariants: geometric overlap alone decides which offsets are admissible; masks and low-signal
+  tiles change evidence only. The 4×4 grid is anchored to the incoming frame so each tile keeps
+  one identity across its cost curve; candidates outside a tile's overlap merely omit that
+  observation. Profiles shorter than 64 rows use weighted MAD because four vertical regions would
+  amplify individual rows. Neither rule can recreate the masked large-offset ceiling in 277708d.
+- Rejected alternative: median tile cost as the candidate score. It manufactured matches between
+  non-overlapping real pages and chose a false `Screenshots3` valley with roughly two-thirds tile
+  support. Keeping weighted MAD as fallback/validation restored every real-fixture oracle.
+- Performance: the focused real large-step matcher gate rose from 7.43s to 14.35s (1.93×), within
+  the 2× rollout ceiling. Real video/order suites remain inherently multi-minute and passed in
+  1027s with their existing sparse-capture known issue only.
+- Reversible: yes — callers can select `.weightedMean`, and removing the offline default restores
+  the previous behavior without changing profiles, manifests, or harness schemas.
+- Confidence: high for the covered failure shape and all current fixtures; a candidate-local grid
+  was caught and rejected by the low-variance end-to-end stitch before handoff. A future device
+  capture with genuinely dynamic content remains the preferred real-pixel oracle.

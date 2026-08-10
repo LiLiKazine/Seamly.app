@@ -1,7 +1,8 @@
 import Foundation
 
-/// Aligns one frame profile against another by sliding and scoring candidate vertical
-/// offsets with a variance-weighted mean-absolute-difference.
+/// Aligns one frame profile against another by sliding and scoring candidate vertical offsets.
+/// Live capture uses a variance-weighted whole-overlap MAD; offline geometry can additionally
+/// require independent spatial regions to agree before overriding that result.
 ///
 /// Weighting each row by its horizontal variance means near-uniform rows (solid
 /// backgrounds, which match everywhere) contribute little, so the score is driven by
@@ -9,6 +10,16 @@ import Foundation
 /// beats the next distinct candidate — low confidence flags ambiguous cases (uniform
 /// bands, periodic list rows) for the caller to handle (relocalize / flag the seam).
 public struct OffsetMatcher: Sendable {
+    /// How candidate offsets combine the spatial evidence in the overlap.
+    public enum Aggregation: Sendable {
+        /// Existing whole-overlap variance-weighted mean absolute difference. This stays the
+        /// lightweight default for live keyframe selection in the broadcast extension.
+        case weightedMean
+        /// Robust offline registration: let several spatial regions vote independently, so one
+        /// changing or repeated region cannot dominate the alignment.
+        case tileConsensus
+    }
+
     /// Absolute floor on *scored* rows required for a candidate offset to be considered — the
     /// signal floor. This is the only overlap gate a `rowMask` can affect: a masked match counts
     /// content rows only, and below a handful of them there is nothing to judge an alignment on.
@@ -41,12 +52,20 @@ public struct OffsetMatcher: Sendable {
     /// `1 + overlapPenalty·(1 − overlapFraction)` makes fuller overlap genuinely cheaper, so the
     /// offset that aligns the *most* content wins and sets the confidence baseline.
     public let overlapPenalty: Float
+    public let aggregation: Aggregation
 
-    public init(minimumOverlap: Int = 8, minimumOverlapFraction: Double = 0.25, valleyProminence: Float = 0.5, overlapPenalty: Float = 0.8) {
+    public init(
+        minimumOverlap: Int = 8,
+        minimumOverlapFraction: Double = 0.25,
+        valleyProminence: Float = 0.5,
+        overlapPenalty: Float = 0.8,
+        aggregation: Aggregation = .weightedMean
+    ) {
         self.minimumOverlap = minimumOverlap
         self.minimumOverlapFraction = minimumOverlapFraction
         self.valleyProminence = valleyProminence
         self.overlapPenalty = overlapPenalty
+        self.aggregation = aggregation
     }
 
     /// Aligns `b` onto `a`. A positive `dy` means content scrolled *down* by `dy` rows:
@@ -59,6 +78,10 @@ public struct OffsetMatcher: Sendable {
     /// scores every overlapping row (unchanged behavior). A candidate offset whose masked
     /// overlap falls below `minimumOverlap` is rejected exactly as an unmasked one would be.
     public func match(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>, rowMask: [Bool]? = nil) -> Match {
+        if case .tileConsensus = aggregation {
+            return tileConsensusMatch(a, b, searchRange: searchRange, rowMask: rowMask)
+        }
+
         var bestOffset = 0
         var bestScore = Float.greatestFiniteMagnitude
         var scored: [(offset: Int, candidate: CandidateScore)] = []
@@ -187,6 +210,252 @@ public struct OffsetMatcher: Sendable {
     private struct CandidateScore {
         let cost: Float
         let countedRows: Int
+    }
+
+    private struct TileID: Hashable {
+        let row: Int
+        let column: Int
+    }
+
+    private struct TileObservation {
+        let offset: Int
+        let cost: Float
+    }
+
+    /// Offset selection by independent spatial votes, with the existing whole-overlap matcher kept
+    /// as both fallback and validation metric.
+    ///
+    /// Each tile owns a cost curve across the complete geometrically-admissible search. Its best
+    /// distinct valley casts one confidence-weighted vote. A strict spatial majority may override
+    /// the whole-frame winner; otherwise the proven weighted-MAD result is retained. The returned
+    /// `cost` always comes from weighted MAD, so direction and edge gates continue comparing the
+    /// same quantity they were calibrated against.
+    private func tileConsensusMatch(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>, rowMask: [Bool]?) -> Match {
+        let weightedMatcher = OffsetMatcher(
+            minimumOverlap: minimumOverlap,
+            minimumOverlapFraction: minimumOverlapFraction,
+            valleyProminence: valleyProminence,
+            overlapPenalty: overlapPenalty,
+            aggregation: .weightedMean
+        )
+        let fallback = weightedMatcher.match(a, b, searchRange: searchRange, rowMask: rowMask)
+        let frameRows = min(a.rowCount, b.rowCount)
+        // Four vertical voting bands need enough rows to form real regions. Below this size the
+        // grid amplifies individual rows and changes long-standing component-fixture behavior;
+        // the whole-overlap matcher is both cheaper and better defined there.
+        guard frameRows >= 64 else { return fallback }
+        let countable = countableRows(rowMask, upTo: frameRows)
+        let minGeometricOverlap = max(
+            minimumOverlap,
+            Int((minimumOverlapFraction * Double(frameRows)).rounded())
+        )
+
+        var observedOffsets: Set<Int> = []
+        var byTile: [TileID: [TileObservation]] = [:]
+        for offset in searchRange {
+            guard frameRows - abs(offset) >= minGeometricOverlap else { continue }
+            let costs = tileCosts(a, b, offset: offset, rowMask: rowMask)
+            guard !costs.isEmpty else { continue }
+            observedOffsets.insert(offset)
+            for (tile, cost) in costs {
+                byTile[tile, default: []].append(TileObservation(offset: offset, cost: cost))
+            }
+        }
+
+        guard !observedOffsets.isEmpty else { return fallback }
+
+        var votes: [(offset: Int, weight: Double)] = []
+        for observations in byTile.values {
+            guard let vote = tileVote(observations) else { continue }
+            votes.append(vote)
+        }
+        guard !votes.isEmpty else { return fallback }
+
+        let totalWeight = votes.reduce(0) { $0 + $1.weight }
+        guard totalWeight > 1e-9 else { return fallback }
+        let centers = Set(votes.map(\.offset)).sorted()
+        var bestCenter = centers[0]
+        var bestSupport = -Double.infinity
+        for center in centers {
+            let support = votes.reduce(0) { partial, vote in
+                partial + (abs(vote.offset - center) <= 1 ? vote.weight : 0)
+            }
+            if support > bestSupport {
+                bestSupport = support
+                bestCenter = center
+            } else if abs(support - bestSupport) <= 1e-9,
+                      abs(center - fallback.dy) < abs(bestCenter - fallback.dy) {
+                bestCenter = center
+            }
+        }
+
+        let winningVotes = votes.filter { abs($0.offset - bestCenter) <= 1 }
+        let weightedOffset = winningVotes.reduce(0.0) { $0 + Double($1.offset) * $1.weight }
+            / winningVotes.reduce(0.0) { $0 + $1.weight }
+        let consensusOffset = min(
+            max(Int(weightedOffset.rounded()), searchRange.lowerBound),
+            searchRange.upperBound
+        )
+        let supportFraction = bestSupport / totalWeight
+
+        // If consensus agrees with the legacy valley, preserve its calibrated confidence and cost.
+        if abs(consensusOffset - fallback.dy) <= 1 { return fallback }
+
+        let secondSupport = centers
+            .filter { abs($0 - bestCenter) > 2 }
+            .map { center in
+                votes.reduce(0) { partial, vote in
+                    partial + (abs(vote.offset - center) <= 1 ? vote.weight : 0)
+                }
+            }
+            .max() ?? 0
+
+        // Without a supermajority, keep the proven offset. A strong split is genuinely ambiguous,
+        // so cap confidence rather than allowing one half of the screen to masquerade as certainty.
+        // Overriding a whole-overlap result requires a three-quarter spatial supermajority. A bare
+        // majority is too easy for repeated page structure to manufacture: `Screenshots3` has a
+        // false local valley supported by roughly two thirds of its tiles, while the deliberately
+        // corrupted regression has twelve of sixteen independent regions on the true offset.
+        guard supportFraction >= 0.72 else {
+            let runnerFraction = secondSupport / totalWeight
+            guard supportFraction >= 0.40, runnerFraction >= 0.30 else { return fallback }
+            return Match(
+                dy: fallback.dy,
+                confidence: min(fallback.confidence, max(0, supportFraction - runnerFraction)),
+                cost: fallback.cost,
+                overlap: fallback.overlap
+            )
+        }
+
+        guard observedOffsets.contains(consensusOffset),
+              let chosen = weightedMAD(
+                a,
+                b,
+                offset: consensusOffset,
+                rowMask: rowMask,
+                minOverlap: minimumOverlap,
+                referenceRows: frameRows
+              ) else { return fallback }
+        return Match(
+            dy: consensusOffset,
+            confidence: min(1, supportFraction),
+            cost: chosen.cost,
+            overlap: Match.OverlapAccounting(
+                countedRows: chosen.countedRows,
+                countableRows: countable,
+                minimumRequiredRows: minimumOverlap,
+                passedMinimumOverlap: true
+            )
+        )
+    }
+
+    /// Tile costs on a stable 4×4 identity grid anchored to `b`. A tile therefore represents the
+    /// same screen region at every candidate offset; candidates with less overlap simply contribute
+    /// no observation for tiles outside that overlap. There is deliberately no per-tile overlap
+    /// floor that could recreate the masked-overlap ceiling fixed in 277708d.
+    private func tileCosts(_ a: FrameProfile, _ b: FrameProfile, offset: Int, rowMask: [Bool]?) -> [TileID: Float] {
+        let kStart = max(0, -offset)
+        let kEnd = min(b.rowCount, a.rowCount - offset)
+        guard kEnd > kStart else { return [:] }
+
+        var eligibleRows: [Int] = []
+        eligibleRows.reserveCapacity(kEnd - kStart)
+        for k in kStart..<kEnd {
+            let ai = offset + k
+            if let rowMask {
+                guard ai < rowMask.count, k < rowMask.count, rowMask[ai], rowMask[k] else { continue }
+            }
+            eligibleRows.append(k)
+        }
+        guard eligibleRows.count >= minimumOverlap else { return [:] }
+
+        let columnCount = min(
+            a.rows.first?.count ?? 0,
+            b.rows.first?.count ?? 0
+        )
+        guard columnCount > 0 else { return [:] }
+
+        let rowTileCount = min(4, b.rowCount)
+        let columnTileCount = min(4, columnCount)
+        var result: [TileID: Float] = [:]
+
+        for rowTile in 0..<rowTileCount {
+            let rowStart = max(kStart, rowTile * b.rowCount / rowTileCount)
+            let rowEnd = min(kEnd, (rowTile + 1) * b.rowCount / rowTileCount)
+            guard rowEnd > rowStart else { continue }
+
+            for columnTile in 0..<columnTileCount {
+                let columnStart = columnTile * columnCount / columnTileCount
+                let columnEnd = (columnTile + 1) * columnCount / columnTileCount
+                guard columnEnd > columnStart else { continue }
+
+                var differenceSum: Float = 0
+                var sumA: Float = 0
+                var squareSumA: Float = 0
+                var sumB: Float = 0
+                var squareSumB: Float = 0
+                var sampleCount = 0
+
+                for k in rowStart..<rowEnd {
+                    let ai = offset + k
+                    if let rowMask {
+                        guard ai < rowMask.count, k < rowMask.count,
+                              rowMask[ai], rowMask[k] else { continue }
+                    }
+                    let columns = min(columnEnd, a.rows[ai].count, b.rows[k].count)
+                    guard columns > columnStart else { continue }
+                    for column in columnStart..<columns {
+                        let av = a.rows[ai][column]
+                        let bv = b.rows[k][column]
+                        differenceSum += abs(av - bv)
+                        sumA += av
+                        squareSumA += av * av
+                        sumB += bv
+                        squareSumB += bv * bv
+                        sampleCount += 1
+                    }
+                }
+
+                guard sampleCount > 0 else { continue }
+                let count = Float(sampleCount)
+                let meanA = sumA / count
+                let meanB = sumB / count
+                let varianceA = max(0, squareSumA / count - meanA * meanA)
+                let varianceB = max(0, squareSumB / count - meanB * meanB)
+                // A perfectly flat region matches at every offset and therefore has no vote.
+                guard max(varianceA, varianceB) > 1e-7 else { continue }
+                result[TileID(row: rowTile, column: columnTile)] = differenceSum / count
+            }
+        }
+        return result
+    }
+
+    /// Best distinct valley for one tile. Ambiguous/periodic tiles naturally get near-zero weight
+    /// and therefore cannot outvote regions with a unique alignment.
+    private func tileVote(_ observations: [TileObservation]) -> (offset: Int, weight: Double)? {
+        let scored = observations.sorted { $0.offset < $1.offset }
+        guard let bestIndex = scored.indices.min(by: { scored[$0].cost < scored[$1].cost }) else {
+            return nil
+        }
+        let best = scored[bestIndex].cost
+        let worst = scored.max { $0.cost < $1.cost }!.cost
+        let valleyLevel = best + valleyProminence * (worst - best)
+        var lo = bestIndex
+        var hi = bestIndex
+        while lo > 0,
+              scored[lo - 1].offset == scored[lo].offset - 1,
+              scored[lo - 1].cost <= valleyLevel { lo -= 1 }
+        while hi + 1 < scored.count,
+              scored[hi + 1].offset == scored[hi].offset + 1,
+              scored[hi + 1].cost <= valleyLevel { hi += 1 }
+
+        var runner = Float.greatestFiniteMagnitude
+        for index in scored.indices where index < lo || index > hi {
+            runner = min(runner, scored[index].cost)
+        }
+        let confidence = confidenceMargin(best: best, runnerUp: runner)
+        guard confidence > 0.05 else { return nil }
+        return (offset: scored[bestIndex].offset, weight: confidence)
     }
 
     /// Variance-weighted mean absolute difference and its actual counted overlap, or `nil` if the

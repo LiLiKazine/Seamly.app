@@ -29,7 +29,7 @@ public struct Compositor: Sendable {
     public let pdfPageHeightLimit: Int
 
     public init(
-        matcher: OffsetMatcher = OffsetMatcher(minimumOverlap: 8),
+        matcher: OffsetMatcher = OffsetMatcher(minimumOverlap: 8, aggregation: .tileConsensus),
         profiler: VerticalProfile = VerticalProfile(targetWidth: 64),
         refinementDelta: Int = 6,
         refinementConfidence: Double = 0.3,
