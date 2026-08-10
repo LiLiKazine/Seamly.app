@@ -214,9 +214,15 @@ class SampleHandler: RPBroadcastSampleHandler {
 
     // MARK: - Safety cue
 
-    /// Fire a sound + haptic when overlap drops toward the loss threshold. Whether either
-    /// channel is audible from a broadcast extension is a device go/no-go (see the design's
-    /// early verifications); if neither works we fall back to onboarding + detect-and-segment.
+    /// Fire a sound + haptic when overlap drops toward the loss threshold.
+    ///
+    /// Verified by hand on a physical device 2026-08-10: the vibration fires and is felt
+    /// mid-broadcast, so this is a real feedback channel and the only one that reaches a user
+    /// who is inside another app. Onboarding teaches it as "one buzz means ease up".
+    ///
+    /// The *threshold* is not here — `ScrollCaptureDriver.ingest()` decides it purely as
+    /// `overlapFraction < safetyMargin` (default 0.4), which the off-device
+    /// `CaptureSimulationTests` tier exercises. This adapter only throttles and plays.
     private func fireSafetyCue() {
         guard framesSinceCue > 45 else { return }   // throttle: at most ~once per 45 frames
         framesSinceCue = 0

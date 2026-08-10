@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// First-run, re-viewable onboarding. Teaches the three-step capture flow — and, crucially,
-/// the meaning of the mid-capture safety cue, since the broadcast extension can't draw UI.
+/// First-run, re-viewable onboarding. Teaches the four-step capture flow, including the
+/// mid-capture safety cue as its own step, since the broadcast extension can't draw UI.
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var page = 0
@@ -15,14 +15,17 @@ struct OnboardingView: View {
 
     private let steps = [
         Step(symbol: "record.circle",
-             title: "Tap Capture, choose Seamly",
-             body: "Seamly records your screen while you scroll another app. Tap Capture, pick Seamly in the sheet, and wait for the countdown."),
+             title: "Tap Record, choose Seamly",
+             body: "Seamly records your screen while you scroll another app. Tap Record, pick Seamly in the sheet, and wait for the countdown."),
         Step(symbol: "hand.draw",
              title: "Switch over and scroll steadily",
-             body: "Open the app you want to capture and scroll down at a steady, moderate pace. If you feel a buzz, ease up or scroll back a little — you're going too fast."),
+             body: "Open the app you want and scroll down at a steady, moderate pace."),
+        Step(symbol: "iphone.radiowaves.left.and.right",
+             title: "One buzz means ease up",
+             body: "If you feel a single buzz, you're scrolling too fast to keep everything joined up. Slow down, or scroll back a little and continue."),
         Step(symbol: "checkmark.seal",
              title: "Stop and come back",
-             body: "Stop the recording from the red status indicator, then return to Seamly. Your long screenshot will be waiting in the Library."),
+             body: "Stop the recording from the red indicator at the top of the screen, then return to Seamly. Your long screenshot will be waiting."),
     ]
 
     var body: some View {
