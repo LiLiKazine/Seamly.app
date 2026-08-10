@@ -148,15 +148,23 @@ enum CaptureCondition {
     case failed(String)
 }
 
-/// One plain-language observation about a capture. `isRepairable` is what Spec 2's guided
-/// repair keys off; in Spec 1 it only decides whether the copy offers a re-record.
+/// One plain-language observation about a capture.
 struct Imperfection {
+    let kind: Kind              // declaration order is the ranking
     let headline: String
     let detail: String
     let severity: Severity      // guidance | warning
-    let isRepairable: Bool
+    let recommendsRecordingAgain: Bool
 }
 ```
+
+`recommendsRecordingAgain` was originally specified as `isRepairable`, a flag Spec 2 would
+key off and Spec 1 would leave inert. Inverting it makes it earn its place immediately:
+re-recording is the only fix when content is genuinely **missing** (the recording ended
+early, or gaps from scrolling too fast), and is *useless* when everything was captured and
+merely joined imperfectly — that is what guided repair exists for. So the result screen
+offers "Record again" only where it would actually help, instead of on every imperfection.
+Spec 2 can still read the same flag from the other direction.
 
 Translations — each currently leaks pipeline vocabulary into the UI:
 
@@ -316,6 +324,12 @@ the right ceiling for this channel.
 banner, the `showEmptyNudge` alert, and `EditView`'s stepper form. `EditView` is removed
 rather than restyled: it is the surface Spec 2 replaces, and keeping a pixel-offset stepper
 form alive in the meantime would contradict the "no pipeline vocabulary" decision.
+
+**The resulting capability gap was raised and explicitly accepted (2026-08-10):** between
+this shell shipping and Spec 2 landing there is *no way to fix a bad stitch* — the only
+recourse is to record again. No interim repair affordance will be designed; building a
+throwaway one would cost roughly what the real one costs and would seed exactly the
+vocabulary Spec 2 exists to remove.
 
 ## What survives
 
