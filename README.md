@@ -8,9 +8,14 @@ iOS doesn't natively support scrolling screenshots outside of Safari's full-page
 export. Seamly fills that gap for every app.
 
 > **Status: the pipeline is built and works end to end** — live broadcast capture, video
-> import, photo import, stitching, preview, editing, and export all ship. One known gap is
-> tracked as a `withKnownIssue` test rather than hidden: the sparse broken-capture fixture still
-> needs to be replaced by a dense live-frame regression oracle
+> import, photo import, stitching, and export all ship, behind a deliberately one-shot shell:
+> a record-first home and a single result screen whose primary action is **Save to Photos**.
+> There is currently **no way to fix a bad stitch — you re-record.** The manual seam/chrome
+> editor was removed along with the rest of the test-harness UI, pending a guided-repair
+> design ([spec 2](docs/superpowers/specs/)); the non-destructive manifest it edited is still
+> there, so nothing about the format has to change when repair returns.
+> One known gap is tracked as a `withKnownIssue` test rather than hidden: the sparse
+> broken-capture fixture still needs to be replaced by a dense live-frame regression oracle
 > ([log](docs/logs/2026-07-05-03-real-frame-orientation-and-signal-fix.md)).
 > Design specs live in [`docs/superpowers/specs/`](docs/superpowers/specs/); every
 > significant decision is logged in [`DECISIONS.md`](DECISIONS.md) and [`docs/logs/`](docs/logs/).
@@ -24,13 +29,13 @@ There are three ways to get a long screenshot, all converging on the same stitch
 Because iOS only lets an app see *another* app's screen through **ReplayKit system
 broadcast**, capture works like a screen recording you drive yourself:
 
-1. Open Seamly and tap **Capture → Record**. Choose *Seamly* in the system sheet; after a
-   short countdown the red recording indicator appears.
+1. Open Seamly and tap the big **Record** button on home. Choose *Seamly* in the system sheet;
+   after a short countdown the red recording indicator appears.
 2. Switch to the app you want and **scroll steadily**. Seamly banks a frame each time you've
    scrolled far enough to need one. If you scroll too fast, you'll feel a **buzz** — just ease up.
 3. Stop the broadcast (from the red indicator / Control Center) and return to Seamly.
-4. Your capture is waiting in the **Library**, already stitched. Review it, fine-tune any
-   flagged seam, and export.
+4. Seamly stitches it and takes you **straight to the result** — no list to notice, nothing to
+   tap. Save it to Photos (or share, copy, or export a PDF), then clear it out.
 
 Capture is *process-after-stop*: Seamly is backgrounded while you scroll another app, so
 the stitched result is assembled when you come back — not shown live. (A broadcast
@@ -39,14 +44,14 @@ banner that would land in your capture.)
 
 ### From Video
 
-Already have a screen recording? **Capture → From Video** decodes it through the *same*
+Already have a screen recording? **From Video** on home decodes it through the *same*
 frame-picking code the live path uses (sampled at 30 fps) and stitches in capture order.
 
 ### From Photos
 
-**Capture → From Photos** stitches a set of overlapping screenshots you took by hand.
+**From Photos** on home stitches a set of overlapping screenshots you took by hand.
 Scroll order is recovered from the pixels; if the frames can't be confidently chained,
-Seamly falls back to your pick order and badges the capture *Order assumed*.
+Seamly falls back to your pick order and says so on the result screen.
 
 ## Features
 
@@ -62,14 +67,13 @@ Seamly falls back to your pick order and badges the capture *Order assumed*.
   detected (as the rows that don't move) and kept only once, not repeated down the image
 - 📳 **Too-fast warning** — a haptic cue when overlap with the last banked frame drops
   toward the loss threshold
-- ⚠️ **Confidence warnings** — seams where the match is uncertain, sections whose chrome
-  band didn't lock, and gaps from fast scrolling are all flagged so you know where to look
-- ✂️ **Manual fine-tuning** — correct a flagged seam's alignment, trim the ends, or adjust
-  the auto chrome-crop — all non-destructive, re-composited from the stored manifest
-- 🖼️ **Flexible export** — PNG/JPEG to Photos, or **PDF** (paginated for very long pages)
-  to Files; plus system share and copy to clipboard
-- 🗂️ **Library** — every capture is kept, so nothing is lost even if a broadcast is
-  interrupted (partial captures are recovered and badged)
+- 💬 **One plain-language verdict** — an uncertain join, a bar that couldn't be identified,
+  a gap from fast scrolling, or a recording that stopped early is reported as *one* sentence
+  in ordinary English, not a wall of badges. Pipeline vocabulary never reaches the screen.
+- 🖼️ **Flexible export** — **Save to Photos** is the primary action; also PNG share, copy to
+  clipboard, and **PDF** (paginated for very long pages)
+- 🕘 **Recents** — finished captures stay reachable until you remove them, so nothing is lost
+  if a broadcast is interrupted (partial captures are recovered and labelled as ending early)
 - 🩺 **Diagnostics** — the broadcast extension can't show UI, so it logs to a shared file
   the app can read back and share
 - 🔒 **Fully offline** — all processing happens on-device. The broadcast sees your screen
@@ -79,6 +83,7 @@ Seamly falls back to your pick order and badges the capture *Order assumed*.
 
 - [x] Import existing screenshots from Photos (the manual alternative to broadcast)
 - [x] Import an existing screen recording
+- [ ] Guided repair for a bad stitch (today the only fix is to record again)
 - [ ] Robust scroll-direction scoring on image-heavy content
 - [ ] Automatic in-session gap reconstruction (today: the gap is labeled as a segment break)
 - [ ] Horizontal / 2-D stitching for wide content
@@ -94,7 +99,7 @@ Three build products plus a diagnostic CLI and a shared container:
 | Piece | Role |
 |---|---|
 | **`StitchKit`** (local Swift package) | Pure, testable core — vertical profiling, offset matching, chrome-band detection, frame picking, order recovery, and compositing. Core Graphics + Accelerate only; no UIKit, no ReplayKit. Imported by both the app and the extension. |
-| **`Seamly`** (app target, SwiftUI) | Capture entry points + onboarding, the Library, the scrollable preview (downscaled proxy) with confidence flags and manual editing, and export. **Derives all stitch geometry** and does the heavy compositing. |
+| **`Seamly`** (app target, SwiftUI) | The one-shot shell: a record-first home with the two import entries and onboarding, and one result screen — the scrollable, zoomable proxy, a single plain-language notice, and export. **Derives all stitch geometry** and does the heavy compositing. |
 | **`SeamlyBroadcast`** (Broadcast Upload Extension) | `RPBroadcastSampleHandler` that receives live frames and does only the minimum real-time work: profile each frame, bank a keyframe when the view has scrolled far enough, fire the safety cue. Holds one frame at a time and computes **no** geometry (stays under the ~50 MB extension memory limit). |
 | **`stitch-cli`** (package executable) | Runs the real pipeline over an arbitrary clip or screenshot directory and writes the result where you can look at it. Exists because the failure modes here are *visual* — see [Testing](#testing). |
 | App Group container | Shared handoff — the extension writes raw keyframes + a manifest; the app reads them after the broadcast stops, then moves them into app storage. |
@@ -227,18 +232,18 @@ ReplayKit raw frames ── SampleHandler ── ScrollCaptureDriver ── comm
 video file ────────── VideoKeyframeSource ── ScrollCaptureDriver ── committed keyframes ────────┤
 picked screenshots / `photos` ── all selected; recover-or-input ───────────────────────────────┤
 keyframe directory / `committed` ── all already selected; recover-or-input ────────────────────┤
-App Group keyframes ── LibraryModel.importFromGroup (move; recover killed broadcasts) ─────────┘
+App Group keyframes ── CaptureModel.importFromGroup (move; recover killed broadcasts) ─────────┘
       │
       ▼
 StitchAssembler.resolveGeometry → BatchStitcher.plan
       │   pairwise offsets → order recovery → segments → per-keyframe chrome
       ▼
-StitchSession (corrected manifest, persisted, user-editable)
+StitchSession (corrected manifest, persisted; non-destructive, but nothing edits it today)
       │ Compositor
       ▼
 refineSeams (full-res snap) → hard-cut strips → CGImage / paginated PDF
       │
-      ├─ makeProxy (≤4096 px tall — GPU texture ceiling) → Library, Preview
+      ├─ makeProxy (≤4096 px tall — GPU texture ceiling) → result screen, recents thumbnail
       └─ full-res on demand                              → Photos / PNG / JPEG / PDF / clipboard
 ```
 
@@ -310,11 +315,14 @@ Seamly/                            # repo root (README, CLAUDE.md, DECISIONS.md,
     │   └── Tests/StitchKitTests/                    # + Fixtures/ (synthetic, wikipedia, RealDevice)
     ├── Seamly/                    # app target
     │   ├── SeamlyApp.swift, ContentView.swift
-    │   ├── Core/                  # LibraryModel, MediaImporter, StitchAssembler, AppGroup+Observer
+    │   ├── Core/                  # CaptureModel, MediaImporter, StitchAssembler, AppGroup+Observer
+    │   ├── DesignSystem/          # CaptureCondition (the only pipeline→English translation),
+    │   │                          # ConditionNotice, CaptureCanvas, ZoomState
     │   └── Features/
     │       ├── Capture/           # broadcast picker, video + photo import buttons
-    │       ├── Library/           # list of captures (home surface)
-    │       ├── Preview/           # proxy preview, confidence flags, EditView
+    │       ├── Home/              # record-first home + recents strip
+    │       ├── Result/            # ResultView + the outcome destinations
+    │       │                      # (ProcessingView, NothingToStitchView, CaptureFailureView)
     │       ├── Export/            # Photos / PDF / share / clipboard
     │       ├── Onboarding/
     │       └── Diagnostics/       # reads back the extension's shared log

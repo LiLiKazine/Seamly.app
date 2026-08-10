@@ -7,9 +7,19 @@ only, no accounts, no uploads.
 ## Status
 
 **The pipeline is built and works end to end.** Live ReplayKit broadcast capture, video
-import, photo import, order recovery, stitching, preview, non-destructive editing, and
-export (Photos / PNG / JPEG / PDF / clipboard) all ship. `README.md` is now an accurate
-description of the code, not a spec — trust it.
+import, photo import, order recovery, stitching, and export (Photos / PNG / JPEG / PDF /
+clipboard) all ship. `README.md` is now an accurate description of the code, not a spec —
+trust it.
+
+The UI around it is a deliberately **one-shot shell**: a record-first home (record button,
+"From Video", "From Photos", a recents strip) that navigates itself to a single result
+screen whose primary action is **Save to Photos**. There is **no way to fix a bad stitch —
+only re-record.** `EditView` and the seam/chrome controls were removed with the rest of the
+test-harness UI, pending a guided-repair spec
+(`docs/superpowers/specs/2026-08-10-one-shot-capture-shell-design.md`). Do not re-add an
+edit surface as a "missing feature": its absence is an accepted decision. The manifest is
+still non-destructive and `CaptureModel.update(_:)` is still there, unused, as the
+reconnection point.
 
 One known gap is tracked as a `withKnownIssue` test, not hidden:
 
@@ -80,9 +90,13 @@ Two conventions are load-bearing, each paid for with a real bug (see `DECISIONS.
   legitimate exception — `RPSystemBroadcastPickerView` has no SwiftUI equivalent).
 - **Swift Concurrency over GCD.** `async`/`await`, `Task`, structured concurrency — not
   `DispatchQueue`. Pixel work goes off the main actor via `Task.detached` with `Sendable`
-  boundaries; see `LibraryModel`.
-- **Actors / `@MainActor` over locks.** `LibraryModel` is `@MainActor @Observable` and is the
+  boundaries; see `CaptureModel`.
+- **Actors / `@MainActor` over locks.** `CaptureModel` is `@MainActor @Observable` and is the
   single source of truth for captures. `StitchKit`'s types are `Sendable` value types.
+- **Pure app-level types are `nonisolated`.** The app target sets
+  `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`, so anything meant to be usable off the main
+  actor (`CaptureCondition`, `CaptureFacts`, `ZoomState`, `StitchAssembler`, `MediaImporter`)
+  must say so. SwiftUI views must **not**.
 - **First-party frameworks only.** No third-party dependencies — Core Graphics, Accelerate,
   ReplayKit, AVFoundation, PhotosUI, SwiftUI.
 
@@ -97,8 +111,12 @@ fallbacks like `?? someDefault` or `?? image`.
 Do, in order of preference:
 
 - **Propagate** with `throws` / `try` — most of `StitchKit` already does.
-- **Handle at the boundary**: recover, surface it (`LibraryModel.importError`,
+- **Handle at the boundary**: recover, surface it (`CaptureModel.importError`,
   `Capture.Phase.failed`), or log via `Diagnostics`.
+- **Never show a raw error to a user.** `StitchKit`'s error types are plain `Error` enums, so
+  `localizedDescription` bridges them to *"The operation couldn't be completed.
+  (StitchKit.Compositor.CompositorError error 1.)"*. Anything user-visible goes through
+  `CaptureCondition.message(for:)`; the raw error still goes to `Diagnostics`.
 - **Ignore explicitly and narrowly** when you must: catch it and comment why — e.g.
   `catch { /* best-effort cleanup; source already gone */ }`. If a reviewer can't tell the
   error was ignored *on purpose*, the handling is wrong.
@@ -150,9 +168,10 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
   `BatchStitcher` (order recovery + manifest), `Compositor` (assembly, PDF),
   `StitchSession`/`SessionStore`/`KeyframeIO`/`Diagnostics` (persistence),
   `AppGroup` (identifiers shared with the extension)
-- **App:** `Seamly/Seamly/` — `Core/` (`LibraryModel`, `StitchAssembler`, `MediaImporter`,
-  `AppGroup+Observer`) and `Features/` (`Capture`, `Library`, `Preview`, `Export`,
-  `Onboarding`, `Diagnostics`)
+- **App:** `Seamly/Seamly/` — `Core/` (`CaptureModel`, `StitchAssembler`, `MediaImporter`,
+  `AppGroup+Observer`), `DesignSystem/` (`CaptureCondition` — the *only* place pipeline facts
+  and errors become English — plus `ConditionNotice`, `CaptureCanvas`, `ZoomState`), and
+  `Features/` (`Capture`, `Home`, `Result`, `Export`, `Onboarding`, `Diagnostics`)
 - **Extension:** `Seamly/SeamlyBroadcast/SampleHandler.swift`
 - **Tests:** `Seamly/StitchKit/Tests/StitchKitTests/` (the bulk) ·
   `Seamly/SeamlyTests/` (app-level import/assembly) · `Seamly/SeamlyUITests/`
