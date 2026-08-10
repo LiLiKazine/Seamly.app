@@ -42,14 +42,14 @@ import Foundation
         let frames = try baiduFrames()
         let profiler = VerticalProfile()
         let matcher = OffsetMatcher()
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         let profiles = frames.map { profiler.profile($0) }
         let rowScale = profiles[0].rowScale
 
         for i in 0..<(frames.count - 1) {
             let a = profiles[i], b = profiles[i + 1]
             let bound = max(0, a.rowCount - matcher.minimumOverlap)
-            let m = matcher.match(a, b, searchRange: -bound...bound, rowMask: detector.staticMask(a, b))
+            let m = matcher.match(a, b, searchRange: -bound...bound, rowMasks: RowMaskPair(shared: detector.staticMask(a, b)))
             let dyPx = Double(m.dy) * rowScale
             let truth = Double(Self.baiduGroundTruth[i])
 

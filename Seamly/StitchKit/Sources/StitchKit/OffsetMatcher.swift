@@ -1,5 +1,46 @@
 import Foundation
 
+/// Screen-row masks for the two profiles being matched.
+///
+/// `first` is indexed in the first/`a` profile, and `second` is indexed in the second/`b`
+/// profile. A row contributes to a score only when both corresponding profile rows are unmasked.
+/// `nil` on either side means every row in that profile is available.
+public struct RowMaskPair: Sendable, Equatable {
+    public let first: [Bool]?
+    public let second: [Bool]?
+
+    public init(first: [Bool]? = nil, second: [Bool]? = nil) {
+        self.first = first
+        self.second = second
+    }
+
+    public init(shared rowMask: [Bool]?) {
+        self.init(first: rowMask, second: rowMask)
+    }
+
+    public static let unmasked = RowMaskPair()
+
+    fileprivate func includes(first firstRow: Int, second secondRow: Int) -> Bool {
+        Self.includes(firstRow, in: first) && Self.includes(secondRow, in: second)
+    }
+
+    fileprivate func countableRows(upTo rows: Int) -> Int {
+        min(Self.countableRows(first, upTo: rows), Self.countableRows(second, upTo: rows))
+    }
+
+    private static func includes(_ row: Int, in rowMask: [Bool]?) -> Bool {
+        guard let rowMask else { return true }
+        return row >= 0 && row < rowMask.count && rowMask[row]
+    }
+
+    private static func countableRows(_ rowMask: [Bool]?, upTo rows: Int) -> Int {
+        guard let rowMask else { return rows }
+        var counted = 0
+        for row in 0..<rows where row < rowMask.count && rowMask[row] { counted += 1 }
+        return counted
+    }
+}
+
 /// Aligns one frame profile against another by sliding and scoring candidate vertical offsets.
 /// Live capture uses a variance-weighted whole-overlap MAD; offline geometry can additionally
 /// require independent spatial regions to agree before overriding that result.
@@ -21,7 +62,7 @@ public struct OffsetMatcher: Sendable {
     }
 
     /// Absolute floor on *scored* rows required for a candidate offset to be considered — the
-    /// signal floor. This is the only overlap gate a `rowMask` can affect: a masked match counts
+    /// signal floor. This is the only overlap gate row masks can affect: a masked match counts
     /// content rows only, and below a handful of them there is nothing to judge an alignment on.
     public let minimumOverlap: Int
     /// Overlap floor as a fraction of the smaller frame's row count, applied to the **geometric**
@@ -71,17 +112,17 @@ public struct OffsetMatcher: Sendable {
     /// Aligns `b` onto `a`. A positive `dy` means content scrolled *down* by `dy` rows:
     /// `a[dy + k]` corresponds to `b[k]`.
     ///
-    /// `rowMask` (screen-row indexed, one entry per row) restricts the score to content
-    /// rows: a row contributes only when it is unmasked in *both* frames. Static chrome
-    /// sits at the same screen row across frames, so masking those rows out keeps the
-    /// alignment content-driven instead of being pinned to `dy=0` by fixed bars. `nil`
-    /// scores every overlapping row (unchanged behavior). A candidate offset whose masked
-    /// overlap falls below `minimumOverlap` is rejected exactly as an unmasked one would be.
-    public func match(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>, rowMask: [Bool]? = nil) -> Match {
+    /// `rowMasks` restrict scoring to rows that are content in each frame's own screen
+    /// coordinates: a row contributes only when `a[dy + k]` is unmasked by `first` and `b[k]`
+    /// is unmasked by `second`. `nil` scores every overlapping row (unchanged behavior).
+    /// A candidate offset whose masked overlap falls below `minimumOverlap` is rejected exactly
+    /// as an unmasked one would be.
+    public func match(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>, rowMasks: RowMaskPair? = nil) -> Match {
         if case .tileConsensus = aggregation {
-            return tileConsensusMatch(a, b, searchRange: searchRange, rowMask: rowMask)
+            return tileConsensusMatch(a, b, searchRange: searchRange, rowMasks: rowMasks ?? .unmasked)
         }
 
+        let rowMasks = rowMasks ?? .unmasked
         var bestOffset = 0
         var bestScore = Float.greatestFiniteMagnitude
         var scored: [(offset: Int, candidate: CandidateScore)] = []
@@ -128,7 +169,7 @@ public struct OffsetMatcher: Sendable {
         // toward `dy=0`, which flipped a real downward baidu pair to `dy=0` outright.
         let frameRows = min(a.rowCount, b.rowCount)
         let referenceRows = frameRows
-        let countableRows = countableRows(rowMask, upTo: frameRows)
+        let countableRows = rowMasks.countableRows(upTo: frameRows)
         let minGeometricOverlap = max(
             minimumOverlap,
             Int((minimumOverlapFraction * Double(frameRows)).rounded())
@@ -140,7 +181,7 @@ public struct OffsetMatcher: Sendable {
                 a,
                 b,
                 offset: offset,
-                rowMask: rowMask,
+                rowMasks: rowMasks,
                 minOverlap: minimumOverlap,
                 referenceRows: referenceRows
             ) else { continue }
@@ -195,18 +236,6 @@ public struct OffsetMatcher: Sendable {
         )
     }
 
-    /// The most rows any offset could contribute to the score: every overlapping row for an
-    /// unmasked match, and only the content rows for a masked one (`offset = 0` counts exactly
-    /// those, and every other offset counts a subset). This is what the overlap *floor* has to be
-    /// a fraction of — a floor set against the frame's rows asks a masked match to count rows the
-    /// mask already removed.
-    private func countableRows(_ rowMask: [Bool]?, upTo rows: Int) -> Int {
-        guard let rowMask else { return rows }
-        var counted = 0
-        for k in 0..<rows where k < rowMask.count && rowMask[k] { counted += 1 }
-        return counted
-    }
-
     private struct CandidateScore {
         let cost: Float
         let countedRows: Int
@@ -230,7 +259,7 @@ public struct OffsetMatcher: Sendable {
     /// the whole-frame winner; otherwise the proven weighted-MAD result is retained. The returned
     /// `cost` always comes from weighted MAD, so direction and edge gates continue comparing the
     /// same quantity they were calibrated against.
-    private func tileConsensusMatch(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>, rowMask: [Bool]?) -> Match {
+    private func tileConsensusMatch(_ a: FrameProfile, _ b: FrameProfile, searchRange: ClosedRange<Int>, rowMasks: RowMaskPair) -> Match {
         let weightedMatcher = OffsetMatcher(
             minimumOverlap: minimumOverlap,
             minimumOverlapFraction: minimumOverlapFraction,
@@ -238,13 +267,13 @@ public struct OffsetMatcher: Sendable {
             overlapPenalty: overlapPenalty,
             aggregation: .weightedMean
         )
-        let fallback = weightedMatcher.match(a, b, searchRange: searchRange, rowMask: rowMask)
+        let fallback = weightedMatcher.match(a, b, searchRange: searchRange, rowMasks: rowMasks)
         let frameRows = min(a.rowCount, b.rowCount)
         // Four vertical voting bands need enough rows to form real regions. Below this size the
         // grid amplifies individual rows and changes long-standing component-fixture behavior;
         // the whole-overlap matcher is both cheaper and better defined there.
         guard frameRows >= 64 else { return fallback }
-        let countable = countableRows(rowMask, upTo: frameRows)
+        let countable = rowMasks.countableRows(upTo: frameRows)
         let minGeometricOverlap = max(
             minimumOverlap,
             Int((minimumOverlapFraction * Double(frameRows)).rounded())
@@ -254,7 +283,7 @@ public struct OffsetMatcher: Sendable {
         var byTile: [TileID: [TileObservation]] = [:]
         for offset in searchRange {
             guard frameRows - abs(offset) >= minGeometricOverlap else { continue }
-            let costs = tileCosts(a, b, offset: offset, rowMask: rowMask)
+            let costs = tileCosts(a, b, offset: offset, rowMasks: rowMasks)
             guard !costs.isEmpty else { continue }
             observedOffsets.insert(offset)
             for (tile, cost) in costs {
@@ -332,10 +361,10 @@ public struct OffsetMatcher: Sendable {
                 a,
                 b,
                 offset: consensusOffset,
-                rowMask: rowMask,
+                rowMasks: rowMasks,
                 minOverlap: minimumOverlap,
                 referenceRows: frameRows
-              ) else { return fallback }
+            ) else { return fallback }
         return Match(
             dy: consensusOffset,
             confidence: min(1, supportFraction),
@@ -353,7 +382,7 @@ public struct OffsetMatcher: Sendable {
     /// same screen region at every candidate offset; candidates with less overlap simply contribute
     /// no observation for tiles outside that overlap. There is deliberately no per-tile overlap
     /// floor that could recreate the masked-overlap ceiling fixed in 277708d.
-    private func tileCosts(_ a: FrameProfile, _ b: FrameProfile, offset: Int, rowMask: [Bool]?) -> [TileID: Float] {
+    private func tileCosts(_ a: FrameProfile, _ b: FrameProfile, offset: Int, rowMasks: RowMaskPair) -> [TileID: Float] {
         let kStart = max(0, -offset)
         let kEnd = min(b.rowCount, a.rowCount - offset)
         guard kEnd > kStart else { return [:] }
@@ -362,9 +391,7 @@ public struct OffsetMatcher: Sendable {
         eligibleRows.reserveCapacity(kEnd - kStart)
         for k in kStart..<kEnd {
             let ai = offset + k
-            if let rowMask {
-                guard ai < rowMask.count, k < rowMask.count, rowMask[ai], rowMask[k] else { continue }
-            }
+            guard rowMasks.includes(first: ai, second: k) else { continue }
             eligibleRows.append(k)
         }
         guard eligibleRows.count >= minimumOverlap else { return [:] }
@@ -398,10 +425,7 @@ public struct OffsetMatcher: Sendable {
 
                 for k in rowStart..<rowEnd {
                     let ai = offset + k
-                    if let rowMask {
-                        guard ai < rowMask.count, k < rowMask.count,
-                              rowMask[ai], rowMask[k] else { continue }
-                    }
+                    guard rowMasks.includes(first: ai, second: k) else { continue }
                     let columns = min(columnEnd, a.rows[ai].count, b.rows[k].count)
                     guard columns > columnStart else { continue }
                     for column in columnStart..<columns {
@@ -459,9 +483,9 @@ public struct OffsetMatcher: Sendable {
     }
 
     /// Variance-weighted mean absolute difference and its actual counted overlap, or `nil` if the
-    /// overlap is below `minOverlap` or carries no structure. When `rowMask` is supplied, only rows
-    /// unmasked in both frames count toward the score and the overlap guard.
-    private func weightedMAD(_ a: FrameProfile, _ b: FrameProfile, offset: Int, rowMask: [Bool]?, minOverlap: Int, referenceRows: Int) -> CandidateScore? {
+    /// overlap is below `minOverlap` or carries no structure. When masks are supplied, only rows
+    /// unmasked in their respective frames count toward the score and the overlap guard.
+    private func weightedMAD(_ a: FrameProfile, _ b: FrameProfile, offset: Int, rowMasks: RowMaskPair, minOverlap: Int, referenceRows: Int) -> CandidateScore? {
         // b[k] aligns with a[offset + k]; k must be valid in both.
         let kStart = max(0, -offset)
         let kEnd = min(b.rowCount, a.rowCount - offset)
@@ -471,10 +495,7 @@ public struct OffsetMatcher: Sendable {
         var counted = 0
         for k in kStart..<kEnd {
             let ai = offset + k
-            if let rowMask {
-                // Skip rows masked out in either frame (chrome sits at the same screen row).
-                guard ai < rowMask.count, k < rowMask.count, rowMask[ai], rowMask[k] else { continue }
-            }
+            guard rowMasks.includes(first: ai, second: k) else { continue }
             let weight = (a.variances[ai] + b.variances[k]) * 0.5
             weightedSum += weight * rowDifference(a.rows[ai], b.rows[k])
             weightTotal += weight

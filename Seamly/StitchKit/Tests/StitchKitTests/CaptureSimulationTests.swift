@@ -30,13 +30,13 @@ import Foundation
     /// what lets the assertions below reason about cadence *and* about `plan()`'s segment breaks
     /// with the same yardstick.
     ///
-    /// NOTE: `ContentBandDetector()`'s default tolerances (0.02/0.02) must stay in sync with
+    /// NOTE: `ChromeStaticRowDetector()`'s default tolerances (0.02/0.02) must stay in sync with
     /// `BatchStitcher`'s default `chromeTolerance` (also 0.02) — if either drifts, this helper
     /// stops measuring what `plan()` actually measured.
     private func overlaps(_ kfs: [ScrollCaptureDriver.CapturedKeyframe]) -> [Double] {
         let profiler = VerticalProfile()
         let matcher = OffsetMatcher()
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         let profiles = kfs.map { profiler.profile($0.image) }
         var out: [Double] = []
         for i in 0..<(profiles.count - 1) {
@@ -44,7 +44,7 @@ import Foundation
             let n = min(a.rowCount, b.rowCount)
             let bound = max(1, n - matcher.minimumOverlap)
             let mask = detector.staticMask(a, b)
-            let masked = matcher.match(a, b, searchRange: 1...bound, rowMask: mask)
+            let masked = matcher.match(a, b, searchRange: 1...bound, rowMasks: RowMaskPair(shared: mask))
             let plain = matcher.match(a, b, searchRange: 1...bound)
             let m = masked.confidence >= plain.confidence ? masked : plain
             let dy = min(max(0, m.dy), n)

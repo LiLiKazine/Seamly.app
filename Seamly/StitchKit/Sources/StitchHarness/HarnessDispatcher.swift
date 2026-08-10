@@ -100,8 +100,8 @@ package struct HarnessDispatcher: Sendable {
         let matcher = OffsetMatcher()
         let bound = max(0, min(a.rowCount, b.rowCount) - matcher.minimumOverlap)
         let maskChrome = arguments.count == 3
-        let mask = maskChrome ? ContentBandDetector().staticMask(a, b) : nil
-        let matched = matcher.match(a, b, searchRange: (-bound)...bound, rowMask: mask)
+        let mask = maskChrome ? ChromeStaticRowDetector().staticMask(a, b) : nil
+        let matched = matcher.match(a, b, searchRange: (-bound)...bound, rowMasks: mask.map(RowMaskPair.init(shared:)))
         let sourceDy = Int((Double(matched.dy) * a.rowScale).rounded())
         let commonRows = min(a.rowCount, b.rowCount)
         let geometricOverlapFraction = commonRows == 0
@@ -174,7 +174,7 @@ package struct HarnessDispatcher: Sendable {
         let order: [Int]
         let seamCount: Int
         let segmentBreakCount: Int
-        let contentBandCount: Int
+        let keyframeChromeCount: Int
     }
 
     private struct SessionStage: Encodable {
@@ -511,7 +511,7 @@ package struct HarnessDispatcher: Sendable {
             order: plan.order,
             seamCount: plan.session.seams.count,
             segmentBreakCount: plan.session.segmentBreaks.count,
-            contentBandCount: plan.session.contentBands.count
+            keyframeChromeCount: plan.session.keyframeChrome.count
         )
         return PipelinePreparation(
             ingestionStage: ingestionStage,
@@ -709,9 +709,14 @@ package struct HarnessDispatcher: Sendable {
 
     private func readAndValidateManifest(folder: URL) throws -> StitchSession {
         let manifestURL = folder.appendingPathComponent("manifest.json")
+        try rejectDuplicateKeyframeIDs(in: manifestURL)
         let session: StitchSession
         do {
             session = try SessionStore(containerURL: folder).readManifest(at: manifestURL)
+        } catch is KeyframeChromeValidationError {
+            throw HarnessError.invalidSession(
+                "keyframe chrome records must be unique and reference stored keyframes"
+            )
         } catch {
             throw HarnessFailure(
                 error: .manifestReadFailed(manifestURL.path),
@@ -720,6 +725,19 @@ package struct HarnessDispatcher: Sendable {
         }
         try validateManifest(session)
         return session
+    }
+
+    /// Preserve the harness's more specific topology diagnostic before strict domain decoding can
+    /// report the resulting chrome record as dangling. Malformed JSON remains the decoder's job.
+    private func rejectDuplicateKeyframeIDs(in manifestURL: URL) throws {
+        guard let data = try? Data(contentsOf: manifestURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let keyframes = object["keyframes"] as? [[String: Any]] else { return }
+        let ids = keyframes.compactMap { $0["id"] as? String }
+        guard ids.count == keyframes.count else { return }
+        guard Set(ids).count == ids.count else {
+            throw HarnessError.invalidSession("keyframe IDs must be unique")
+        }
     }
 
     private func validateManifest(_ session: StitchSession) throws {
@@ -769,6 +787,11 @@ package struct HarnessDispatcher: Sendable {
         }
         if let shared = Set(seamIndices).intersection(breakIndices).sorted().first {
             throw HarnessError.invalidSession("seam and segment break cannot share index \(shared)")
+        }
+        guard session.keyframeChromeValidationIssues().isEmpty else {
+            throw HarnessError.invalidSession(
+                "keyframe chrome records must be unique and reference stored keyframes"
+            )
         }
     }
 

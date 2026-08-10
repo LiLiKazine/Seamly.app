@@ -221,6 +221,75 @@ STATUS: capture-side effort COMPLETE. Ready for finishing-a-development-branch.
 
 ---
 
+# Per-Keyframe Dynamic Chrome — complete
+
+**Goal:** Replace unreleased per-segment `ContentBand` persistence and behavior with one
+UUID-keyed per-keyframe chrome model, then remove the collapsing-toolbar known issue without
+changing Screenshots3 order, offsets, or continuous-segment topology.
+
+**Branch:** `fix/per-keyframe-chrome` in `/Users/leo/Developer/Seamly.app`, based on
+`origin/main` at `4321fa4`.
+
+**Done-criteria:**
+1. `ContentBand` and `StitchSession.contentBands` are absent from production source.
+2. Automatic chrome measurements and independent user overrides resolve per keyframe UUID.
+3. Offset refinement supports asymmetric frame masks without narrowing geometric admissibility.
+4. Screenshots3 expanded toolbar appears zero times, with unchanged order/dy/no-break oracles.
+5. Screenshots2/4 and translucent/static chrome gates stay green; only the unrelated sparse
+   fast-flick known issue remains.
+6. Complete StitchKit tests, app simulator build, real-fixture CLI renders, diff checks, and
+   whole-branch specialist review are green with evidence.
+
+**Hard-stop allowlist:** no force-push/history rewrite, release/publish, external communication,
+new worktree, or deletion of user data. Do not commit, push, or open a PR unless explicitly asked.
+
+## PKC task status
+
+| # | Task | Status |
+|---|------|--------|
+| PKC1 | Per-keyframe chrome value types, session storage/resolver, manifest format | done |
+| PKC2 | Asymmetric matcher masks | done |
+| PKC3 | Per-keyframe compositor layout | done |
+| PKC4 | Seam-aware per-keyframe detector | done |
+| PKC5 | Stored-identity remap + editor/diagnostics/CLI/harness migration | done |
+| PKC6 | Delete segment-band model + update decisions/docs | done |
+| PKC7 | Full verification + specialist review | done |
+
+## PKC log
+
+- Iteration 0: user approved full prerelease cutover. No old-manifest compatibility branch;
+  the new manifest format is required. `StitchSession` remains aggregate owner, records use
+  `Keyframe.id`, automatic measurements remain separate from per-edge user overrides, and
+  resolution is override → automatic → zero crop.
+- PKC1: 23 focused session tests green after review fixed invalid confidence and stale-keyframe
+  geometry hazards. New manifests require `stitch-session.keyframe-chrome.v1`; UUID records encode
+  deterministically; duplicate/dangling records validate explicitly; overrides resolve per edge.
+- PKC2: 22 focused matcher tests green. `RowMaskPair` replaces the shared mask across weighted and
+  tile-consensus scoring; geometric admissibility stays mask-independent. All source/test callers
+  migrated without retaining an obsolete overload; review approved with counterfactual hardening.
+- PKC3: compositor resolves chrome from each adjacent keyframe, refines with asymmetric masks, and
+  uses the previous/current content-bottom formula. Twelve compositor and three seam-refinement
+  tests pass, including row-exact expanded↔collapsed synthetic transitions.
+- PKC4: aligned seam residuals expand the stable baseline per frame. Screenshots3 resolves bottoms
+  `[431,166,166,166,166]` with unchanged order/dy/one-segment topology; focused real measurement,
+  raw-pixel, dynamic-chrome, and batch suites pass.
+- PKC5: stored identities remap by slot while overrides stay attached to stored UUIDs. Editor,
+  preview diagnostics, CLI, and unreleased harness contract use keyframe chrome; focused app and
+  harness verification recorded below.
+- PKC6: `ContentBand.swift`, `StitchSession.contentBands`, coding keys, accessors, generation, and
+  all source/test callers deleted. Required new manifest only; decisions, architecture docs, and
+  Screenshots3 fixture notes updated.
+- PKC7: complete StitchKit verification passed **180 tests in 28 suites** in 1274.115 seconds,
+  with exactly the one pre-existing sparse fast-flick known issue. The app, broadcast extension,
+  and editor built under the iPhone 17 simulator; all five `BatchAssemblyTests` passed. Rendered
+  Screenshots3 (1320×9440) and Screenshots4 (1320×10063) composites were visually inspected clean.
+  `git diff --check` and the legacy-production-symbol audit passed. Four-dimension Swift design
+  review found no blockers (Structure 3, Interface 4, Testing 4, Agentic Readiness 4); remaining
+  detector extraction, explicit absent-edge typing, and focused top-edge/boundary tests are
+  non-blocking follow-ups.
+
+---
+
 # Video & Photo Import (spec 2026-07-24) — active
 
 Spec: docs/superpowers/specs/2026-07-24-video-and-photo-import-design.md

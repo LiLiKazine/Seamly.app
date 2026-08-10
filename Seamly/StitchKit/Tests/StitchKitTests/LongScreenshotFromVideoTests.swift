@@ -87,10 +87,10 @@ import Foundation
         #expect(plan.session.seams.allSatisfy { !$0.isLowConfidence },
                 "confidences \(plan.session.seams.map(\.confidence))")
 
-        // Every segment must carry a real band — a lone-frame segment used to get `.unlocked` and
-        // composite its bars into the middle of the page.
-        for (i, band) in plan.session.contentBands.enumerated() {
-            #expect(band.topChrome > 0, "segment \(i) has no chrome band")
+        #expect(plan.session.keyframeChrome.count == plan.session.keyframes.count)
+        for keyframe in plan.session.keyframes {
+            let chrome = plan.session.resolvedChrome(for: keyframe)
+            #expect(chrome.insets.top > 0, "frame \(keyframe.index) has no top chrome")
         }
 
         let stitched = try BatchStitcher().stitch(images)
@@ -109,14 +109,14 @@ import Foundation
 
         let profiler = VerticalProfile()
         let matcher = OffsetMatcher()
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         let profiles = r.keyframes.map { profiler.profile($0.image) }
         for i in 0..<(profiles.count - 1) {
             let a = profiles[i], b = profiles[i + 1]
             let n = min(a.rowCount, b.rowCount)
             let bound = max(1, n - matcher.minimumOverlap)
             let mask = detector.staticMask(a, b)
-            let masked = matcher.match(a, b, searchRange: 1...bound, rowMask: mask)
+            let masked = matcher.match(a, b, searchRange: 1...bound, rowMasks: RowMaskPair(shared: mask))
             let plain = matcher.match(a, b, searchRange: 1...bound)
             let m = masked.confidence >= plain.confidence ? masked : plain
             let overlap = Double(n - min(max(0, m.dy), n)) / Double(n)

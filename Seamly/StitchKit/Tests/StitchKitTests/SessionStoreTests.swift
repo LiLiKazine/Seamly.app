@@ -25,6 +25,38 @@ private func session(_ id: UUID, created: TimeInterval, status: SessionStatus = 
         #expect(read == original)
     }
 
+    @Test func persistenceRejectsInvalidKeyframeChromeOwnership() throws {
+        let store = SessionStore(containerURL: tempContainer())
+        var invalid = session(UUID(), created: 100)
+        let keyframeID = try #require(invalid.keyframes.first?.id)
+        invalid.keyframeChrome = [
+            KeyframeChrome(keyframeID: keyframeID),
+            KeyframeChrome(keyframeID: keyframeID),
+        ]
+
+        #expect(throws: KeyframeChromeValidationError.self) {
+            try store.writeManifest(invalid)
+        }
+
+        let valid = session(invalid.id, created: 100)
+        let validKeyframeID = try #require(valid.keyframes.first?.id)
+        let folder = try store.createFolder(for: valid.id)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let validData = try encoder.encode(valid)
+        var object = try #require(try JSONSerialization.jsonObject(with: validData) as? [String: Any])
+        object["keyframeChrome"] = [
+            ["keyframeID": validKeyframeID.uuidString],
+            ["keyframeID": validKeyframeID.uuidString],
+        ]
+        try JSONSerialization.data(withJSONObject: object).write(
+            to: store.manifestURL(in: folder), options: .atomic
+        )
+        #expect(throws: KeyframeChromeValidationError.self) {
+            try store.readManifest(for: invalid.id)
+        }
+    }
+
     @Test func incrementalManifestUpdatesOverwrite() throws {
         let store = SessionStore(containerURL: tempContainer())
         var s = session(UUID(), created: 100, status: .recording)

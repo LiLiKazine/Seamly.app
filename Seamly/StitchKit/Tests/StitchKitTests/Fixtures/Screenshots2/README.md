@@ -44,7 +44,8 @@ One segment, no breaks, order `[0, 1, 2, 3, 4]`. Stitched output 1320×8171.
 Both bars contain a strip that changes between shots — screenshots are taken seconds apart, so
 the clock and the status indicators simply aren't the same pixels. Every other fixture here was
 captured fast enough (or cropped tightly enough) that its bars are static end to end, which let
-`chromeBand` get away with scanning inward from each edge and halting at the first row that moved.
+the old segment-wide detector get away with scanning inward from each edge and halting at the first
+row that moved.
 On this set that scan halts inside the status bar and reports **81 px / 27 px**, leaving the whole
 browser toolbar inside every keyframe's strip — it is then stamped across the middle of the page
 once per frame, while the manifest still reads as perfectly healthy (right order, one segment, no
@@ -52,7 +53,8 @@ breaks, high confidence).
 
 That is the trap: this defect is invisible to every structural assertion and only shows up in the
 pixels. See `docs/logs/2026-08-08-01-chrome-band-across-a-moving-status-bar.md` and
-`DynamicChromeBandTests`, which asserts the band *and* counts toolbar occurrences in the composite.
+`DynamicChromeTests`, which asserts the per-keyframe chrome *and* counts toolbar occurrences in the
+composite.
 
 Kept at native resolution, like `RealDevice/` and `Screenshots/`: a downscaled copy changes
 `rowScale`, and the 39 px and 15 px moving strips are exactly the scale of detail that would not

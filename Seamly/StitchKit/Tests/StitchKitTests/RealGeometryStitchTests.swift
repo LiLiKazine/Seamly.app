@@ -86,7 +86,7 @@ import Foundation
             let b = profiler.profile(contentFrame(doc: d, scroll: s + Self.scrollStep, windowRows: Self.contentWindow))
             let n = min(a.rowCount, b.rowCount)
             let bound = max(0, n - matcher.minimumOverlap)
-            let m = matcher.match(a, b, searchRange: -bound...bound, rowMask: nil)
+            let m = matcher.match(a, b, searchRange: -bound...bound, rowMasks: nil)
             errorsPx.append(abs(Double(m.dy) * a.rowScale - Double(Self.scrollStep)))
         }
         let maxErr = errorsPx.max() ?? .infinity

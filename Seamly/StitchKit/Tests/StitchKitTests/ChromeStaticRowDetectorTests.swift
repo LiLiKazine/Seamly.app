@@ -31,13 +31,13 @@ private func scrollingFrames(count: Int, top: Int, bottom: Int, total: Int, step
     }
 }
 
-@Suite struct ContentBandDetectorTests {
+@Suite struct ChromeStaticRowDetectorTests {
 
     // MARK: - Bootstrap static mask
 
     @Test func staticMaskExcludesChromeAndKeepsContent() {
         let frames = scrollingFrames(count: 2, top: 10, bottom: 8, total: 100, step: 20)
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         let mask = detector.staticMask(frames[0], frames[1])
         let m = try! #require(mask)
         #expect(m.count == 100)
@@ -50,7 +50,7 @@ private func scrollingFrames(count: Int, top: Int, bottom: Int, total: Int, step
     @Test func staticMaskIsNilForPreScrollStillFrames() {
         // Two identical frames: everything static, no content moved -> caller matches unmasked.
         let f = framed(top: 10, bottom: 8, total: 100) { Float($0) / 100 }
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         #expect(detector.staticMask(f, f) == nil)
     }
 }

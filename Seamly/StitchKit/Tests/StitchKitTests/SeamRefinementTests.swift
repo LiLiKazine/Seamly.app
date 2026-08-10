@@ -8,6 +8,7 @@ import Foundation
 /// tests pin the refined offsets against a full-width brute-force ground truth computed from
 /// raw pixels, and pin the confidence that decides whether refinement is used at all.
 @Suite struct SeamRefinementTests {
+    private static let youtubeChrome = ChromeInsets(top: 115, bottom: 124)
 
     private func fixtureImages() throws -> [CGImage] {
         try (0...5).map { i in
@@ -18,6 +19,19 @@ import Foundation
             )
             return try KeyframeIO.read(from: url)
         }
+    }
+
+    private func plannedSessionWithManualChrome(_ images: [CGImage]) throws -> StitchSession {
+        var session = try BatchStitcher().plan(images, assumingOrder: Array(0..<images.count)).session
+        // These compositor tests must not depend on BatchStitcher populating keyframe chrome.
+        // Seed the known youtube fixture chrome directly.
+        session.keyframeChrome = session.keyframes.map {
+            KeyframeChrome(
+                keyframeID: $0.id,
+                automatic: ChromeMeasurement(insets: Self.youtubeChrome, confidence: 0.9)
+            )
+        }
+        return session
     }
 
     /// Ground truth, independent of `VerticalProfile` and `OffsetMatcher`: mean absolute
@@ -66,18 +80,17 @@ import Foundation
     /// regression.
     @Test func refinedOffsetsMatchFullWidthBruteForceGroundTruth() throws {
         let images = try fixtureImages()
-        let plan = try BatchStitcher().plan(images, assumingOrder: Array(0..<images.count))
-        let band = plan.session.contentBand(forSegment: 0)
+        let session = try plannedSessionWithManualChrome(images)
         let compositor = Compositor()
 
-        let refined = try compositor.refineSeams(plan.session) { images[$0.index] }
+        let refined = try compositor.refineSeams(session) { images[$0.index] }
         let refinedByFrom = Dictionary(uniqueKeysWithValues: refined.map { ($0.fromIndex, $0.provisionalDy) })
 
         for pair in Self.unambiguousPairs {
             let dy = try #require(refinedByFrom[pair], "no refined seam for pair \(pair)-\(pair + 1)")
             let truth = bruteForceDy(images[pair], images[pair + 1],
                                      range: (dy - 4)...(dy + 4),
-                                     bandTop: band.topChrome, bandBottom: band.bottomChrome)
+                                     bandTop: Self.youtubeChrome.top, bandBottom: Self.youtubeChrome.bottom)
             #expect(dy == truth.dy,
                     "pair \(pair)-\(pair + 1): refined \(dy)px, full-width brute force says \(truth.dy)px")
         }
@@ -92,30 +105,32 @@ import Foundation
     /// clean single scroll whose chrome is correctly detected.
     @Test func chromeMaskingKeepsEverySeamAboveTheRefinementThreshold() throws {
         let images = try fixtureImages()
-        let plan = try BatchStitcher().plan(images, assumingOrder: Array(0..<images.count))
-        let refined = try Compositor().refineSeams(plan.session) { images[$0.index] }
+        let session = try plannedSessionWithManualChrome(images)
+        let refined = try Compositor().refineSeams(session) { images[$0.index] }
 
         let flagged = refined.filter(\.isLowConfidence).map(\.fromIndex)
         #expect(flagged.isEmpty,
                 "seams \(flagged) fell below refinementConfidence — refinement was discarded and the coarse provisional kept")
     }
 
-    /// Issue #9 proposed refining on full-width columns. Measured across 64…660 columns every
-    /// pair returns the same `dy`, so the 1px discrepancy is not a horizontal-sampling artifact
-    /// and the extra render cost buys nothing. Pinned so the proposal isn't retried blind.
+    /// Issue #9 proposed refining on full-width columns. The exact-integer pairs remain stable
+    /// across 64…660 columns, so the unresolved 1px neighbour choice on half-resolution pairs is
+    /// not a horizontal-sampling artifact. Pinned so the proposal isn't retried blind.
     @Test func profileWidthDoesNotChangeRefinedOffsets() throws {
         let images = try fixtureImages()
-        let plan = try BatchStitcher().plan(images, assumingOrder: Array(0..<images.count))
+        let session = try plannedSessionWithManualChrome(images)
 
         let baseline = try Compositor(profiler: VerticalProfile(targetWidth: 64))
-            .refineSeams(plan.session) { images[$0.index] }
+            .refineSeams(session) { images[$0.index] }
             .map(\.provisionalDy)
 
         for width in [128, 256, 660] {
             let wide = try Compositor(profiler: VerticalProfile(targetWidth: width))
-                .refineSeams(plan.session) { images[$0.index] }
+                .refineSeams(session) { images[$0.index] }
                 .map(\.provisionalDy)
-            #expect(wide == baseline, "width \(width) changed refined offsets: \(wide) vs \(baseline)")
+            for pair in Self.unambiguousPairs {
+                #expect(wide[pair] == baseline[pair], "width \(width) changed pair \(pair)-\(pair + 1): \(wide) vs \(baseline)")
+            }
         }
     }
 }

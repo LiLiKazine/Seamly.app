@@ -38,7 +38,7 @@ visual triage). They hand off through an App Group container.
 
 `SeamlyBroadcast` profiles each frame, banks a keyframe when the view has scrolled far
 enough, writes raw BGRA bytes, and appends a manifest entry. It computes **no** order, **no**
-seams, **no** segment breaks, **no** chrome bands. All of it is re-derived from the keyframes
+seams, **no** segment breaks, **no** chrome measurements. All of it is re-derived from the keyframes
 at import by `BatchStitcher`, via `StitchAssembler.resolveGeometry`, which then *overwrites*
 the extension's manifest.
 
@@ -59,9 +59,11 @@ is corrupted by fixed chrome and isn't pixel-exact. Instead:
 `VerticalProfile` renders each frame small and sRGB and reduces every row to a short vector
 of BT.601 luma samples (a **row signature**), with `vDSP` supplying row mean and variance.
 `OffsetMatcher` scores candidate offsets by variance-weighted MAD over those signatures.
-`ContentBandDetector` finds static chrome rows and that band is both masked out of matching
-and cropped from every strip but the first. `Compositor` snaps each seam to pixel-exactness
-with a full-res local search, then draws **hard cuts** — never feathered.
+`ChromeStaticRowDetector` supplies a same-screen static-row signal; `BatchStitcher` combines it with
+aligned seam residuals to persist chrome per keyframe UUID. Matching and full-resolution refinement
+use asymmetric masks when adjacent frames have different chrome. `Compositor` resolves per-edge
+user overrides over automatic measurements, snaps each seam to pixel-exactness, and draws **hard
+cuts** — never feathered.
 
 Two conventions are load-bearing, each paid for with a real bug (see `DECISIONS.md`):
 
@@ -143,7 +145,8 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
 
 - **Core (start here):** `Seamly/StitchKit/Sources/StitchKit/`
   — `VerticalProfile`/`FrameProfile` (signal), `OffsetMatcher` (matching),
-  `ContentBandDetector` (chrome), `KeyframeSelector`/`ScrollCaptureDriver` (frame picking),
+  `ChromeDomain`/`ChromeStaticRowDetector` (per-keyframe chrome + row signal),
+  `KeyframeSelector`/`ScrollCaptureDriver` (frame picking),
   `BatchStitcher` (order recovery + manifest), `Compositor` (assembly, PDF),
   `StitchSession`/`SessionStore`/`KeyframeIO`/`Diagnostics` (persistence),
   `AppGroup` (identifiers shared with the extension)

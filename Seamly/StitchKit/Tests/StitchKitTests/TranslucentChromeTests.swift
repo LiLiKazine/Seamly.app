@@ -64,7 +64,7 @@ import Foundation
 
         // Sanity: this really is the case under test — the mean moved well past tolerance while
         // the variance held. Otherwise the test proves nothing.
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         #expect(abs(a.means[0] - b.means[0]) > detector.meanTolerance,
                 "fixture should shift the chrome row's mean past tolerance")
         #expect(abs(a.variances[0] - b.variances[0]) <= detector.varianceTolerance,
@@ -88,7 +88,7 @@ import Foundation
 
     /// A single-column profile carries no horizontal structure, so the structural comparison must
     /// not fire there — otherwise every row with a matching variance would read as chrome and the
-    /// mean-based contract used throughout `ContentBandDetectorTests` would silently invert.
+    /// mean-based contract used throughout `ChromeStaticRowDetectorTests` would silently invert.
     @Test func singleColumnProfilesStayOnTheMeanTest() {
         let total = 20
         func profile(_ base: Float) -> FrameProfile {
@@ -98,7 +98,7 @@ import Foundation
                 sourceWidth: 1, sourceHeight: total
             )
         }
-        let detector = ContentBandDetector()
+        let detector = ChromeStaticRowDetector()
         let a = profile(0), b = profile(0.5)
         // Same variance everywhere, means differ by 0.5: without the guard the structural test
         // would call these identical (a 1-column centered signature is always [0]), so every row
@@ -120,22 +120,22 @@ import Foundation
         }
     }
 
-    /// The headline regression: the translucent tab bar must be detected as bottom chrome. A zero
-    /// band here means the bar is baked into the stitch once per keyframe.
+    /// The headline regression: the translucent tab bar must be detected as bottom chrome on every
+    /// keyframe. A zero measurement means the bar is baked into the stitch again.
     @Test func translucentTabBarIsDetectedAsBottomChrome() throws {
         let images = try fixtureImages()
         let plan = try BatchStitcher().plan(images, assumingOrder: Array(0..<images.count))
-        let band = plan.session.contentBand(forSegment: 0)
+        let chrome = plan.session.keyframes.map { plan.session.resolvedChrome(for: $0).insets }
 
         // The bar's top edge sits ~124px above the frame bottom at this fixture's half resolution
         // (measured against the source frames); allow room for profile-row quantization.
-        #expect(band.bottomChrome > 0,
+        #expect(chrome.allSatisfy { $0.bottom > 0 },
                 "translucent tab bar not detected — it will repeat once per keyframe")
-        #expect((100...170).contains(band.bottomChrome),
-                "bottom chrome \(band.bottomChrome)px should be ≈124px (the tab bar)")
+        #expect(chrome.allSatisfy { (100...170).contains($0.bottom) },
+                "bottom chrome \(chrome.map(\.bottom))px should be ≈124px (the tab bar)")
         // The opaque status bar was always detectable; it must not regress.
-        #expect((80...130).contains(band.topChrome),
-                "top chrome \(band.topChrome)px should be ≈94px (the status bar)")
+        #expect(chrome.allSatisfy { (80...130).contains($0.top) },
+                "top chrome \(chrome.map(\.top))px should be ≈94px (the status bar)")
     }
 
     /// Cropping the *right amount* of chrome, not merely a nonzero amount. Each frame's strip is
@@ -146,18 +146,16 @@ import Foundation
         let images = try fixtureImages()
         let stitcher = BatchStitcher()
         let plan = try stitcher.plan(images, assumingOrder: Array(0..<images.count))
-        let band = plan.session.contentBand(forSegment: 0)
         // Refine through the same compositor the app assembles with, so the offsets are the ones
         // the cut actually uses.
         let refined = try Compositor(refinementDelta: 16)
             .refineSeams(plan.session) { images[plan.order[$0.index]] }
         try #require(refined.count == images.count - 1)
 
-        let height = images[0].height
-        let cutRow = height - band.bottomChrome - 1
-        try #require(cutRow > 0, "bottom chrome \(band.bottomChrome) leaves no content")
-
         for (pair, seam) in refined.enumerated() {
+            let bottom = plan.session.resolvedChrome(for: plan.session.keyframes[pair]).insets.bottom
+            let cutRow = images[pair].height - bottom - 1
+            try #require(cutRow > 0, "bottom chrome \(bottom) leaves no content")
             let sameContentRow = cutRow - seam.provisionalDy
             guard sameContentRow - Self.probeRows + 1 >= 0 else { continue }
             let a = try bandMean(images[pair], endingAt: cutRow)

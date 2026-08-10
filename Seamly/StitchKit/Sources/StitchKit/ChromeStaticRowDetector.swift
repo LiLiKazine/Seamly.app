@@ -1,6 +1,6 @@
 import Foundation
 
-/// Decides, for one pair of frames, which rows held still — the chrome test.
+/// Classifies, for one pair of frames, which screen rows held still.
 ///
 /// Chrome (status/nav/tab bars, home indicator) sits at the *same screen row* across frames, so at
 /// a given index it barely changes while content rows differ once the view scrolls. Two consumers,
@@ -8,8 +8,7 @@ import Foundation
 ///
 /// - `KeyframeSelector` calls `staticMask` during live capture, so fixed bars can't pin the
 ///   measured scroll to zero.
-/// - `BatchStitcher.chromeBand` calls `isStatic` to measure the band that gets cropped from the
-///   finished stitch.
+/// - `BatchStitcher` calls `isStatic` for the stable baseline of each keyframe's chrome measurement.
 ///
 /// "Still" is not simply "same brightness": a translucent bar's pixels track whatever scrolls
 /// behind it. See `isStatic` and `structureTolerance` / `translucencyMeanCeiling`.
@@ -21,7 +20,7 @@ import Foundation
 /// 2026-07-25-01: capture had moved to `ScrollCaptureDriver`/`KeyframeSelector`, which bank
 /// keyframes and leave every geometry decision to `BatchStitcher` at import, so nothing outside
 /// tests had constructed a tracker for some time.
-public struct ContentBandDetector: Sendable {
+public struct ChromeStaticRowDetector: Sendable {
     /// Max mean difference for a row to still count as static (0...1 luminance).
     public let meanTolerance: Float
     /// Max variance difference for a row to still count as static.
@@ -98,7 +97,7 @@ public struct ContentBandDetector: Sendable {
     /// identically row to row scores a centered difference of exactly 0 while its brightness swings
     /// by 0.5+, so it would be cropped as chrome.
     ///
-    /// **Only `BatchStitcher.chromeBand` passes `true`.** `staticMask` deliberately does not,
+    /// **Only `BatchStitcher`'s persisted chrome measurement passes `true`.** `staticMask` deliberately does not,
     /// because it feeds `OffsetMatcher` rather than the crop: masking a translucent bar out of the
     /// match removes signal rather than cleaning it.
     ///

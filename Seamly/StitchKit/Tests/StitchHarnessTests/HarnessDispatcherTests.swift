@@ -634,11 +634,12 @@ struct HarnessDispatcherTests {
             let plan = try #require(stages["plan"] as? [String: Any])
             #expect(Set(plan.keys) == [
                 "orderMode", "orderAssumed", "order", "seamCount", "segmentBreakCount",
-                "contentBandCount",
+                "keyframeChromeCount",
             ])
             #expect(plan["orderMode"] as? String == "input")
             #expect(plan["orderAssumed"] as? Bool == false)
             #expect((plan["order"] as? [Int])?.count == committedCount)
+            #expect(plan["keyframeChromeCount"] as? Int == committedCount)
             let session = try #require(stages["session"] as? [String: Any])
             let folder = URL(fileURLWithPath: try #require(session["folder"] as? String))
             let stitched = output.appendingPathComponent("stitched.png")
@@ -655,6 +656,32 @@ struct HarnessDispatcherTests {
             let manifest = try #require(try JSONSerialization.jsonObject(with: manifestData) as? [String: Any])
             let keyframes = try #require(manifest["keyframes"] as? [[String: Any]])
             #expect(keyframes.allSatisfy { ($0["filename"] as? String)?.hasSuffix(".bgra") == true })
+        }
+    }
+
+    @Test func inspectRejectsDuplicateAndDanglingKeyframeChromeRecords() async throws {
+        try await withTemporaryDirectory { directory in
+            let folder = try await makeSession(in: directory, imageCount: 2)
+            let manifestURL = folder.appendingPathComponent("manifest.json")
+            let original = try Data(contentsOf: manifestURL)
+
+            try mutateManifest(at: manifestURL) { manifest in
+                let keyframes = try #require(manifest["keyframes"] as? [[String: Any]])
+                let keyframeID = try #require(keyframes.first?["id"] as? String)
+                let record: [String: Any] = ["keyframeID": keyframeID]
+                manifest["keyframeChrome"] = [record, record]
+            }
+            await #expect(throws: HarnessError.invalidSession("keyframe chrome records must be unique and reference stored keyframes")) {
+                try await HarnessDispatcher().run(["session", "inspect", folder.path])
+            }
+
+            try original.write(to: manifestURL, options: .atomic)
+            try mutateManifest(at: manifestURL) { manifest in
+                manifest["keyframeChrome"] = [["keyframeID": UUID().uuidString]]
+            }
+            await #expect(throws: HarnessError.invalidSession("keyframe chrome records must be unique and reference stored keyframes")) {
+                try await HarnessDispatcher().run(["session", "inspect", folder.path])
+            }
         }
     }
 

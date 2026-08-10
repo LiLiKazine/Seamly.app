@@ -21,9 +21,11 @@ struct Capture: Identifiable {
     var id: UUID { session.id }
     var isIncomplete: Bool { session.status == .recording }
     var flaggedSeamCount: Int { session.seams.filter(\.isLowConfidence).count }
-    /// Segments whose chrome band didn't lock confidently — composited whole-frame (chrome may
-    /// repeat) and awaiting an editor override. Surfaced so the failure isn't silent.
-    var lowConfidenceBandCount: Int { session.contentBands.filter(\.isLowConfidence).count }
+    /// Keyframes with no safe automatic or user-authored chrome crop. Surfaced so the compositor's
+    /// whole-frame fallback is visible and the user can supply an override.
+    var unresolvedChromeCount: Int {
+        session.keyframes.filter { !session.chromeEdgesNeedingReview(for: $0).isEmpty }.count
+    }
     /// Scroll order used the input-order fallback for Photos or broadcast rather than recovery.
     var orderAssumed: Bool { session.orderAssumed }
 }

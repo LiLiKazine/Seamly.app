@@ -18,12 +18,51 @@ enum StitchAssembler {
         session.colorSpaceName.flatMap { CGColorSpace(name: $0 as CFString) }
     }
 
+    /// Transfer a freshly planned session's slot-owned automatic chrome measurements onto the
+    /// persisted keyframe identities that replace the planner's temporary UUIDs.
+    ///
+    /// Replanning owns the automatic layer, so an absent new measurement removes an old one. The
+    /// persisted session continues to own the user layer, which follows its keyframe UUID even when
+    /// scroll-order recovery moves that keyframe to a different slot. Records that belong to neither
+    /// side's canonical keyframe list are intentionally omitted, and ambiguous duplicate records are
+    /// treated as absent rather than emitting an invalid manifest.
+    nonisolated static func remapKeyframeChrome(
+        from plannedSession: StitchSession,
+        onto finalKeyframes: [Keyframe],
+        preserving existingChrome: [KeyframeChrome]
+    ) -> [KeyframeChrome] {
+        func uniqueRecords(_ records: [KeyframeChrome]) -> [UUID: KeyframeChrome] {
+            Dictionary(
+                uniqueKeysWithValues: Dictionary(grouping: records, by: \.keyframeID)
+                    .compactMap { keyframeID, matches in
+                        matches.count == 1 ? (keyframeID, matches[0]) : nil
+                    }
+            )
+        }
+
+        let plannedKeyframes = plannedSession.keyframes.sorted { $0.index < $1.index }
+        let storedKeyframes = finalKeyframes.sorted { $0.index < $1.index }
+        let plannedByID = uniqueRecords(plannedSession.keyframeChrome)
+        let existingByID = uniqueRecords(existingChrome)
+
+        return storedKeyframes.enumerated().map { slot, storedKeyframe in
+            let plannedID = plannedKeyframes.indices.contains(slot) ? plannedKeyframes[slot].id : nil
+            let automatic = plannedID.flatMap { plannedByID[$0]?.automatic }
+            let userOverride = existingByID[storedKeyframe.id]?.userOverride
+            return KeyframeChrome(
+                keyframeID: storedKeyframe.id,
+                automatic: automatic,
+                userOverride: userOverride
+            )
+        }
+    }
+
     /// Re-derive scroll order and geometry for a session with `BatchStitcher`, using `strategy`
     /// to decide how much to trust the input order, and returning a corrected manifest. Run
-    /// **once at import**: the extension's live-tracked seams and bands are unreliable (the whole
+    /// **once at import**: the extension's live-tracked seams and chrome are unreliable (the whole
     /// on-device failure), so we plan again from the keyframes under the caller's explicit source
-    /// policy — recovering order when requested and replacing seams, segment breaks, and content
-    /// bands. All user-facing fields (trims, color space, status, id, timestamps) are preserved, so
+    /// policy — recovering order when requested and replacing seams, segment breaks, and automatic
+    /// chrome. All user-facing fields (trims, color space, status, id, timestamps) are preserved, so
     /// the corrected manifest still composites and edits normally.
     /// A session with fewer than two keyframes has nothing to reorder and is returned unchanged.
     nonisolated static func resolveGeometry(_ session: StitchSession, in folder: URL, strategy: BatchStitcher.OrderStrategy, stitcher: BatchStitcher = BatchStitcher()) throws -> StitchSession {
@@ -43,7 +82,11 @@ enum StitchAssembler {
         }
         resolved.seams = plan.session.seams
         resolved.segmentBreaks = plan.session.segmentBreaks
-        resolved.contentBands = plan.session.contentBands
+        resolved.keyframeChrome = remapKeyframeChrome(
+            from: plan.session,
+            onto: resolved.keyframes,
+            preserving: session.keyframeChrome
+        )
         resolved.orderAssumed = plan.session.orderAssumed
         return resolved
     }

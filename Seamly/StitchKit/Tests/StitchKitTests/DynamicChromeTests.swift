@@ -24,7 +24,7 @@ import Foundation
 /// So the true chrome is 372 px at the top and 234 px at the bottom, and any measurement that
 /// scans inward from an edge and halts at the first row that moved reports a small fraction of
 /// it — which then repeats once per keyframe in the composite.
-@Suite struct DynamicChromeBandTests {
+@Suite struct DynamicChromeTests {
 
     static let names = ["IMG_1850", "IMG_1851", "IMG_1852", "IMG_1853", "IMG_1854"]
 
@@ -55,18 +55,24 @@ import Foundation
     /// The upper bounds allow the outward rounding `sourcePixels` applies (one profile row, and
     /// the profile quantizes 2868 px into 640 rows, so ~4.5 px each) — cropping a little extra
     /// chrome is harmless, cropping content is not.
-    @Test func chromeBandCoversEachBarThoughBothContainAMovingStrip() throws {
+    @Test func perKeyframeChromeCoversEachBarThoughBothContainAMovingStrip() throws {
         let plan = try BatchStitcher().plan(try framesInScrollOrder())
         #expect(plan.order == Array(0..<Self.names.count), "recovered \(plan.order)")
         #expect(plan.session.segmentBreaks.isEmpty, "one continuous scroll must stay one segment")
-        let band = try #require(plan.session.contentBands.first)
-
         let trueTop = Self.contentTop
         let trueBottom = Self.frameHeight - 1 - Self.contentBottom
-        #expect((trueTop...(trueTop + 16)).contains(band.topChrome),
-                "top chrome \(band.topChrome)px, expected ~\(trueTop)px")
-        #expect((trueBottom...(trueBottom + 16)).contains(band.bottomChrome),
-                "bottom chrome \(band.bottomChrome)px, expected ~\(trueBottom)px")
+
+        let records = Dictionary(uniqueKeysWithValues: plan.session.keyframeChrome.map { ($0.keyframeID, $0) })
+        let automatic = try plan.session.keyframes.map { keyframe -> ChromeMeasurement in
+            try #require(records[keyframe.id]?.automatic,
+                         "missing automatic chrome for ordered keyframe \(keyframe.index)")
+        }
+        #expect(Set(records.keys) == Set(plan.session.keyframes.map(\.id)),
+                "automatic chrome must be keyed by planned keyframe UUIDs")
+        #expect(automatic.map(\.insets.top).allSatisfy { (trueTop...(trueTop + 16)).contains($0) },
+                "per-keyframe top chrome \(automatic.map(\.insets.top))px, expected ~\(trueTop)px")
+        #expect(automatic.map(\.insets.bottom).allSatisfy { (trueBottom...(trueBottom + 16)).contains($0) },
+                "per-keyframe bottom chrome \(automatic.map(\.insets.bottom))px, expected ~\(trueBottom)px")
     }
 
     /// The visible consequence, asserted on the pixels rather than on the manifest: an
@@ -113,9 +119,9 @@ import Foundation
         #expect(toolbarOccurrences(in: stitched) == 1,
                 "\(fixture): the toolbar appears \(toolbarOccurrences(in: stitched))x in the \(stitched.width)x\(stitched.height) stitch")
 
-        var unbanded = plan.session
-        unbanded.contentBands = unbanded.contentBands.map { _ in ContentBand() }
-        let uncropped = try compositor.composite(unbanded, images: source)
+        var unchromed = plan.session
+        unchromed.keyframeChrome = unchromed.keyframeChrome.map { KeyframeChrome(keyframeID: $0.keyframeID) }
+        let uncropped = try compositor.composite(unchromed, images: source)
         #expect(toolbarOccurrences(in: uncropped) == frames.count,
                 "\(fixture): with the band zeroed the toolbar should repeat once per keyframe; if it does not, the check above cannot see duplicates at all")
     }
@@ -138,13 +144,15 @@ import Foundation
         }
         let order = Array(0..<frames.count)
 
-        let guarded = try #require(try BatchStitcher().plan(frames, assumingOrder: order).session.contentBands.first)
-        #expect(guarded.topChrome == 242,
+        let guardedSession = try BatchStitcher().plan(frames, assumingOrder: order).session
+        let guarded = guardedSession.resolvedChrome(for: try #require(guardedSession.keyframes.first)).insets
+        #expect(guarded.top == 242,
                 "the measured bar, unchanged — see Fixtures/Screenshots/README.md")
 
-        let unguarded = try #require(try BatchStitcher(minChromeStaticFraction: 0)
-            .plan(frames, assumingOrder: order).session.contentBands.first)
-        #expect(unguarded.topChrome > 1000,
+        let unguardedSession = try BatchStitcher(minChromeStaticFraction: 0)
+            .plan(frames, assumingOrder: order).session
+        let unguarded = unguardedSession.resolvedChrome(for: try #require(unguardedSession.keyframes.first)).insets
+        #expect(unguarded.top > 1000,
                 "the guard is inert here: the candidate band no longer swallows the page, so this fixture has stopped exercising the hazard and something else must")
     }
 }

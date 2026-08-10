@@ -229,6 +229,130 @@ private func evenlyDividedProfiles(firstDy: Int = 15, secondDy: Int = 5) -> (Fra
         return FrameProfile(means: means, variances: vars, sourceWidth: 100, sourceHeight: total * 10)
     }
 
+    private func framedProfile(topChrome: Int, bottomChrome: Int, total: Int, content: [Float], chromePattern: [Float]) -> FrameProfile {
+        precondition(content.count == total - topChrome - bottomChrome)
+        var means = [Float](repeating: 0, count: total)
+        var vars = [Float](repeating: 0, count: total)
+        for i in 0..<total {
+            if i < topChrome {
+                means[i] = chromePattern[i]; vars[i] = 0.3
+            } else if i >= total - bottomChrome {
+                means[i] = chromePattern[topChrome + (i - (total - bottomChrome))]; vars[i] = 0.3
+            } else {
+                means[i] = content[i - topChrome]; vars[i] = 0.01
+            }
+        }
+        return FrameProfile(means: means, variances: vars, sourceWidth: 100, sourceHeight: total * 10)
+    }
+
+    private func mask(topChrome: Int, bottomChrome: Int, total: Int) -> [Bool] {
+        (0..<total).map { $0 >= topChrome && $0 < total - bottomChrome }
+    }
+
+    private func asymmetricChromeFixture() -> (
+        a: FrameProfile,
+        b: FrameProfile,
+        firstMask: [Bool],
+        secondMask: [Bool],
+        expectedDy: Int
+    ) {
+        let total = 160
+        let firstTop = 5
+        let firstBottom = 35
+        let secondTop = 20
+        let secondBottom = 20
+        let scroll = 30
+        let contentRows = total - firstTop - firstBottom
+        #expect(contentRows == total - secondTop - secondBottom)
+        let full = contentSignal(count: contentRows + scroll).map { 0.5 + ($0 - 0.5) * 0.05 }
+        let chrome = (0..<(firstTop + firstBottom)).map { Float(($0 * 37) % 100) / 100 }
+        let a = framedProfile(
+            topChrome: firstTop,
+            bottomChrome: firstBottom,
+            total: total,
+            content: Array(full[0..<contentRows]),
+            chromePattern: chrome
+        )
+        let b = framedProfile(
+            topChrome: secondTop,
+            bottomChrome: secondBottom,
+            total: total,
+            content: Array(full[scroll..<(scroll + contentRows)]),
+            chromePattern: chrome
+        )
+        return (
+            a,
+            b,
+            mask(topChrome: firstTop, bottomChrome: firstBottom, total: total),
+            mask(topChrome: secondTop, bottomChrome: secondBottom, total: total),
+            scroll + firstTop - secondTop
+        )
+    }
+
+    private func locallyCorruptedAsymmetricChromeFixture() -> (
+        a: FrameProfile,
+        b: FrameProfile,
+        firstMask: [Bool],
+        secondMask: [Bool],
+        expectedDy: Int,
+        lureDy: Int
+    ) {
+        let total = 160
+        let firstTop = 5
+        let firstBottom = 55
+        let secondTop = 20
+        let secondBottom = 40
+        let trueScroll = 30
+        let lureScroll = 20
+        let contentHeight = total - firstTop - firstBottom
+        #expect(contentHeight == total - secondTop - secondBottom)
+        let columns = 8
+        let fullHeight = contentHeight + max(trueScroll, lureScroll)
+
+        func quiet(_ y: Int, _ column: Int) -> Float {
+            let mixed = (y &* 73 &+ column &* 151 &+ y &* column &* 17) % 997
+            return 0.49 + 0.02 * Float(mixed) / 996
+        }
+
+        func lure(_ y: Int, _ column: Int) -> Float {
+            let mixed = (y &* 37 &+ column &* 211 &+ y &* column &* 29) % 101
+            return mixed.isMultiple(of: 2) ? 0.05 : 0.95
+        }
+
+        func chromeRow(_ screenRow: Int) -> [Float] {
+            (0..<columns).map { column in
+                (screenRow + column).isMultiple(of: 2) ? Float(0.04) : Float(0.96)
+            }
+        }
+
+        let source = (0..<fullHeight).map { y in
+            (0..<columns).map { column in
+                column < 6 ? quiet(y, column) : lure(y, column)
+            }
+        }
+        let aContent = Array(source[0..<contentHeight])
+        let bContent = (0..<contentHeight).map { row in
+            (0..<columns).map { column in
+                column < 6 ? quiet(row + trueScroll, column) : lure(row + lureScroll, column)
+            }
+        }
+
+        func framedSpatialProfile(topChrome: Int, bottomChrome: Int, contentRows: [[Float]]) -> FrameProfile {
+            let topRows = (0..<topChrome).map(chromeRow)
+            let bottomRows = (0..<bottomChrome).map { chromeRow(total - bottomChrome + $0) }
+            return spatialProfile(topRows + contentRows + bottomRows)
+        }
+
+        return (
+            framedSpatialProfile(topChrome: firstTop, bottomChrome: firstBottom, contentRows: aContent),
+            framedSpatialProfile(topChrome: secondTop, bottomChrome: secondBottom, contentRows: bContent),
+            mask(topChrome: firstTop, bottomChrome: firstBottom, total: total),
+            mask(topChrome: secondTop, bottomChrome: secondBottom, total: total),
+            trueScroll + firstTop - secondTop,
+            lureScroll + firstTop - secondTop
+        )
+    }
+
     @Test func staticChromeBiasesUnmaskedMatchToZero() {
         // Regression proof of Gap 1: identical high-variance chrome pins the unmasked match
         // to dy=0 even though the low-variance content scrolled by 15.
@@ -249,7 +373,7 @@ private func evenlyDividedProfiles(firstDy: Int = 15, secondDy: Int = 5) -> (Fra
         var mask = [Bool](repeating: true, count: 140)
         for i in 0..<20 { mask[i] = false }
         for i in 120..<140 { mask[i] = false }
-        let m = matcher.match(a, b, searchRange: -30...30, rowMask: mask)
+        let m = matcher.match(a, b, searchRange: -30...30, rowMasks: RowMaskPair(shared: mask))
         #expect(m.dy == 15)   // chrome excluded -> the true content shift wins
         #expect(m.confidence > 0.3)
         let overlap = try #require(m.overlap)
@@ -266,6 +390,79 @@ private func evenlyDividedProfiles(firstDy: Int = 15, secondDy: Int = 5) -> (Fra
         #expect(abs(overlap.fraction - geometricFraction) > 0.04)
     }
 
+    @Test func asymmetricChromeNeedsIndependentMasksToRecoverContentShift() {
+        let fixture = asymmetricChromeFixture()
+        let sharedFirstMask = matcher.match(
+            fixture.a,
+            fixture.b,
+            searchRange: -30...30,
+            rowMasks: RowMaskPair(shared: fixture.firstMask)
+        )
+        let sharedSecondMask = matcher.match(
+            fixture.a,
+            fixture.b,
+            searchRange: -30...30,
+            rowMasks: RowMaskPair(shared: fixture.secondMask)
+        )
+        #expect(sharedFirstMask.dy != fixture.expectedDy)
+        #expect(sharedSecondMask.dy != fixture.expectedDy)
+
+        let m = matcher.match(
+            fixture.a,
+            fixture.b,
+            searchRange: -30...30,
+            rowMasks: RowMaskPair(first: fixture.firstMask, second: fixture.secondMask)
+        )
+        #expect(m.dy == fixture.expectedDy)
+        #expect(m.confidence > 0.3)
+    }
+
+    @Test func tileConsensusUsesIndependentMasksForPerTileVotes() {
+        let fixture = locallyCorruptedAsymmetricChromeFixture()
+        let rowMasks = RowMaskPair(first: fixture.firstMask, second: fixture.secondMask)
+        let weighted = OffsetMatcher(aggregation: .weightedMean).match(
+            fixture.a,
+            fixture.b,
+            searchRange: 1...30,
+            rowMasks: rowMasks
+        )
+        #expect(weighted.dy == fixture.lureDy, "fixture no longer fools the aggregate matcher")
+
+        let consensusMatcher = OffsetMatcher(aggregation: .tileConsensus)
+        let chromeFixture = asymmetricChromeFixture()
+        let sharedFirstMask = consensusMatcher.match(
+            chromeFixture.a,
+            chromeFixture.b,
+            searchRange: -30...30,
+            rowMasks: RowMaskPair(shared: chromeFixture.firstMask)
+        )
+        let sharedSecondMask = consensusMatcher.match(
+            chromeFixture.a,
+            chromeFixture.b,
+            searchRange: -30...30,
+            rowMasks: RowMaskPair(shared: chromeFixture.secondMask)
+        )
+        #expect(sharedFirstMask.dy != chromeFixture.expectedDy)
+        #expect(sharedSecondMask.dy != chromeFixture.expectedDy)
+
+        let asymmetricChrome = consensusMatcher.match(
+            chromeFixture.a,
+            chromeFixture.b,
+            searchRange: -30...30,
+            rowMasks: RowMaskPair(first: chromeFixture.firstMask, second: chromeFixture.secondMask)
+        )
+        #expect(asymmetricChrome.dy == chromeFixture.expectedDy)
+
+        let consensus = consensusMatcher.match(
+            fixture.a,
+            fixture.b,
+            searchRange: 1...30,
+            rowMasks: rowMasks
+        )
+        #expect(consensus.dy == fixture.expectedDy)
+        #expect(consensus.confidence > 0.5)
+    }
+
     /// Masking changes how an offset is *scored*, never which offsets are *admissible*.
     ///
     /// The fractional overlap floor used to be applied to the masked row count, and a masked match
@@ -280,10 +477,13 @@ private func evenlyDividedProfiles(firstDy: Int = 15, secondDy: Int = 5) -> (Fra
     @Test func maskingDoesNotNarrowAdmissibility() {
         let a = profile(contentSignal(count: 200))
         let b = profile(contentSignal(count: 200, seed: 2))
-        // Mask out 100 of 200 rows, so a masked match can never count more than half the frame.
-        var mask = [Bool](repeating: true, count: 200)
-        for i in 0..<50 { mask[i] = false }
-        for i in 150..<200 { mask[i] = false }
+        // Distinct masks that leave the same-sized content band at slightly different screen rows,
+        // so the signal sweep covers asymmetric availability as well as the old shared-mask ceiling.
+        var firstMask = [Bool](repeating: false, count: 200)
+        for i in 50..<150 { firstMask[i] = true }
+        var secondMask = [Bool](repeating: false, count: 200)
+        for i in 55..<155 { secondMask[i] = true }
+        let rowMasks = RowMaskPair(first: firstMask, second: secondMask)
 
         var checked = 0
         for aggregation in [OffsetMatcher.Aggregation.weightedMean, .tileConsensus] {
@@ -292,10 +492,10 @@ private func evenlyDividedProfiles(firstDy: Int = 15, secondDy: Int = 5) -> (Fra
                 // Rows the mask actually leaves at this offset. Below `minimumOverlap` the match is
                 // rejected for want of *signal*, which is the mask's legitimate business; this test is
                 // about everything above that line.
-                let achievable = (0..<(200 - dy)).count { mask[$0] && mask[$0 + dy] }
+                let achievable = (0..<(200 - dy)).count { secondMask[$0] && firstMask[$0 + dy] }
                 guard achievable >= matcher.minimumOverlap else { continue }
                 guard matcher.match(a, b, searchRange: dy...dy).cost < .greatestFiniteMagnitude else { continue }
-                let masked = matcher.match(a, b, searchRange: dy...dy, rowMask: mask)
+                let masked = matcher.match(a, b, searchRange: dy...dy, rowMasks: rowMasks)
                 #expect(masked.cost < .greatestFiniteMagnitude,
                         "\(aggregation) dy=\(dy): plain scores this offset and the mask leaves \(achievable) rows, but masked rejects it — the mask is capping how far a match can measure")
                 checked += 1
@@ -312,7 +512,7 @@ private func evenlyDividedProfiles(firstDy: Int = 15, secondDy: Int = 5) -> (Fra
         let b = profile(contentSignal(count: 100, seed: 2))
         var mask = [Bool](repeating: false, count: 100)
         for i in 40..<44 { mask[i] = true }   // 4 rows < minimumOverlap (8)
-        let m = matcher.match(a, b, searchRange: -20...20, rowMask: mask)
+        let m = matcher.match(a, b, searchRange: -20...20, rowMasks: RowMaskPair(shared: mask))
         #expect(m.dy == 0)
         #expect(m.confidence == 0)
         let overlap = try #require(m.overlap)
@@ -328,7 +528,30 @@ private func evenlyDividedProfiles(firstDy: Int = 15, secondDy: Int = 5) -> (Fra
         let a = profile(Array(full[0..<100]))
         let b = profile(Array(full[15..<115]))
         let plain = matcher.match(a, b, searchRange: -40...40)
-        let masked = matcher.match(a, b, searchRange: -40...40, rowMask: nil)
+        let masked = matcher.match(a, b, searchRange: -40...40, rowMasks: nil)
+        let explicitlyUnmasked = matcher.match(a, b, searchRange: -40...40, rowMasks: .unmasked)
         #expect(plain == masked)
+        #expect(plain == explicitlyUnmasked)
+    }
+
+    @Test func equalAsymmetricMasksMatchSharedMaskResult() {
+        let full = contentSignal(count: 140).map { 0.5 + ($0 - 0.5) * 0.05 }
+        let chrome = (0..<40).map { Float(($0 * 37) % 100) / 100 }
+        let a = framedProfile(chrome: 20, total: 140, content: Array(full[0..<100]), chromePattern: chrome)
+        let b = framedProfile(chrome: 20, total: 140, content: Array(full[15..<115]), chromePattern: chrome)
+        let mask = mask(topChrome: 20, bottomChrome: 20, total: 140)
+
+        for aggregation in [OffsetMatcher.Aggregation.weightedMean, .tileConsensus] {
+            let matcher = OffsetMatcher(aggregation: aggregation)
+            let shared = matcher.match(a, b, searchRange: -30...30, rowMasks: RowMaskPair(shared: mask))
+            let equalPair = matcher.match(
+                a,
+                b,
+                searchRange: -30...30,
+                rowMasks: RowMaskPair(first: mask, second: mask)
+            )
+            #expect(equalPair == shared)
+            #expect(equalPair.dy == 15)
+        }
     }
 }
