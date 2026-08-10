@@ -48,7 +48,7 @@ struct HomeView: View {
                 }
             }
             .overlay {
-                if model.importProgress != nil || isStitching {
+                if model.importProgress != nil || model.isAssemblingNewArrival {
                     ProcessingView(progress: model.importProgress)
                         .background(.regularMaterial)
                 }
@@ -72,8 +72,13 @@ struct HomeView: View {
             path = [id]
             model.consumePendingResult()
         }
+        // React to the flag being *set*, not to it changing: `lastPickupWasEmpty` is an event,
+        // and consuming it immediately (mirroring `consumePendingResult()`) is what lets a
+        // second consecutive empty pickup set it `true` again and fire this a second time.
         .onChange(of: model.lastPickupWasEmpty) { _, empty in
-            showNothingToStitch = empty
+            guard empty else { return }
+            showNothingToStitch = true
+            model.consumeLastPickupWasEmpty()
         }
         .sheet(isPresented: $showOnboarding) { OnboardingView() }
         .sheet(isPresented: $showDiagnostics) { DiagnosticsView() }
@@ -92,11 +97,6 @@ struct HomeView: View {
         } message: {
             Text(model.importError ?? "")
         }
-    }
-
-    private var isStitching: Bool {
-        let processing = model.captures.filter { $0.phase == .processing }
-        return !processing.isEmpty
     }
 
     private var recordSection: some View {

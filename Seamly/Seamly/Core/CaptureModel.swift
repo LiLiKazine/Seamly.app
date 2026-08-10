@@ -56,10 +56,26 @@ final class CaptureModel {
     /// otherwise navigating back re-pushes the same destination and the user is trapped.
     private(set) var pendingResult: UUID?
 
+    /// True while a **new arrival** is being assembled — a fresh App Group pickup, a photo
+    /// import, or a decoded video import. This is deliberately *not* "any capture whose phase
+    /// is `.processing`": `reload()` (called from every import) demotes *every* not-yet-ready
+    /// capture to `.processing`, including one that previously failed and will not be touched
+    /// again until the next `refresh()` — that capture isn't being worked on, so counting it
+    /// would leave a caller's "stitching…" overlay stuck open indefinitely, and counting the
+    /// ordinary launch/foreground re-assembly of already-known captures would show that overlay
+    /// for work the user never asked for. A counter, not a `Bool`, so an import racing a Group
+    /// refresh's own announced assembly doesn't have one's completion clear a flag the other
+    /// still needs set.
+    private var arrivalAssemblyCount = 0
+    var isAssemblingNewArrival: Bool { arrivalAssemblyCount > 0 }
+
     private let appStore: SessionStore
     private let groupStore: SessionStore?
     private let groupContainer: URL?
     private let diag: Diagnostics
+    /// Guards `refresh()` against overlapping scans — see `refresh()`.
+    private var isRefreshing = false
+    private var refreshQueued = false
 
     init(appContainer: URL = CaptureModel.appContainerURL(), groupContainer: URL? = AppGroup.containerURL) {
         self.appStore = SessionStore(containerURL: appContainer)
@@ -84,7 +100,28 @@ final class CaptureModel {
 
     /// Import finished captures from the App Group, then reload and assemble. Called on launch
     /// and every foreground — the scan, not the Darwin notification, is the source of truth.
+    ///
+    /// Both the `scenePhase` transition and the Darwin "broadcast finished" notification call
+    /// this, deliberately (a Control Center stop doesn't fire `scenePhase`) — so a Control
+    /// Center stop can fire both within milliseconds of each other. Two unserialized scans
+    /// would race `importFromGroup()`'s `moveItem` (the loser just logs and moves on) and could
+    /// double-assemble a capture, so a scan already in flight makes a second call queue one
+    /// more pass right behind it instead of running concurrently — the request is coalesced,
+    /// never silently dropped, and neither trigger goes away.
     func refresh() async {
+        guard !isRefreshing else {
+            refreshQueued = true
+            return
+        }
+        isRefreshing = true
+        defer { isRefreshing = false }
+        repeat {
+            refreshQueued = false
+            await performRefresh()
+        } while refreshQueued
+    }
+
+    private func performRefresh() async {
         diag.log("refresh: begin (group=\(groupContainer != nil ? "resolved" : "NIL"))")
         let imported = await importFromGroup()
         lastPickupWasEmpty = imported.sawEmpty
@@ -106,6 +143,16 @@ final class CaptureModel {
 
     func consumePendingResult() {
         pendingResult = nil
+    }
+
+    /// Clear a previously surfaced "nothing to stitch" signal once the shell has reacted to it.
+    /// `lastPickupWasEmpty` is an *event* ("a pickup was just empty"), not a level — the same
+    /// trap `consumePendingResult()` guards against: left unconsumed, a second consecutive
+    /// empty pickup overwrites `true` with `true`, and since a view's `.onChange` only fires on
+    /// an actual change, the nudge silently never appears the second time. (`PhotoImportButton`
+    /// documents the identical `.onChange` pitfall on the picker-selection side.)
+    func consumeLastPickupWasEmpty() {
+        lastPickupWasEmpty = false
     }
 
     /// Import picked screenshots as a new capture. Recovers scroll order from overlap, falling back
@@ -311,6 +358,8 @@ final class CaptureModel {
         let session = captures[index].session
         let folder = captures[index].folder
         captures[index].phase = .processing
+        if announce { arrivalAssemblyCount += 1 }
+        defer { if announce { arrivalAssemblyCount -= 1 } }
 
         let result: Result<CGImage, Error> = await Task.detached {
             do {
