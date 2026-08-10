@@ -128,5 +128,46 @@ struct MediaImportTests {
         #expect(capture.phase == .ready)
         #expect(capture.orderAssumed == false)
         #expect(try #require(capture.proxy).width == 120)
+        // A fresh photo import is a new arrival: it must announce itself so the shell can
+        // navigate straight to it.
+        #expect(model.pendingResult == capture.id)
+    }
+
+    /// Launch/foreground re-assembly of a capture already sitting in app storage — as opposed to
+    /// one this `CaptureModel` instance just imported — must leave `pendingResult` untouched, or
+    /// every relaunch would navigate straight into whatever capture the user last had open. The
+    /// session here is written directly via `SessionStore` (mirroring a prior app run), so this
+    /// `refresh()` is the first time this model has ever seen it — exactly the launch scenario.
+    @Test func refreshOfAnAlreadyStoredCaptureStaysSilent() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? fm.removeItem(at: root) }
+        _ = try writeBase(Self.slices(count: 3, width: 120, sliceH: 360, dy: 140), root: root)
+
+        let model = CaptureModel(appContainer: root, groupContainer: nil)
+        await model.refresh()
+
+        let capture = try #require(model.captures.first)
+        #expect(capture.phase != .processing)   // assemble actually ran, not skipped
+        #expect(model.pendingResult == nil)
+    }
+
+    /// Post-edit re-assembly via `update(_:)` must also stay silent — saving an edit to a capture
+    /// the user is already looking at must not re-navigate to it.
+    @Test func updateReassemblyStaysSilent() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = root.appendingPathComponent("app")
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: app, withIntermediateDirectories: true)
+
+        let model = CaptureModel(appContainer: app, groupContainer: nil)
+        await model.importPhotos(Self.slices(count: 3, width: 120, sliceH: 360, dy: 140))
+        let capture = try #require(model.captures.first)
+        model.consumePendingResult()
+
+        await model.update(capture.session)
+
+        #expect(model.pendingResult == nil)
     }
 }

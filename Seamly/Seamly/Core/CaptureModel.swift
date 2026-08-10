@@ -47,8 +47,12 @@ final class CaptureModel {
     private(set) var importProgress: Double?
     /// Set when the most recent import failed, for a user-visible message.
     private(set) var importError: String?
-    /// Set when an imported capture has finished assembling, so the shell can navigate
-    /// straight to it. **Must** be cleared via `consumePendingResult()` once consumed —
+    /// Set when a capture that just **arrived** — a fresh App Group pickup, a photo import, or
+    /// a video import — finishes assembling (successfully or not), so the shell can navigate
+    /// straight to it. Deliberately *not* set by launch/foreground re-assembly of captures
+    /// already on disk (`refresh()`'s re-assemble loop) or by post-edit re-assembly
+    /// (`update(_:)`) — either would re-push a screen the user already dismissed or is
+    /// already looking at. **Must** be cleared via `consumePendingResult()` once consumed —
     /// otherwise navigating back re-pushes the same destination and the user is trapped.
     private(set) var pendingResult: UUID?
 
@@ -82,11 +86,16 @@ final class CaptureModel {
     /// and every foreground — the scan, not the Darwin notification, is the source of truth.
     func refresh() async {
         diag.log("refresh: begin (group=\(groupContainer != nil ? "resolved" : "NIL"))")
-        lastPickupWasEmpty = await importFromGroup()
+        let imported = await importFromGroup()
+        lastPickupWasEmpty = imported.sawEmpty
         reload()
         diag.log("refresh: \(captures.count) capture(s) after import; \(captures.filter { $0.phase == .processing }.count) to assemble")
         for capture in captures where capture.proxy == nil && capture.phase == .processing {
-            await assemble(capture.id)
+            // Only a session moved out of the App Group *this call* is a new arrival; a
+            // capture that was already sitting in app storage (e.g. re-assembling after a
+            // relaunch) must assemble silently, or launch would navigate straight into
+            // whatever the user last had open.
+            await assemble(capture.id, announce: imported.newArrivals.contains(capture.id))
         }
     }
 
@@ -160,7 +169,7 @@ final class CaptureModel {
         switch result {
         case .success(let id):
             reload()
-            await assemble(id)
+            await assemble(id, announce: true)
         case .failure(let error):
             if case MediaImporter.ImportError.notEnoughContent = error {
                 lastPickupWasEmpty = true
@@ -171,15 +180,29 @@ final class CaptureModel {
         }
     }
 
+    /// Outcome of one `importFromGroup()` pass. `newArrivals` is the whole reason this isn't
+    /// just `Bool`: it's the only place that knows which sessions were *just* moved out of the
+    /// App Group this call, as opposed to ones already sitting in app storage from a prior
+    /// pass — `refresh()` needs that distinction to decide which captures may set
+    /// `pendingResult`.
+    private struct GroupImportOutcome: Sendable {
+        /// At least one imported session had nothing to stitch.
+        var sawEmpty = false
+        var newArrivals: Set<UUID> = []
+    }
+
     /// Move stitchable sessions out of the shared container into app storage; discard the
-    /// empty/no-scroll ones. Returns true if at least one imported session had nothing to stitch.
-    private func importFromGroup() async -> Bool {
-        guard let groupStore else { diag.log("import: no group store (App Group unavailable)"); return false }
+    /// empty/no-scroll ones.
+    private func importFromGroup() async -> GroupImportOutcome {
+        guard let groupStore else {
+            diag.log("import: no group store (App Group unavailable)")
+            return GroupImportOutcome()
+        }
         let appStore = self.appStore
         let diag = self.diag
         return await Task.detached {
             let fm = FileManager.default
-            var sawEmpty = false
+            var outcome = GroupImportOutcome()
             do {
                 // The destination's `sessions/` parent must exist or the `moveItem` below fails and
                 // nothing ever imports — on a fresh install nothing else has created it yet.
@@ -188,7 +211,7 @@ final class CaptureModel {
                 // Without this directory no import can succeed; there's no per-session recovery, so
                 // log and bail rather than silently loop doing nothing.
                 diag.log("import: FAILED to create app sessions dir: \(error.localizedDescription)")
-                return false
+                return GroupImportOutcome()
             }
             let sessions = groupStore.loadAll()
             diag.log("import: \(sessions.count) readable session(s) in group")
@@ -214,6 +237,7 @@ final class CaptureModel {
                             diag.log("import: \(shortID) duplicate dropped (already in app storage)")
                         } else {
                             try fm.moveItem(at: source, to: dest)
+                            outcome.newArrivals.insert(session.id)
                             diag.log("import: \(shortID) IMPORTED into app storage")
                             // Resolve scroll order + geometry once, now, so the manifest the app
                             // composites (and the user edits) is correct. The extension's live
@@ -237,7 +261,7 @@ final class CaptureModel {
                             }
                         }
                     } else {
-                        sawEmpty = true
+                        outcome.sawEmpty = true
                         try fm.removeItem(at: source)   // nothing to stitch; discard
                         diag.log("import: \(shortID) discarded (no stitchable content)")
                     }
@@ -247,7 +271,7 @@ final class CaptureModel {
                     diag.log("import: \(shortID) FAILED to import: \(error.localizedDescription)")
                 }
             }
-            return sawEmpty
+            return outcome
         }.value
     }
 
@@ -278,8 +302,11 @@ final class CaptureModel {
         }
     }
 
-    /// Assemble (or re-assemble) one capture's proxy off the main actor.
-    func assemble(_ id: UUID) async {
+    /// Assemble (or re-assemble) one capture's proxy off the main actor. Pass `announce: true`
+    /// only when this capture just **arrived** (see `pendingResult`) — the default `false`
+    /// keeps launch/foreground re-assembly of already-stored captures and `update(_:)`'s
+    /// post-edit re-assembly silent.
+    func assemble(_ id: UUID, announce: Bool = false) async {
         guard let index = captures.firstIndex(where: { $0.id == id }) else { return }
         let session = captures[index].session
         let folder = captures[index].folder
@@ -299,14 +326,15 @@ final class CaptureModel {
         case .success(let proxy):
             captures[index].proxy = proxy
             captures[index].phase = .ready
-            pendingResult = id
+            if announce { pendingResult = id }
         case .failure(let error):
             diag.log("assemble: \(id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
             captures[index].phase = .failed(error.localizedDescription)
-            // Navigate on failure too. Setting this only on success is how "coming back from
-            // a broadcast does nothing" ships: the capture fails, nothing is pushed, and the
-            // user is left on home with no indication anything happened. See DECISIONS.md [B4].
-            pendingResult = id
+            // Navigate on failure too, but only for a capture that just arrived. Setting this
+            // only on success is how "coming back from a broadcast does nothing" ships: the
+            // capture fails, nothing is pushed, and the user is left on home with no
+            // indication anything happened. See DECISIONS.md [B4].
+            if announce { pendingResult = id }
         }
     }
 
