@@ -49,15 +49,35 @@ final class SeamlyUITests: XCTestCase {
     func testHomeShowsRecordFirst() throws {
         let app = XCUIApplication()
         app.launch()
+        dismissOnboardingIfPresented(app)
 
-        // First launch presents onboarding; dismiss it to reach home.
-        if app.buttons["Get Started"].waitForExistence(timeout: 5) {
-            while app.buttons["Next"].exists { app.buttons["Next"].tap() }
-            app.buttons["Get Started"].tap()
-        }
+        // Home is *behind* the onboarding sheet, so its elements exist even while the sheet is
+        // covering them — these assertions are only worth something because they also check the
+        // elements can be reached. An earlier version guarded on "Get Started" (which onboarding
+        // only shows on its last page), so it never dismissed anything and asserted straight
+        // through the sheet.
+        let headline = app.staticTexts["Record a long screenshot"]
+        XCTAssertTrue(headline.waitForExistence(timeout: 5))
+        XCTAssertTrue(headline.isHittable, "home is covered — onboarding was not dismissed")
+        XCTAssertTrue(app.buttons["From Video"].isHittable)
+        XCTAssertTrue(app.buttons["From Photos"].isHittable)
+    }
 
-        XCTAssertTrue(app.staticTexts["Record a long screenshot"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["From Video"].exists)
-        XCTAssertTrue(app.buttons["From Photos"].exists)
+    /// First launch presents onboarding as a sheet over home. Its button reads "Next" on every
+    /// page but the last, where it becomes "Get Started" — so reaching home means paging all the
+    /// way through. Later launches on the same install skip onboarding entirely
+    /// (`hasSeenOnboarding` persists), which is why every step here is conditional.
+    @MainActor
+    private func dismissOnboardingIfPresented(_ app: XCUIApplication) {
+        let next = app.buttons["Next"]
+        let getStarted = app.buttons["Get Started"]
+        guard next.waitForExistence(timeout: 5) || getStarted.exists else { return }
+        while next.exists { next.tap() }
+        XCTAssertTrue(getStarted.waitForExistence(timeout: 5), "onboarding never offered a way out")
+        getStarted.tap()
+        XCTAssertTrue(
+            getStarted.waitForNonExistence(timeout: 5),
+            "onboarding stayed on screen after Get Started"
+        )
     }
 }
