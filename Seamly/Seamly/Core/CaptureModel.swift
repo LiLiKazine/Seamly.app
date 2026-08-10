@@ -58,14 +58,13 @@ final class CaptureModel {
 
     /// True while a **new arrival** is being assembled — a fresh App Group pickup, a photo
     /// import, or a decoded video import. This is deliberately *not* "any capture whose phase
-    /// is `.processing`": `reload()` (called from every import) demotes *every* not-yet-ready
-    /// capture to `.processing`, including one that previously failed and will not be touched
-    /// again until the next `refresh()` — that capture isn't being worked on, so counting it
-    /// would leave a caller's "stitching…" overlay stuck open indefinitely, and counting the
-    /// ordinary launch/foreground re-assembly of already-known captures would show that overlay
-    /// for work the user never asked for. A counter, not a `Bool`, so an import racing a Group
-    /// refresh's own announced assembly doesn't have one's completion clear a flag the other
-    /// still needs set.
+    /// is `.processing`": `reload()` (called from every import) picks up every session sitting
+    /// on disk, including ones nothing is going to assemble on this pass — such a capture isn't
+    /// being worked on, so counting it would leave a caller's "stitching…" overlay stuck open
+    /// indefinitely, and counting the ordinary launch/foreground re-assembly of already-known
+    /// captures would show that overlay for work the user never asked for. A counter, not a
+    /// `Bool`, so an import racing a Group refresh's own announced assembly doesn't have one's
+    /// completion clear a flag the other still needs set.
     private var arrivalAssemblyCount = 0
     var isAssemblingNewArrival: Bool { arrivalAssemblyCount > 0 }
 
@@ -132,8 +131,15 @@ final class CaptureModel {
         // deterministically overwrite a still-unconsumed `true` before the shell ever saw it.
         if imported.sawEmpty { lastPickupWasEmpty = true }
         reload()
-        diag.log("refresh: \(captures.count) capture(s) after import; \(captures.filter { $0.phase == .processing }.count) to assemble")
-        for capture in captures where capture.proxy == nil && capture.phase == .processing {
+        let pending = captures.filter { $0.proxy == nil && $0.phase != .ready }
+        diag.log("refresh: \(captures.count) capture(s) after import; \(pending.count) to assemble")
+        // Oldest first. `captures` is newest-first and `pendingResult` is last-write-wins, so
+        // walking it in stored order would hand the navigation to the *oldest* of two captures
+        // that arrived in the same pass — the user wants the one they just made. Also covers a
+        // capture left `.failed` by an earlier pass: a failure is retried on the next scan
+        // (launch or foreground), it just isn't silently re-labelled as work in progress in
+        // between — see `reload()`.
+        for capture in pending.reversed() {
             // Only a session moved out of the App Group *this call* is a new arrival; a
             // capture that was already sitting in app storage (e.g. re-assembling after a
             // relaunch) must assemble silently, or launch would navigate straight into
@@ -201,8 +207,8 @@ final class CaptureModel {
         importProgress = nil
         switch decoded {
         case .failure(let error):
-            importError = error.localizedDescription
-            diag.log("importVideo: decode FAILED: \(error.localizedDescription)")
+            importError = CaptureCondition.message(for: error)
+            diag.log("importVideo: decode FAILED: \(error) (\(error.localizedDescription))")
         case .success(let images):
             await runImport { store, diag in
                 try MediaImporter.write(images: images, into: store, strategy: .inputOrder, source: .video, diag: diag)
@@ -227,9 +233,9 @@ final class CaptureModel {
             if case MediaImporter.ImportError.notEnoughContent = error {
                 lastPickupWasEmpty = true
             } else {
-                importError = error.localizedDescription
+                importError = CaptureCondition.message(for: error)
             }
-            diag.log("import: FAILED: \(error.localizedDescription)")
+            diag.log("import: FAILED: \(error) (\(error.localizedDescription))")
         }
     }
 
@@ -347,11 +353,19 @@ final class CaptureModel {
         return Date().timeIntervalSince(modified) > seconds
     }
 
+    /// Rebuild `captures` from what is on disk, carrying already-known captures over unchanged.
+    ///
+    /// **A capture's phase is never rewritten here.** This used to demote every not-yet-`.ready`
+    /// capture back to `.processing`, which silently relabelled a capture that had already
+    /// *failed* as work in progress — while nothing re-assembled it, because `runImport` only
+    /// assembles its own new id. The result screen derives what it shows from the phase, so
+    /// opening that capture sat on "Putting it together…" forever: no image, no export bar, no
+    /// error, and no way out but backgrounding the app. Only `assemble(_:)` sets `.processing`,
+    /// immediately before it actually does the work.
     private func reload() {
         let existing = Dictionary(uniqueKeysWithValues: captures.map { ($0.id, $0) })
         captures = appStore.loadAll().map { session in
-            if var prior = existing[session.id] { prior.phase == .ready ? () : (prior.phase = .processing); return prior }
-            return Capture(session: session, folder: appStore.folder(for: session.id))
+            existing[session.id] ?? Capture(session: session, folder: appStore.folder(for: session.id))
         }
     }
 
@@ -383,8 +397,11 @@ final class CaptureModel {
             captures[index].phase = .ready
             if announce { pendingResult = id }
         case .failure(let error):
-            diag.log("assemble: \(id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
-            captures[index].phase = .failed(error.localizedDescription)
+            // The log keeps the raw error (a bare Swift enum prints its case name here, which
+            // `localizedDescription` would throw away); the phase carries only what a person
+            // can read. See `CaptureCondition.message(for:)`.
+            diag.log("assemble: \(id.uuidString.prefix(8)) FAILED: \(error) (\(error.localizedDescription))")
+            captures[index].phase = .failed(CaptureCondition.message(for: error))
             // Navigate on failure too, but only for a capture that just arrived. Setting this
             // only on success is how "coming back from a broadcast does nothing" ships: the
             // capture fails, nothing is pushed, and the user is left on home with no

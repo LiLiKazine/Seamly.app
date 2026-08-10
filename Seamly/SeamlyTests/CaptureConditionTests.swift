@@ -1,4 +1,6 @@
 import Testing
+import Foundation
+import StitchKit
 @testable import Seamly
 
 /// `CaptureCondition` is the only place pipeline facts become English. A wrong mapping here
@@ -68,7 +70,6 @@ struct CaptureConditionTests {
 
     /// The hard rule from the spec: pipeline vocabulary never reaches a user.
     @Test func noUserFacingStringLeaksPipelineVocabulary() {
-        let banned = ["seam", "chrome", "segment", "confidence", "keyframe", "offset", "profile"]
         let facts = CaptureFacts(
             segmentBreaks: 2, flaggedSeams: 2, unresolvedChrome: 2,
             isIncomplete: true, orderAssumed: true
@@ -77,10 +78,71 @@ struct CaptureConditionTests {
             Issue.record("expected imperfect"); return
         }
         for imperfection in all {
-            let text = (imperfection.headline + " " + imperfection.detail).lowercased()
-            for word in banned {
-                #expect(!text.contains(word), "\(imperfection.kind) leaks \"\(word)\": \(text)")
+            let text = imperfection.headline + " " + imperfection.detail
+            for word in Self.bannedVocabulary {
+                #expect(!text.lowercased().contains(word), "\(imperfection.kind) leaks \"\(word)\": \(text)")
             }
         }
     }
+
+    // MARK: - Error messages
+
+    /// Every error the pipeline can hand us is a plain `Error` enum with no `LocalizedError`
+    /// conformance, so `localizedDescription` bridges it to "The operation couldn't be
+    /// completed. (StitchKit.Compositor.CompositorError error 1.)" — which is what a user saw
+    /// on the screen a failed capture navigates to *automatically*. Every known case must read
+    /// as a sentence, and none of them may leak a type name or pipeline vocabulary.
+    @Test func knownPipelineErrorsReadAsPlainEnglish() {
+        let errors: [Error] = [
+            Compositor.CompositorError.noKeyframes,
+            Compositor.CompositorError.contextFailure,
+            BatchStitcher.StitchError.empty,
+            KeyframeIO.IOError.decodeFailed,
+            KeyframeIO.IOError.encodeFailed,
+            KeyframeIO.IOError.sizeMismatch,
+            VideoKeyframeSource.VideoError.noVideoTrack,
+            VideoKeyframeSource.VideoError.readFailed(nil),
+            MediaImporter.ImportError.notEnoughContent,
+            KeyframeChromeValidationError(issues: [.duplicateRecord(keyframeID: UUID())])
+        ]
+        for error in errors {
+            let message = CaptureCondition.message(for: error)
+            #expect(!message.isEmpty)
+            #expect(message != error.localizedDescription, "\(error) still shows its bridged description")
+            #expect(!message.contains("StitchKit"), "\(error) leaks a module name: \(message)")
+            #expect(!message.contains("Error"), "\(error) leaks a type name: \(message)")
+            for word in Self.bannedVocabulary {
+                #expect(!message.lowercased().contains(word), "\(error) leaks \"\(word)\": \(message)")
+            }
+        }
+    }
+
+    /// An error we have no wording for must not degrade into the bridged placeholder either —
+    /// that string names the failing Swift type and means nothing to a user.
+    @Test func anUnrecognizedSwiftErrorDoesNotLeakItsTypeName() {
+        enum Unforeseen: Error { case somethingNew }
+        let message = CaptureCondition.message(for: Unforeseen.somethingNew)
+        #expect(!message.contains("Unforeseen"))
+        #expect(!message.contains("error 0"))
+        #expect(message == "Something went wrong and this couldn't be finished.")
+    }
+
+    /// …but an error that *does* carry a real sentence keeps it. Throwing away a specific,
+    /// actionable message ("the file doesn't exist", "the disk is full") in favour of a generic
+    /// one would be its own regression.
+    @Test func anErrorWithARealMessageKeepsIt() {
+        let localized = CaptureModel.CaptureError.notFound
+        #expect(CaptureCondition.message(for: localized) == "That capture is no longer available.")
+
+        let cocoa = NSError(
+            domain: NSCocoaErrorDomain,
+            code: NSFileNoSuchFileError,
+            userInfo: [NSLocalizedDescriptionKey: "The file “kf-0000.bgra” couldn’t be opened."]
+        )
+        #expect(CaptureCondition.message(for: cocoa) == "The file “kf-0000.bgra” couldn’t be opened.")
+    }
+
+    private static let bannedVocabulary = [
+        "seam", "chrome", "segment", "confidence", "keyframe", "offset", "profile"
+    ]
 }

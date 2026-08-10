@@ -13,11 +13,11 @@ import StitchKit
 struct CaptureModelRegressionTests {
 
     /// `isAssemblingNewArrival` must reflect *actual* in-flight work, not a scan of every
-    /// capture's `phase`. `reload()` (invoked by every import, via `runImport`) demotes *every*
-    /// not-yet-ready capture back to `.processing` — including one that already failed and
-    /// will not be touched again until the next `refresh()`. A naive "any capture is
-    /// `.processing`" signal reads busy forever from that point on, permanently covering home
-    /// behind an overlay with no escape but backgrounding the app.
+    /// capture's `phase`. `reload()` (invoked by every import, via `runImport`) picks up every
+    /// session sitting on disk and marks each one it doesn't already know `.processing` —
+    /// without assembling any of them, since only the importing call's own new id is assembled.
+    /// A naive "any capture is `.processing`" signal reads busy from that point on, permanently
+    /// covering home behind an overlay with no escape but backgrounding the app.
     ///
     /// This must constrain *both* directions: deleting the `arrivalAssemblyCount` increment/
     /// decrement pair entirely would leave the signal permanently `false` (an overlay that
@@ -56,12 +56,10 @@ struct CaptureModelRegressionTests {
             return
         }
 
-        // Seed a second, real capture straight onto disk — deliberately large, so its eventual
-        // composite takes long enough to reliably observe with a coarse poll rather than racing
-        // a near-instant one — but not yet assembled. Writing it directly (not via
-        // `MediaImporter`) keeps this test from also depending on `MediaImporter`'s own
-        // order-recovery search, a separate, larger cost unrelated to what's under test here
-        // (see the report's note on the `runImport` gap).
+        // Seed a second, real capture straight onto disk — not yet assembled. Writing it
+        // directly (not via `MediaImporter`) keeps this test from also depending on
+        // `MediaImporter`'s own order-recovery search, a separate, larger cost unrelated to
+        // what's under test here (see the report's note on the `runImport` gap).
         let arrivingID = UUID()
         let arrivingFolder = try store.createFolder(for: arrivingID)
         var arriving = StitchSession(
@@ -83,10 +81,12 @@ struct CaptureModelRegressionTests {
         await model.importPhotos(MediaImportTests.slices(count: 3, width: 120, sliceH: 360, dy: 140))
 
         // Confirm the premise this test guards against actually holds, so the assertions below
-        // are meaningful and not vacuous: `reload()` really did stomp the failed capture back to
-        // `.processing`, the large one sits unassembled the same way, and neither was touched.
+        // are meaningful and not vacuous: the second seeded session really is sitting there
+        // `.processing` with nothing assembling it. (The failed one keeps its failure — see
+        // `aFailedCaptureIsNotRelabelledProcessingByAnUnrelatedImport` — so it no longer
+        // contributes to the naive signal, but it must still not be touched.)
         let strayCapture = try #require(model.captures.first { $0.id == failingID })
-        #expect(strayCapture.phase == .processing)
+        #expect(strayCapture.phase == phaseAfterSeed)
         #expect(strayCapture.proxy == nil)
         let arrivingBeforeAssembly = try #require(model.captures.first { $0.id == arrivingID })
         #expect(arrivingBeforeAssembly.phase == .processing)
@@ -98,13 +98,21 @@ struct CaptureModelRegressionTests {
         // the large capture above has only been *seeded*, not assembled.
         #expect(model.isAssemblingNewArrival == false)
 
-        // Now exercise the true direction: actually assemble the large capture as a new
+        // Now exercise the true direction: actually assemble the second capture as a new
         // arrival, and confirm the flag reports busy *while it's really working* — not just
         // that it eventually clears (deleting the increment/decrement pair entirely would leave
         // it permanently `false` and still pass a clears-eventually-only assertion).
+        //
+        // What makes that observable is *not* a slow composite — this session has no seams, so
+        // `Compositor.refineSeams` maps over nothing and takes the cheap path. It is that
+        // `assemble` is `@MainActor` and raises the counter **synchronously, before its first
+        // suspension point** (the `await` on the detached composite). So the flag is already up
+        // the moment the child task starts running, rather than being set somewhere inside the
+        // pixel work where a poll could slip past it; the loop below only has to yield the main
+        // actor once so the child can begin.
         async let arrivalAssembly: Void = model.assemble(arrivingID, announce: true)
         var observedBusy = false
-        for _ in 0..<2000 {   // ~10s budget, generous margin over one composite's real duration
+        for _ in 0..<2000 {
             if model.isAssemblingNewArrival { observedBusy = true; break }
             try await Task.sleep(nanoseconds: 5_000_000)
         }
@@ -112,6 +120,97 @@ struct CaptureModelRegressionTests {
 
         await arrivalAssembly
         #expect(model.isAssemblingNewArrival == false)   // and clear again once it's done
+    }
+
+    /// A capture that failed to assemble must **stay** failed when an unrelated import runs.
+    ///
+    /// `reload()` runs on every import and used to demote every not-yet-`.ready` capture to
+    /// `.processing` — but `runImport` only assembles its own new id, so the failed capture was
+    /// left labelled "working on it" with nothing working on it. `ResultView` derives what it
+    /// shows from exactly this phase, so opening that capture from the recents strip showed
+    /// "Putting it together…" forever: no image, no export bar, no error, and nothing to do but
+    /// background the app.
+    @Test func aFailedCaptureIsNotRelabelledProcessingByAnUnrelatedImport() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let app = root.appendingPathComponent("app", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: app, withIntermediateDirectories: true)
+
+        let model = CaptureModel(appContainer: app, groupContainer: nil)
+
+        // A manifest whose keyframe files don't exist, so `StitchAssembler.composite` throws.
+        let store = SessionStore(containerURL: app)
+        let failingID = UUID()
+        _ = try store.createFolder(for: failingID)
+        var failing = StitchSession(
+            id: failingID, createdAt: Date(), status: .complete, deviceScale: 1,
+            orientation: .portrait, colorSpaceName: CGColorSpace.sRGB as String
+        )
+        failing.keyframes = [
+            Keyframe(filename: "missing-0.bgra", pixelWidth: 10, pixelHeight: 10, index: 0),
+            Keyframe(filename: "missing-1.bgra", pixelWidth: 10, pixelHeight: 10, index: 1)
+        ]
+        try store.writeManifest(failing)
+
+        await model.refresh()
+        let failedPhase = try #require(model.captures.first { $0.id == failingID }).phase
+        guard case .failed = failedPhase else {
+            Issue.record("expected the seeded capture to fail assembly, got \(failedPhase)")
+            return
+        }
+
+        // An unrelated import: a different capture entirely, which never touches the failed one.
+        await model.importPhotos(MediaImportTests.slices(count: 3, width: 120, sliceH: 360, dy: 140))
+
+        let after = try #require(model.captures.first { $0.id == failingID })
+        #expect(after.phase == failedPhase, "an unrelated import relabelled a failed capture")
+    }
+
+    /// When two captures arrive in the same pass, the **newest** must win the navigation.
+    ///
+    /// `captures` is newest-first and `pendingResult` is last-write-wins, so assembling them in
+    /// stored order silently handed the result screen to the *older* one — and since
+    /// `consumePendingResult()` clears the trigger, the capture the user just made was never
+    /// pushed at all.
+    @Test func theNewestOfTwoSimultaneousArrivalsWinsTheResultScreen() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let groupContainer = root.appendingPathComponent("group", isDirectory: true)
+        let appContainer = root.appendingPathComponent("app", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: appContainer, withIntermediateDirectories: true)
+
+        let groupStore = SessionStore(containerURL: groupContainer)
+        let images = MediaImportTests.slices(count: 3, width: 120, sliceH: 360, dy: 140)
+
+        func seed(id: UUID, createdAt: Date) throws {
+            let folder = try groupStore.createFolder(for: id)
+            var session = StitchSession(
+                id: id, createdAt: createdAt, status: .complete, deviceScale: 1,
+                orientation: .portrait, colorSpaceName: CGColorSpace.sRGB as String
+            )
+            for (i, image) in images.enumerated() {
+                let name = String(format: "kf-%04d.bgra", i)
+                try KeyframeIO.writeRaw(image, to: folder.appendingPathComponent(name))
+                session.keyframes.append(
+                    Keyframe(filename: name, pixelWidth: image.width, pixelHeight: image.height, index: i)
+                )
+            }
+            try groupStore.writeManifest(session)
+        }
+
+        // Both finished while the app was backgrounded, so one scan picks up both.
+        let newerID = UUID(), olderID = UUID()
+        let now = Date()
+        try seed(id: olderID, createdAt: now.addingTimeInterval(-600))
+        try seed(id: newerID, createdAt: now)
+
+        let model = CaptureModel(appContainer: appContainer, groupContainer: groupContainer)
+        await model.refresh()
+
+        #expect(model.captures.count == 2)
+        #expect(model.pendingResult == newerID, "the older arrival won the result screen")
     }
 
     /// `lastPickupWasEmpty` is an event ("a pickup was just empty"), not a level. Two

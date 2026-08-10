@@ -23,7 +23,6 @@ struct PickedMovie: Transferable {
 /// into keyframes and stitches in capture order.
 struct VideoImportButton: View {
     let model: CaptureModel
-    var onStarted: () -> Void = {}
     @State private var selection: PhotosPickerItem?
     @State private var loadError: String?
 
@@ -51,10 +50,9 @@ struct VideoImportButton: View {
             guard let movie = try await item.loadTransferable(type: PickedMovie.self) else {
                 loadError = "Couldn't read that video."; return
             }
-            onStarted()
             await model.importVideo(movie.url)
         } catch {
-            loadError = error.localizedDescription
+            loadError = CaptureCondition.message(for: error)
         }
     }
 }

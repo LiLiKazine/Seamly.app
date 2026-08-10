@@ -144,13 +144,15 @@ struct ResultView: View {
         }
     }
 
-    /// Shared tail: every export path surfaces its real error rather than a generic string.
+    /// Shared tail: every export path surfaces what actually went wrong, in plain language —
+    /// never a generic "something failed", and never a bridged Swift enum description
+    /// (`CaptureCondition.message(for:)`). The model logs the raw error to `Diagnostics`.
     private func run(_ body: @escaping () async throws -> Void) {
         busy = true
         Task {
             defer { busy = false }
             do { try await body() }
-            catch { status = error.localizedDescription }
+            catch { status = CaptureCondition.message(for: error) }
         }
     }
 }

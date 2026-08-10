@@ -95,6 +95,62 @@ nonisolated enum CaptureCondition: Equatable {
     }
 }
 
+nonisolated extension CaptureCondition {
+    /// Turn a thrown error into something a person can read.
+    ///
+    /// The pipeline's error types are plain `Error` enums with no `LocalizedError`
+    /// conformance, so `localizedDescription` bridges them to *"The operation couldn't be
+    /// completed. (StitchKit.Compositor.CompositorError error 1.)"* — which is what a user saw
+    /// on the screen a failed capture navigates to automatically. `StitchKit` is the finished
+    /// core and stays untouched, so the translation lives here, alongside the only other place
+    /// that turns pipeline facts into user-facing language.
+    ///
+    /// Callers still log the raw error to `Diagnostics`: this is what the user reads, not what
+    /// we keep.
+    static func message(for error: Error) -> String {
+        switch error {
+        case Compositor.CompositorError.noKeyframes, BatchStitcher.StitchError.empty:
+            "There was nothing saved to put together."
+        case Compositor.CompositorError.contextFailure:
+            "There wasn't enough memory to build an image this long."
+        case KeyframeIO.IOError.decodeFailed:
+            "Some of the saved screens couldn't be read back."
+        case KeyframeIO.IOError.encodeFailed:
+            "The screens couldn't be saved to this device."
+        case KeyframeIO.IOError.sizeMismatch:
+            "A saved screen isn't the size it was recorded at."
+        case VideoKeyframeSource.VideoError.noVideoTrack:
+            "That file doesn't have any video in it."
+        case VideoKeyframeSource.VideoError.readFailed:
+            "That video couldn't be read."
+        case MediaImporter.ImportError.notEnoughContent:
+            "There wasn't enough here to join together."
+        case is KeyframeChromeValidationError:
+            "What was saved about this capture doesn't add up, so it can't be rebuilt."
+        default:
+            unrecognizedMessage(for: error)
+        }
+    }
+
+    /// An error we have no wording for. Prefer whatever the error itself says — a Foundation or
+    /// AVFoundation failure carries a perfectly good sentence — and substitute a generic line
+    /// only when the description would be the system's placeholder, which names the failing
+    /// Swift type and tells a user nothing.
+    private static func unrecognizedMessage(for error: Error) -> String {
+        if let described = (error as? LocalizedError)?.errorDescription, !described.isEmpty {
+            return described
+        }
+        let bridged = error as NSError
+        let described = bridged.localizedDescription
+        // The placeholder interpolates the domain — which for a bridged Swift error is the
+        // type's own name — so a description containing its own domain carries no real message.
+        guard !described.isEmpty, !described.contains(bridged.domain) else {
+            return "Something went wrong and this couldn't be finished."
+        }
+        return described
+    }
+}
+
 nonisolated private extension Imperfection {
     /// Build the observation for one kind, or `nil` if the facts do not exhibit it.
     init?(kind: Kind, facts: CaptureFacts) {

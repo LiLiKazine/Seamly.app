@@ -7,7 +7,6 @@ import ImageIO
 /// them to the model in pick order. Requires at least two (a single image isn't a stitch).
 struct PhotoImportButton: View {
     let model: CaptureModel
-    var onStarted: () -> Void = {}
     @State private var selection: [PhotosPickerItem] = []
     @State private var loadError: String?
 
@@ -43,11 +42,10 @@ struct PhotoImportButton: View {
                 }
                 images.append(img)
             } catch {
-                loadError = error.localizedDescription; return
+                loadError = CaptureCondition.message(for: error); return
             }
         }
         guard images.count >= 2 else { loadError = "Pick at least two overlapping screenshots."; return }
-        onStarted()
         await model.importPhotos(images)
     }
 }
