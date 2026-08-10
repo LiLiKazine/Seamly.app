@@ -41,8 +41,10 @@ final class SeamlyUITests: XCTestCase {
         }
     }
 
-    /// The shell is record-first: home shows the record affordance and the two import
-    /// entries, and never a capture list.
+    /// Verifies the empty-home state: the record affordance and both import entries
+    /// ("From Video", "From Photos") are present. This never seeds a capture, so it
+    /// only exercises the no-captures branch — it does not assert that the recents
+    /// strip (shown once captures exist) stays free of anything list-like.
     @MainActor
     func testHomeShowsRecordFirst() throws {
         let app = XCUIApplication()
