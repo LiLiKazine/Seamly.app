@@ -40,4 +40,22 @@ final class SeamlyUITests: XCTestCase {
             XCUIApplication().launch()
         }
     }
+
+    /// The shell is record-first: home shows the record affordance and the two import
+    /// entries, and never a capture list.
+    @MainActor
+    func testHomeShowsRecordFirst() throws {
+        let app = XCUIApplication()
+        app.launch()
+
+        // First launch presents onboarding; dismiss it to reach home.
+        if app.buttons["Get Started"].waitForExistence(timeout: 5) {
+            while app.buttons["Next"].exists { app.buttons["Next"].tap() }
+            app.buttons["Get Started"].tap()
+        }
+
+        XCTAssertTrue(app.staticTexts["Record a long screenshot"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["From Video"].exists)
+        XCTAssertTrue(app.buttons["From Photos"].exists)
+    }
 }
