@@ -23,6 +23,79 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
     return out
 }
 
+private func spatialProfile(_ rows: [[Float]]) -> FrameProfile {
+    let variances = rows.map { row -> Float in
+        let mean = row.reduce(0, +) / Float(row.count)
+        return row.reduce(0) { $0 + ($1 - mean) * ($1 - mean) } / Float(row.count)
+    }
+    return FrameProfile(
+        rows: rows,
+        variances: variances,
+        sourceWidth: rows.first?.count ?? 0,
+        sourceHeight: rows.count
+    )
+}
+
+/// Two profiles whose quiet majority follows `trueDy`, while one high-contrast horizontal
+/// region follows `lureDy`. The existing whole-frame MAD is deliberately fooled by the lure;
+/// a spatial consensus should give the three agreeing content regions one vote each and reject
+/// the lone dynamic region as an outlier.
+private func locallyCorruptedProfiles(trueDy: Int = 15, lureDy: Int = 5) -> (FrameProfile, FrameProfile) {
+    let height = 100
+    let columns = 8
+    let fullHeight = height + max(trueDy, lureDy)
+
+    func quiet(_ y: Int, _ column: Int) -> Float {
+        let mixed = (y &* 73 &+ column &* 151 &+ y &* column &* 17) % 997
+        return 0.49 + 0.02 * Float(mixed) / 996
+    }
+
+    func lure(_ y: Int, _ column: Int) -> Float {
+        let mixed = (y &* 37 &+ column &* 211 &+ y &* column &* 29) % 101
+        return mixed.isMultiple(of: 2) ? 0.05 : 0.95
+    }
+
+    let source = (0..<fullHeight).map { y in
+        (0..<columns).map { column in
+            column < 6 ? quiet(y, column) : lure(y, column)
+        }
+    }
+    let aRows = Array(source[0..<height])
+    let bRows = (0..<height).map { row in
+        (0..<columns).map { column in
+            column < 6 ? quiet(row + trueDy, column) : lure(row + lureDy, column)
+        }
+    }
+
+    return (spatialProfile(aRows), spatialProfile(bRows))
+}
+
+/// Half the frame follows each of two equally strong offsets. Neither alignment has a spatial
+/// majority, so a consensus matcher must report ambiguity instead of manufacturing confidence
+/// from whichever pattern happens to have the slightly lower residual.
+private func evenlyDividedProfiles(firstDy: Int = 15, secondDy: Int = 5) -> (FrameProfile, FrameProfile) {
+    let height = 100
+    let columns = 8
+    let fullHeight = height + max(firstDy, secondDy)
+
+    func sample(_ y: Int, _ column: Int) -> Float {
+        let mixed = (y &* 83 &+ column &* 197 &+ y &* column &* 31) % 103
+        return mixed.isMultiple(of: 2) ? 0.08 : 0.92
+    }
+
+    let source = (0..<fullHeight).map { y in
+        (0..<columns).map { sample(y, $0) }
+    }
+    let aRows = Array(source[0..<height])
+    let bRows = (0..<height).map { row in
+        (0..<columns).map { column in
+            sample(row + (column < columns / 2 ? firstDy : secondDy), column)
+        }
+    }
+
+    return (spatialProfile(aRows), spatialProfile(bRows))
+}
+
 @Suite struct OffsetMatcherTests {
     let matcher = OffsetMatcher()
 
@@ -94,6 +167,46 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
         let b = profile(Array(full[15..<115]))
         let m = matcher.match(a, b, searchRange: -95...95)
         #expect(m.dy == 15)   // the true, well-overlapped offset still wins
+    }
+
+    // MARK: - Spatial consensus
+
+    @Test func aggregateScoreCanBeFooledByOneHighContrastRegion() {
+        let (a, b) = locallyCorruptedProfiles()
+        let m = OffsetMatcher(aggregation: .weightedMean).match(a, b, searchRange: 1...30)
+        #expect(m.dy == 5, "the fixture no longer reproduces the aggregate matcher's false offset")
+    }
+
+    @Test func lightweightMatcherRemainsTheDefaultForLiveCapture() {
+        #expect(OffsetMatcher().aggregation == .weightedMean)
+    }
+
+    @Test func tileConsensusFallsBackForProfilesTooSmallForSpatialVoting() {
+        let full = contentSignal(count: 64)
+        let a = profile(Array(full[0..<48]))
+        let b = profile(Array(full[8..<56]))
+        let weighted = OffsetMatcher(aggregation: .weightedMean).match(a, b, searchRange: 1...20)
+        let consensus = OffsetMatcher(aggregation: .tileConsensus).match(a, b, searchRange: 1...20)
+        #expect(consensus == weighted)
+    }
+
+    @Test func tileConsensusRecoversTheMajorityContentShift() {
+        let (a, b) = locallyCorruptedProfiles()
+        let m = OffsetMatcher(aggregation: .tileConsensus).match(a, b, searchRange: 1...30)
+        #expect(m.dy == 15)
+        #expect(m.confidence > 0.5)
+    }
+
+    @Test func tileConsensusReportsAnEvenlyDividedFrameAsAmbiguous() {
+        let (a, b) = evenlyDividedProfiles()
+        let m = OffsetMatcher(aggregation: .tileConsensus).match(a, b, searchRange: 1...30)
+        #expect(m.confidence < 0.3, "a 50/50 spatial vote reported confidence \(m.confidence) at dy=\(m.dy)")
+    }
+
+    @Test func batchStitcherUsesTileConsensusForOfflineGeometry() {
+        let (a, b) = locallyCorruptedProfiles()
+        let m = BatchStitcher().downwardMatch(a, b)
+        #expect(m.dy == 15)
     }
 
     // MARK: - Row mask (chrome exclusion) — Gap 1
@@ -173,21 +286,24 @@ private func contentSignal(count: Int, seed: Int = 1) -> [Float] {
         for i in 150..<200 { mask[i] = false }
 
         var checked = 0
-        for dy in 1...199 {
-            // Rows the mask actually leaves at this offset. Below `minimumOverlap` the match is
-            // rejected for want of *signal*, which is the mask's legitimate business; this test is
-            // about everything above that line.
-            let achievable = (0..<(200 - dy)).count { mask[$0] && mask[$0 + dy] }
-            guard achievable >= matcher.minimumOverlap else { continue }
-            guard matcher.match(a, b, searchRange: dy...dy).cost < .greatestFiniteMagnitude else { continue }
-            let masked = matcher.match(a, b, searchRange: dy...dy, rowMask: mask)
-            #expect(masked.cost < .greatestFiniteMagnitude,
-                    "dy=\(dy): plain scores this offset and the mask leaves \(achievable) rows, but masked rejects it — the mask is capping how far a match can measure")
-            checked += 1
+        for aggregation in [OffsetMatcher.Aggregation.weightedMean, .tileConsensus] {
+            let matcher = OffsetMatcher(aggregation: aggregation)
+            for dy in 1...199 {
+                // Rows the mask actually leaves at this offset. Below `minimumOverlap` the match is
+                // rejected for want of *signal*, which is the mask's legitimate business; this test is
+                // about everything above that line.
+                let achievable = (0..<(200 - dy)).count { mask[$0] && mask[$0 + dy] }
+                guard achievable >= matcher.minimumOverlap else { continue }
+                guard matcher.match(a, b, searchRange: dy...dy).cost < .greatestFiniteMagnitude else { continue }
+                let masked = matcher.match(a, b, searchRange: dy...dy, rowMask: mask)
+                #expect(masked.cost < .greatestFiniteMagnitude,
+                        "\(aggregation) dy=\(dy): plain scores this offset and the mask leaves \(achievable) rows, but masked rejects it — the mask is capping how far a match can measure")
+                checked += 1
+            }
         }
         // The old floor capped this mask at dy ≈ 75; without a range that reaches past it the
         // equivalence above would hold vacuously.
-        #expect(checked > 80, "only \(checked) offsets exercised — the range no longer crosses the old ceiling")
+        #expect(checked > 160, "only \(checked) offsets exercised — both modes must cross the old ceiling")
     }
 
     @Test func rowMaskWithTooFewContentRowsYieldsNoMatch() throws {
