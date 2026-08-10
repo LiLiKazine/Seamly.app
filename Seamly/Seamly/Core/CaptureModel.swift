@@ -124,7 +124,13 @@ final class CaptureModel {
     private func performRefresh() async {
         diag.log("refresh: begin (group=\(groupContainer != nil ? "resolved" : "NIL"))")
         let imported = await importFromGroup()
-        lastPickupWasEmpty = imported.sawEmpty
+        // Only ever *raise* this — never clear it. `consumeLastPickupWasEmpty()` is the only
+        // place that clears it now. The coalescing loop in `refresh()` guarantees a second pass
+        // runs immediately behind the first on the Control Center path (one call discards an
+        // empty session and sets this `true`; the very next call sees an already-emptied group
+        // and would otherwise compute `false`), so an unconditional assignment here would
+        // deterministically overwrite a still-unconsumed `true` before the shell ever saw it.
+        if imported.sawEmpty { lastPickupWasEmpty = true }
         reload()
         diag.log("refresh: \(captures.count) capture(s) after import; \(captures.filter { $0.phase == .processing }.count) to assemble")
         for capture in captures where capture.proxy == nil && capture.phase == .processing {
