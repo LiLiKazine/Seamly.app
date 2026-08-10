@@ -47,6 +47,10 @@ final class CaptureModel {
     private(set) var importProgress: Double?
     /// Set when the most recent import failed, for a user-visible message.
     private(set) var importError: String?
+    /// Set when an imported capture has finished assembling, so the shell can navigate
+    /// straight to it. **Must** be cleared via `consumePendingResult()` once consumed —
+    /// otherwise navigating back re-pushes the same destination and the user is trapped.
+    private(set) var pendingResult: UUID?
 
     private let appStore: SessionStore
     private let groupStore: SessionStore?
@@ -89,6 +93,10 @@ final class CaptureModel {
     /// Clear a previously surfaced import error (e.g. once the user has seen/dismissed it).
     func clearImportError() {
         importError = nil
+    }
+
+    func consumePendingResult() {
+        pendingResult = nil
     }
 
     /// Import picked screenshots as a new capture. Recovers scroll order from overlap, falling back
@@ -291,42 +299,62 @@ final class CaptureModel {
         case .success(let proxy):
             captures[index].proxy = proxy
             captures[index].phase = .ready
+            pendingResult = id
         case .failure(let error):
             diag.log("assemble: \(id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
             captures[index].phase = .failed(error.localizedDescription)
+            // Navigate on failure too. Setting this only on success is how "coming back from
+            // a broadcast does nothing" ships: the capture fails, nothing is pushed, and the
+            // user is left on home with no indication anything happened. See DECISIONS.md [B4].
+            pendingResult = id
+        }
+    }
+
+    enum CaptureError: LocalizedError {
+        case notFound
+        var errorDescription: String? {
+            switch self {
+            case .notFound: "That capture is no longer available."
+            }
         }
     }
 
     /// Composite the full-resolution image on demand (for export, not display).
-    func fullComposite(_ id: UUID) async -> CGImage? {
-        guard let capture = captures.first(where: { $0.id == id }) else { return nil }
+    func fullComposite(_ id: UUID) async throws -> CGImage {
+        guard let capture = captures.first(where: { $0.id == id }) else { throw CaptureError.notFound }
         let session = capture.session, folder = capture.folder
         let diag = self.diag
-        return await Task.detached {
-            do {
-                return try StitchAssembler.composite(session, in: folder)
-            } catch {
-                diag.log("fullComposite: \(session.id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
-                return nil
-            }
+        let result: Result<CGImage, Error> = await Task.detached {
+            do { return .success(try StitchAssembler.composite(session, in: folder)) }
+            catch { return .failure(error) }
         }.value
+        // Log *and* rethrow: Diagnostics is the only window into a device failure, but the
+        // user must still be told what actually went wrong.
+        if case .failure(let error) = result {
+            diag.log("fullComposite: \(session.id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
+        }
+        return try result.get()
     }
 
     /// Render the capture to a PDF in a temp file for sharing.
-    func exportPDF(_ id: UUID) async -> URL? {
-        guard let capture = captures.first(where: { $0.id == id }) else { return nil }
+    func exportPDF(_ id: UUID) async throws -> URL {
+        guard let capture = captures.first(where: { $0.id == id }) else { throw CaptureError.notFound }
         let session = capture.session, folder = capture.folder
         let diag = self.diag
-        return await Task.detached {
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("Seamly-\(session.id.uuidString).pdf")
+        let result: Result<URL, Error> = await Task.detached {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("Seamly-\(session.id.uuidString).pdf")
             do {
                 try StitchAssembler.writePDF(session, in: folder, to: url)
-                return url
+                return .success(url)
             } catch {
-                diag.log("exportPDF: \(session.id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
-                return nil
+                return .failure(error)
             }
         }.value
+        if case .failure(let error) = result {
+            diag.log("exportPDF: \(session.id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
+        }
+        return try result.get()
     }
 
     func delete(_ id: UUID) {

@@ -44,9 +44,13 @@ struct ExportView: View {
         busy = true
         Task {
             defer { busy = false }
-            guard let image = await model.fullComposite(captureID) else { status = "Nothing to export."; return }
-            do { try await Exporter.saveToPhotos(image); status = "Saved to Photos." }
-            catch { status = error.localizedDescription }
+            do {
+                let image = try await model.fullComposite(captureID)
+                try await Exporter.saveToPhotos(image)
+                status = "Saved to Photos."
+            } catch {
+                status = error.localizedDescription
+            }
         }
     }
 
@@ -54,24 +58,35 @@ struct ExportView: View {
         busy = true
         Task {
             defer { busy = false }
-            guard let image = await model.fullComposite(captureID) else { status = "Nothing to export."; return }
-            do { pngURL = try Exporter.pngURL(image, name: "Seamly-\(captureID.uuidString)") }
-            catch { status = error.localizedDescription }
+            do {
+                let image = try await model.fullComposite(captureID)
+                pngURL = try Exporter.pngURL(image, name: "Seamly-\(captureID.uuidString)")
+            } catch {
+                status = error.localizedDescription
+            }
         }
     }
 
     private func preparePDF() {
         busy = true
-        Task { defer { busy = false }; pdfURL = await model.exportPDF(captureID) }
+        Task {
+            defer { busy = false }
+            do { pdfURL = try await model.exportPDF(captureID) }
+            catch { status = error.localizedDescription }
+        }
     }
 
     private func copy() {
         busy = true
         Task {
             defer { busy = false }
-            guard let image = await model.fullComposite(captureID) else { status = "Nothing to export."; return }
-            Exporter.copyToPasteboard(image)
-            status = "Copied."
+            do {
+                let image = try await model.fullComposite(captureID)
+                Exporter.copyToPasteboard(image)
+                status = "Copied."
+            } catch {
+                status = error.localizedDescription
+            }
         }
     }
 }
