@@ -1,5 +1,7 @@
 import Testing
+import CoreGraphics
 import Foundation
+import StitchKit
 @testable import Seamly
 
 /// Regression coverage for the app-side half of the broadcast hand-off: a finished session the
@@ -31,6 +33,51 @@ struct BroadcastImportTests {
         await model.refresh()
 
         #expect(model.captures.contains { $0.id == sessionID })
+    }
+
+    /// The hero path this whole feature exists for: record a broadcast, background the app,
+    /// come back. A session with *real* stitchable pixel bytes (not just a manifest) sitting in
+    /// the group container is a genuine new arrival — `refresh()` must set `pendingResult` to
+    /// its id once assembly succeeds, so the shell can navigate straight to it. A second
+    /// `refresh()`, with nothing new left in the group, must leave `pendingResult` nil once
+    /// consumed — the session is now already in app storage, not a fresh arrival.
+    @Test func newlyArrivedBroadcastSessionAnnouncesButASecondRefreshStaysSilent() async throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let groupContainer = root.appendingPathComponent("group", isDirectory: true)
+        let appContainer = root.appendingPathComponent("app", isDirectory: true)
+        defer { try? fm.removeItem(at: root) }
+        try fm.createDirectory(at: appContainer, withIntermediateDirectories: true)
+
+        // Extension side: a finished session with real, overlapping raw keyframes — genuinely
+        // stitchable, so `assemble` succeeds rather than failing on a missing/corrupt file.
+        let sessionID = UUID()
+        let groupStore = SessionStore(containerURL: groupContainer)
+        let folder = try groupStore.createFolder(for: sessionID)
+        var session = StitchSession(
+            id: sessionID, createdAt: Date(), status: .complete, deviceScale: 1,
+            orientation: .portrait, colorSpaceName: CGColorSpace.sRGB as String
+        )
+        let images = MediaImportTests.slices(count: 3, width: 120, sliceH: 360, dy: 140)
+        for (i, image) in images.enumerated() {
+            let name = String(format: "kf-%04d.bgra", i)
+            try KeyframeIO.writeRaw(image, to: folder.appendingPathComponent(name))
+            session.keyframes.append(Keyframe(filename: name, pixelWidth: image.width, pixelHeight: image.height, index: i))
+        }
+        try groupStore.writeManifest(session)
+
+        let model = CaptureModel(appContainer: appContainer, groupContainer: groupContainer)
+        await model.refresh()
+
+        let capture = try #require(model.captures.first { $0.id == sessionID })
+        #expect(capture.phase == .ready)   // real pixels: assembly actually succeeded
+        #expect(model.pendingResult == sessionID)
+        model.consumePendingResult()
+
+        // Nothing left in the group this time — the session moved into app storage on the
+        // first refresh — so this pass must not re-announce it.
+        await model.refresh()
+        #expect(model.pendingResult == nil)
     }
 
     private func manifestJSON(id: UUID) -> Data {
