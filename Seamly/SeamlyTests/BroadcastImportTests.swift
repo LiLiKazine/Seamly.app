@@ -21,13 +21,21 @@ struct BroadcastImportTests {
         // Fresh install: the app's base container exists, but nothing has created `sessions/` yet.
         try fm.createDirectory(at: appContainer, withIntermediateDirectories: true)
 
-        // Extension side: a finished session with two keyframes (stitchable) sitting in the group.
+        // Extension side: a finished session with two keyframes (stitchable) sitting in the
+        // group. No real pixel bytes behind the keyframe filenames — this test only asserts
+        // the capture *appears* after import, not that assembly succeeds; `CaptureModel`
+        // keeps a capture in `captures` even when `assemble` later fails on the missing files.
         let sessionID = UUID()
-        let sessionDir = groupContainer
-            .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent(sessionID.uuidString, isDirectory: true)
-        try fm.createDirectory(at: sessionDir, withIntermediateDirectories: true)
-        try manifestJSON(id: sessionID).write(to: sessionDir.appendingPathComponent("manifest.json"))
+        let groupStore = SessionStore(containerURL: groupContainer)
+        var session = StitchSession(
+            id: sessionID, createdAt: Date(), status: .complete, deviceScale: 2,
+            orientation: .portrait
+        )
+        session.keyframes = [
+            Keyframe(filename: "kf-0000.bgra", pixelWidth: 10, pixelHeight: 10, index: 0),
+            Keyframe(filename: "kf-0001.bgra", pixelWidth: 10, pixelHeight: 10, index: 1)
+        ]
+        try groupStore.writeManifest(session)
 
         let model = CaptureModel(appContainer: appContainer, groupContainer: groupContainer)
         await model.refresh()
@@ -78,23 +86,5 @@ struct BroadcastImportTests {
         // first refresh — so this pass must not re-announce it.
         await model.refresh()
         #expect(model.pendingResult == nil)
-    }
-
-    private func manifestJSON(id: UUID) -> Data {
-        """
-        {
-          "id": "\(id.uuidString)",
-          "createdAt": "2026-07-04T12:00:00Z",
-          "status": "complete",
-          "deviceScale": 2,
-          "orientation": "portrait",
-          "keyframes": [
-            { "id": "\(UUID().uuidString)", "filename": "kf-0000.bgra", "pixelWidth": 10, "pixelHeight": 10, "index": 0 },
-            { "id": "\(UUID().uuidString)", "filename": "kf-0001.bgra", "pixelWidth": 10, "pixelHeight": 10, "index": 1 }
-          ],
-          "seams": [],
-          "segmentBreaks": []
-        }
-        """.data(using: .utf8)!
     }
 }
