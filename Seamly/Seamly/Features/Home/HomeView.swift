@@ -101,8 +101,13 @@ struct HomeView: View {
 
     private var recordSection: some View {
         VStack(spacing: 16) {
+            // `RPSystemBroadcastPickerView` draws a fixed *black* glyph in both appearances —
+            // it does not adapt, and reaching into its private subviews to restyle it is the
+            // fragility `BroadcastPickerButton` refuses. So the backing has to carry the
+            // contrast on its own: a solid accent disc, which stays bright against a black
+            // background. A 15%-opacity tint read as a barely-there smudge in dark mode.
             ZStack {
-                Circle().fill(.tint.opacity(0.15)).frame(width: 120, height: 120)
+                Circle().fill(.tint).frame(width: 120, height: 120)
                 BroadcastPickerButton().frame(width: 100, height: 100)
             }
             Text("Record a long screenshot").font(.headline)
