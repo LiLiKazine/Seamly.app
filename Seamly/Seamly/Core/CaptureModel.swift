@@ -422,9 +422,11 @@ final class CaptureModel {
             catch { return .failure(error) }
         }.value
         // Log *and* rethrow: Diagnostics is the only window into a device failure, but the
-        // user must still be told what actually went wrong.
+        // user must still be told what actually went wrong. The log keeps the raw error — a
+        // bare Swift enum prints its case name here, which `localizedDescription` would throw
+        // away for a bridged placeholder.
         if case .failure(let error) = result {
-            diag.log("fullComposite: \(session.id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
+            diag.log("fullComposite: \(session.id.uuidString.prefix(8)) FAILED: \(error) (\(error.localizedDescription))")
         }
         return try result.get()
     }
@@ -444,8 +446,9 @@ final class CaptureModel {
                 return .failure(error)
             }
         }.value
+        // Raw error first, for the same reason as `fullComposite`.
         if case .failure(let error) = result {
-            diag.log("exportPDF: \(session.id.uuidString.prefix(8)) FAILED: \(error.localizedDescription)")
+            diag.log("exportPDF: \(session.id.uuidString.prefix(8)) FAILED: \(error) (\(error.localizedDescription))")
         }
         return try result.get()
     }

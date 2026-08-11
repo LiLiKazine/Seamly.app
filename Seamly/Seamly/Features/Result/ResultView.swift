@@ -34,10 +34,15 @@ struct ResultView: View {
                 ProcessingView(progress: model.importProgress)
             case .failed(let message):
                 CaptureFailureView(message: message, onRecordAgain: onRecordAgain)
-            // Everything left is a capture that stitched: `.clean` or `.imperfect`. (`condition`
-            // can't produce `.nothingToStitch` — a pickup with nothing in it is discarded at
-            // import and surfaced on home, so it never becomes a capture with a phase.)
-            default:
+            // `condition` above can't produce this today — a pickup with nothing in it is
+            // discarded at import and surfaced on home, so it never becomes a capture with a
+            // phase. Handled by name anyway: the case exists, and a `default:` here would let a
+            // future path that *does* reach it fall into the image branch and render an empty
+            // canvas instead of the coaching this state has.
+            case .nothingToStitch:
+                NothingToStitchView(onRecordAgain: onRecordAgain)
+            // Everything left is a capture that stitched.
+            case .clean, .imperfect:
                 if let proxy = capture?.proxy {
                     VStack(spacing: 0) {
                         ConditionNotice(condition: condition)
