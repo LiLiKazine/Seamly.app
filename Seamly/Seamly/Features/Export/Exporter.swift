@@ -6,8 +6,14 @@ import UIKit
 import UniformTypeIdentifiers
 import StitchKit
 
-/// Turns a composited capture into shareable artifacts: PNG/JPEG for Photos/Share/Copy and a
+/// Turns a composited capture into shareable artifacts: PNG for Photos/Share/Copy and a
 /// PDF for Share/Files. Photos write access is requested only here, at export time.
+///
+/// PNG, not JPEG. A long screenshot is text and sharp UI edges end to end — exactly what
+/// JPEG's ringing artifacts damage most, and why iOS screenshots are PNG in the first place.
+/// A `jpegURL` helper lived here unused from the beginning; it was removed rather than wired
+/// up. If long stitches ever produce PNGs too large to share, add a smaller-file option then,
+/// with measured sizes behind the decision.
 enum Exporter {
     enum ExportError: LocalizedError {
         case encodeFailed
@@ -20,14 +26,14 @@ enum Exporter {
         }
     }
 
-    static func encode(_ image: CGImage, as type: UTType, quality: Double? = nil) throws -> Data {
+    /// No lossy-quality parameter: every path here encodes PNG, where it would be a no-op.
+    /// It existed only for the removed JPEG helper — reintroduce it with that, if ever.
+    static func encode(_ image: CGImage, as type: UTType) throws -> Data {
         let data = NSMutableData()
         guard let dest = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil) else {
             throw ExportError.encodeFailed
         }
-        var options: [CFString: Any] = [:]
-        if let quality { options[kCGImageDestinationLossyCompressionQuality] = quality }
-        CGImageDestinationAddImage(dest, image, options as CFDictionary)
+        CGImageDestinationAddImage(dest, image, nil)
         guard CGImageDestinationFinalize(dest) else { throw ExportError.encodeFailed }
         return data as Data
     }
@@ -41,10 +47,6 @@ enum Exporter {
 
     static func pngURL(_ image: CGImage, name: String) throws -> URL {
         try writeTemp(try encode(image, as: .png), name: "\(name).png")
-    }
-
-    static func jpegURL(_ image: CGImage, name: String) throws -> URL {
-        try writeTemp(try encode(image, as: .jpeg, quality: 0.9), name: "\(name).jpg")
     }
 
     static func saveToPhotos(_ image: CGImage) async throws {

@@ -7,7 +7,7 @@ only, no accounts, no uploads.
 ## Status
 
 **The pipeline is built and works end to end.** Live ReplayKit broadcast capture, video
-import, photo import, order recovery, stitching, and export (Photos / PNG / JPEG / PDF /
+import, photo import, order recovery, stitching, and export (Photos / PNG / PDF /
 clipboard) all ship. `README.md` is now an accurate description of the code, not a spec —
 trust it.
 

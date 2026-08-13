@@ -244,7 +244,7 @@ StitchSession (corrected manifest, persisted; non-destructive, but nothing edits
 refineSeams (full-res snap) → hard-cut strips → CGImage / paginated PDF
       │
       ├─ makeProxy (≤4096 px tall — GPU texture ceiling) → result screen, recents thumbnail
-      └─ full-res on demand                              → Photos / PNG / JPEG / PDF / clipboard
+      └─ full-res on demand                              → Photos / PNG / PDF / clipboard
 ```
 
 ### Stitching approach
@@ -288,7 +288,7 @@ measurements, crops each source frame by its own chrome, and draws **hard cuts**
 | Profiling / matching | Core Graphics render + `vDSP` row statistics; variance-weighted MAD over row signatures |
 | Compositing | Core Graphics (`CGContext`, hard-cut seams; PDF context for PDF export) |
 | Video decode | AVFoundation (`AVAssetReader`), sampled at 30 fps |
-| Export | Photos (PNG/JPEG), Core Graphics PDF, share sheet, clipboard |
+| Export | Photos (PNG), Core Graphics PDF, share sheet, clipboard |
 | Color | Source-preserving (the capture's color space is carried through the manifest) |
 | Testing | Swift Testing (`import Testing`) |
 | Minimum target | iOS 26.0 |
