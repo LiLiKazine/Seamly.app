@@ -158,11 +158,18 @@ sentence. Backwards.
 
 ## Follow-ups
 
-- **Nothing has driven the app past its home screen.** This environment has no tap
-  capability, so the zoom fix is verified by construction and by build, not by pinching a
-  real stitch and scrolling to a join. That check is still owed.
+- ~~**Nothing has driven the app past its home screen.**~~ **Closed 2026-08-17.** Driven on
+  an iPhone 17 simulator against a live three-frame stitch: pinch zooms, zoom **accumulates**
+  across gestures, and pan reaches content clipped off the right edge *and* below the
+  viewport. So both the layout-size fix and `ZoomState`'s accumulation are real, not merely
+  plausible. **Double-tap to zoom back out is still unverified** — two taps could not be
+  landed inside the double-tap window, because each driver invocation is a separate process.
+  Not broken as far as anyone knows; owed a real finger.
 - UI-test seeding still has no launch-argument plumbing, so the UI tests only cover the
-  no-captures branch of home. Deferred rather than adding test-only hooks to production.
+  no-captures branch of home. Deferred here rather than adding test-only hooks to production
+  — **and reversed for Spec 2** (`docs/superpowers/specs/2026-08-17-guided-repair-design.md`),
+  which adds a `#if DEBUG` seed because the alternative is a UI test that taps unlabeled
+  system photo-picker cells: exactly the test that keeps passing while the screen is broken.
 - A permanently-failing capture is re-composited on every foreground, silently. Recoverable
   by deleting it; consider skipping the retry unless the manifest's mtime changed.
 - JPEG is still listed as an export format in `README.md` and `CLAUDE.md`, but
