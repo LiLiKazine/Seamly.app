@@ -11,6 +11,10 @@ import SwiftUI
 /// than leaving an empty strip above every clean capture.
 struct ConditionNotice: View {
     let condition: CaptureCondition
+    /// Supplied when this capture has a join the user can line up. The notice is where the loud
+    /// entry belongs: it is already the thing that told them something looks off, so the fix sits
+    /// on the complaint rather than somewhere else on the screen.
+    var onLineUp: (() -> Void)?
 
     @State private var expanded = false
 
@@ -54,6 +58,12 @@ struct ConditionNotice: View {
                 } label: {
                     Text("\(all.count - 1) more").font(.caption)
                 }
+            }
+            if let onLineUp {
+                Button(CaptureCondition.liningUpActionTitle, action: onLineUp)
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .font(.subheadline)
             }
         }
     }
