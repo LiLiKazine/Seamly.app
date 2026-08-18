@@ -146,10 +146,11 @@ test and accessibility frame to the same 72×96 box the pixels are actually clip
 before and after with `sim-use`: the reported frame changed from `72×269` to exactly `72×96`, and a
 tap at its center then navigated correctly.
 
-**The repair screen's nav-bar title is illegible in light mode.** Not one of the lettered manual
-checks, and not fixed here — found while capturing screenshots for check E. `RepairView`'s canvas
-sits on `.background(.black)` with only `.ignoresSafeArea(edges: .horizontal)` (vertical safe area
-is intentionally respected, per the code comment about not covering the nav bar). On this iOS 26
+**The repair screen's nav-bar title is illegible in light mode — the second appearance-legibility
+defect in this app's history, and this time the manual pass caught it before ship.** Not one of the
+lettered manual checks; found while capturing screenshots for check E. `RepairView`'s canvas sits
+on `.background(.black)` with only `.ignoresSafeArea(edges: .horizontal)` (vertical safe area is
+intentionally respected, per the code comment about not covering the nav bar). On this iOS 26
 simulator, the navigation bar still renders as a translucent overlay above that black content: the
 `Cancel`/`Done` toolbar buttons pick up an automatic dark legibility pill and stay readable in
 *both* appearances, but the plain center `.navigationTitle("Line it up")` text does not get the
@@ -158,11 +159,27 @@ underneath (confirmed, screenshot). In **light mode** the title renders in the s
 black and is completely invisible against the same black canvas — confirmed by cropping the exact
 title region: solid black, zero contrast, in a build where the accessibility tree still reports the
 "Line it up" heading present and correctly labelled. This is functionally the inverse of the
-project's dark-mode record-button precedent (`DECISIONS.md`), just triggered by the opposite
-appearance and a different screen. **Left unresolved** — root-causing and fixing iOS 26's
-translucent-bar-over-black-content interaction is a design call (does the repair screen want an
-opaque nav bar? a different title treatment?) outside this task's scope, and is called out as a
-concern in the task report rather than patched blind.
+project's dark-mode record-button precedent (`DECISIONS.md`) — same *class* of bug (a title/label
+rendered for the system appearance while the surface behind it commits to one appearance
+regardless), just the opposite appearance and a different screen. Two instances now: an app that
+has shipped one appearance-legibility bug through 42 unit tests, 4 UI tests, ten task reviews and a
+whole-branch review should treat a manual look-at in both appearances as non-negotiable for any new
+screen, not optional diligence.
+
+**Fixed in a follow-up pass** (the original implementer reported it rather than fixing it, judging
+the remedy to be a design call outside Task 7's scope). The design stayed as originally intended —
+the canvas is deliberately black in *both* appearances, since it's a surface for judging
+single-pixel alignment and a white ground in light mode would wash out exactly that judgement — so
+the fix was scoped to the navigation bar alone: `.toolbarColorScheme(.dark, for: .navigationBar)`
+added to `RepairView`'s `NavigationStack` content, right after `.navigationBarTitleDisplayMode`.
+This forces the bar itself (title included) to render for the dark content actually behind it,
+independent of the system's light/dark setting — `Cancel`/`Done` were already effectively doing
+this via their automatic legibility pills, so this brings the title into line with buttons that
+were already correct. Verified with fresh screenshots in both appearances
+(`task7-fix-title-light.png`, `task7-fix-title-dark.png`): "Line it up" now renders in bold white in
+both, `Cancel`/`Done` unaffected, and a light-mode check of `ResultView` immediately after
+confirmed the change is scoped to `RepairView` and does not leak into the rest of the app's
+(system-following) chrome.
 
 **Pinch does not drag the join.** The one question this task was most worried about. Tested with a
 genuine, perfectly-symmetric two-finger `sim-use multi-touch` gesture centred exactly on the
@@ -196,6 +213,11 @@ density. Confirmed working.
   (no file under `Seamly/StitchKit/` was edited).
 - Manual pass answers (A-J) are in the task report; screenshots under the task's scratchpad
   directory (`task7-*.png`).
+- **Fix round** (light-mode title): re-ran both after `.toolbarColorScheme(.dark, for:
+  .navigationBar)` was added — `RepairUITests`, fresh bundle: **1 passed, 0 failed**. Full app
+  suite, fresh bundle: **72 passed / 0 failed** (device-level 79, from 2 parameterized tests
+  running 9 total instances) — unchanged from the pre-fix baseline, as expected for a
+  toolbar-only, single-file change. `StitchKit` still untouched.
 
 ## What Changed
 
@@ -206,5 +228,8 @@ density. Confirmed working.
   the recents button; `.contentShape(Rectangle())` on `thumbnail(_:)` fixing the hit-test/a11y
   frame bug described above.
 - `Seamly/SeamlyUITests/RepairUITests.swift` — new end-to-end UI test.
+- `Seamly/Seamly/Features/Repair/RepairView.swift` — fix round only: added
+  `.toolbarColorScheme(.dark, for: .navigationBar)` so the nav-bar title renders for the black
+  content behind it in both system appearances (see "What Was Discovered").
 - `CLAUDE.md`, `README.md`, `DECISIONS.md` — status and documentation updates reflecting that
   guided repair now exists and ships.

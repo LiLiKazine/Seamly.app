@@ -80,6 +80,15 @@ struct RepairView: View {
             content
                 .navigationTitle(CaptureCondition.liningUpActionTitle)
                 .navigationBarTitleDisplayMode(.inline)
+                // The canvas behind this bar is black in both appearances (see `content`'s doc
+                // comment) — a surface for judging pixel alignment, not something that should
+                // follow the system's light/dark choice. Left to the system default, the title
+                // (unlike `Cancel`/`Done`, which iOS 26 always renders in a legible dark capsule)
+                // painted in the *system's* text color: white-on-black in dark mode, but
+                // invisible black-on-black in light mode. Forcing the bar itself into the dark
+                // color scheme makes its title (and any future bar content) render for the
+                // content actually behind it, independent of the system appearance.
+                .toolbarColorScheme(.dark, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("Cancel") { dismiss() }.disabled(busy)
