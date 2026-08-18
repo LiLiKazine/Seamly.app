@@ -72,8 +72,8 @@ struct RepairableJoinsTests {
     @Test func tiesBreakOnPositionSoTheChoiceIsDeterministic() {
         let s = session(
             seams: [
-                Seam(fromIndex: 0, provisionalDy: 100, confidence: 0.5),
                 Seam(fromIndex: 1, provisionalDy: 100, confidence: 0.5),
+                Seam(fromIndex: 0, provisionalDy: 100, confidence: 0.5),
             ],
             keyframes: 3
         )
@@ -109,10 +109,18 @@ struct RepairableJoinsTests {
 
     /// A seam pointing at a keyframe that is not there is a malformed manifest, not a join.
     @Test func aSeamWithNoSecondKeyframeIsNotAJoin() {
-        let s = session(
+        // First case: fromIndex itself is missing
+        let s1 = session(
             seams: [Seam(fromIndex: 5, provisionalDy: 100, confidence: 0.8)],
             keyframes: 2
         )
-        #expect(RepairableJoins.walkable(in: s).isEmpty)
+        #expect(RepairableJoins.walkable(in: s1).isEmpty)
+
+        // Second case: fromIndex is valid but the next keyframe (fromIndex + 1) is missing
+        let s2 = session(
+            seams: [Seam(fromIndex: 1, provisionalDy: 100, confidence: 0.8)],
+            keyframes: 2
+        )
+        #expect(RepairableJoins.walkable(in: s2).isEmpty)
     }
 }
