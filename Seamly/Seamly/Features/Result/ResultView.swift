@@ -16,7 +16,27 @@ struct ResultView: View {
     @State private var busy = false
     @State private var savedToPhotos = false
 
+    /// A join to open the repair on. A wrapper rather than a bare `Int` so `fullScreenCover(item:)`
+    /// can identify it.
+    private struct RepairTarget: Identifiable {
+        let id: Int
+    }
+
+    @State private var repairTarget: RepairTarget?
+
     private var capture: Capture? { model.captures.first { $0.id == captureID } }
+
+    /// The join the repair should open on, or `nil` when this capture has nothing to line up.
+    ///
+    /// Two independent questions, deliberately kept apart: whether the *verdict* offers repair
+    /// (`CaptureCondition.offersLiningUp`) and whether the *session* actually has a draggable join
+    /// (`RepairableJoins`). A two-frame capture split by a segment break passes the first and fails
+    /// the second, and opening a screen with nothing to drag would be worse than no entry at all.
+    private var repairOpening: Int? {
+        guard condition.offersLiningUp, let session = capture?.session else { return nil }
+        let flaggedOnly = if case .imperfect = condition { true } else { false }
+        return RepairableJoins.opening(in: session, flaggedOnly: flaggedOnly)
+    }
 
     private var condition: CaptureCondition {
         guard let capture else { return .failed("That capture is no longer available.") }
@@ -45,7 +65,10 @@ struct ResultView: View {
             case .clean, .imperfect:
                 if let proxy = capture?.proxy {
                     VStack(spacing: 0) {
-                        ConditionNotice(condition: condition)
+                        ConditionNotice(
+                            condition: condition,
+                            onLineUp: repairOpening.map { join in { repairTarget = RepairTarget(id: join) } }
+                        )
                         CaptureCanvas(proxy: proxy)
                     }
                 } else {
@@ -58,6 +81,25 @@ struct ResultView: View {
         }
         .navigationTitle("Your screenshot")
         .navigationBarTitleDisplayMode(.inline)
+        // The quiet entry. A clean capture gets the same words, in the toolbar rather than in a
+        // notice — this app has shipped a confidently wrong "clean" verdict before, so a stitch we
+        // judged fine still needs a way in. It stays out of the bottom bar, which already stacks
+        // Save, the export row, and up to two more rows.
+        .toolbar {
+            if case .clean = condition, let join = repairOpening {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(CaptureCondition.liningUpActionTitle) {
+                        repairTarget = RepairTarget(id: join)
+                    }
+                    .font(.subheadline)
+                }
+            }
+        }
+        // Full screen rather than a push: a single-purpose surface with its own Cancel and Done,
+        // and pushing it would sit a second back-chevron next to this screen's.
+        .fullScreenCover(item: $repairTarget) { target in
+            RepairView(captureID: captureID, model: model, openingJoin: target.id)
+        }
         // Export actions are meaningless while stitching or after a failure — there is
         // nothing to export — so the bar only appears once there is an image.
         .safeAreaInset(edge: .bottom) {
