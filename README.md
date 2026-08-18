@@ -10,10 +10,11 @@ export. Seamly fills that gap for every app.
 > **Status: the pipeline is built and works end to end** — live broadcast capture, video
 > import, photo import, stitching, and export all ship, behind a deliberately one-shot shell:
 > a record-first home and a single result screen whose primary action is **Save to Photos**.
-> There is currently **no way to fix a bad stitch — you re-record.** The manual seam/chrome
-> editor was removed along with the rest of the test-harness UI, pending a guided-repair
-> design ([spec 2](docs/superpowers/specs/)); the non-destructive manifest it edited is still
-> there, so nothing about the format has to change when repair returns.
+> A bad stitch is no longer a dead end: **guided repair** takes you straight to a misjoined
+> boundary and lets you drag the two halves until they line up, with pinch as the only precision
+> control ([spec 2](docs/superpowers/specs/2026-08-17-guided-repair-design.md)). It's offered
+> loudly when something looks off and quietly otherwise — a green verdict has been confidently
+> wrong before.
 > One known gap is tracked as a `withKnownIssue` test rather than hidden: the sparse
 > broken-capture fixture still needs to be replaced by a dense live-frame regression oracle
 > ([log](docs/logs/2026-07-05-03-real-frame-orientation-and-signal-fix.md)).
@@ -35,7 +36,8 @@ broadcast**, capture works like a screen recording you drive yourself:
    scrolled far enough to need one. If you scroll too fast, you'll feel a **buzz** — just ease up.
 3. Stop the broadcast (from the red indicator / Control Center) and return to Seamly.
 4. Seamly stitches it and takes you **straight to the result** — no list to notice, nothing to
-   tap. Save it to Photos (or share, copy, or export a PDF), then clear it out.
+   tap. Save it to Photos (or share, copy, or export a PDF), line up a misjoined boundary if one
+   needs it, then clear it out.
 
 Capture is *process-after-stop*: Seamly is backgrounded while you scroll another app, so
 the stitched result is assembled when you come back — not shown live. (A broadcast
@@ -70,6 +72,8 @@ Seamly falls back to your pick order and says so on the result screen.
 - 💬 **One plain-language verdict** — an uncertain join, a bar that couldn't be identified,
   a gap from fast scrolling, or a recording that stopped early is reported as *one* sentence
   in ordinary English, not a wall of badges. Pipeline vocabulary never reaches the screen.
+- 🔧 **Guided repair** — a misjoined boundary is fixable, not fatal: drag the two halves until
+  they line up, right on the result screen, with pinch as the only precision control
 - 🖼️ **Flexible export** — **Save to Photos** is the primary action; also PNG share, copy to
   clipboard, and **PDF** (paginated for very long pages)
 - 🕘 **Recents** — finished captures stay reachable until you remove them, so nothing is lost
@@ -83,7 +87,7 @@ Seamly falls back to your pick order and says so on the result screen.
 
 - [x] Import existing screenshots from Photos (the manual alternative to broadcast)
 - [x] Import an existing screen recording
-- [ ] Guided repair for a bad stitch (today the only fix is to record again)
+- [x] Guided repair for a bad stitch — drag a misjoined boundary until it lines up
 - [ ] Robust scroll-direction scoring on image-heavy content
 - [ ] Automatic in-session gap reconstruction (today: the gap is labeled as a segment break)
 - [ ] Horizontal / 2-D stitching for wide content
@@ -99,7 +103,7 @@ Three build products plus a diagnostic CLI and a shared container:
 | Piece | Role |
 |---|---|
 | **`StitchKit`** (local Swift package) | Pure, testable core — vertical profiling, offset matching, chrome-band detection, frame picking, order recovery, and compositing. Core Graphics + Accelerate only; no UIKit, no ReplayKit. Imported by both the app and the extension. |
-| **`Seamly`** (app target, SwiftUI) | The one-shot shell: a record-first home with the two import entries and onboarding, and one result screen — the scrollable, zoomable proxy, a single plain-language notice, and export. **Derives all stitch geometry** and does the heavy compositing. |
+| **`Seamly`** (app target, SwiftUI) | The one-shot shell: a record-first home with the two import entries and onboarding, and one result screen — the scrollable, zoomable proxy, a single plain-language notice, export, and guided repair for a misjoined boundary. **Derives all stitch geometry** and does the heavy compositing. |
 | **`SeamlyBroadcast`** (Broadcast Upload Extension) | `RPBroadcastSampleHandler` that receives live frames and does only the minimum real-time work: profile each frame, bank a keyframe when the view has scrolled far enough, fire the safety cue. Holds one frame at a time and computes **no** geometry (stays under the ~50 MB extension memory limit). |
 | **`stitch-cli`** (package executable) | Runs the real pipeline over an arbitrary clip or screenshot directory and writes the result where you can look at it. Exists because the failure modes here are *visual* — see [Testing](#testing). |
 | App Group container | Shared handoff — the extension writes raw keyframes + a manifest; the app reads them after the broadcast stops, then moves them into app storage. |

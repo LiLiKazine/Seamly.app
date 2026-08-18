@@ -1,7 +1,8 @@
 # Guided Repair — Design (Spec 2)
 
 **Date:** 2026-08-17
-**Status:** Approved (brainstorming) — ready for implementation plan.
+**Status:** Implemented — see `docs/logs/2026-08-18-02-guided-repair.md` for the seed, UI test, and
+manual-pass findings that proved it end to end.
 
 ## Summary
 
@@ -41,7 +42,7 @@ so it was driven for real on an iPhone 17 simulator against a live three-frame s
 | Zoom accumulates across gestures | **Works** — a second pinch builds on the first, no snap back to 1× |
 | Pan horizontally while zoomed | **Works** — content clipped off the right edge is reachable |
 | Pan vertically while zoomed | **Works** — content below the viewport is reachable |
-| Double-tap to zoom back out | **Inconclusive** — each `sim-use` invocation is a separate process, so two taps could not be landed inside the double-tap window. Not claimed broken; owed a real finger. |
+| Double-tap to zoom back out | ~~Inconclusive~~ **Verified 2026-08-18** — `sim-use ios batch` (one HID session, ordered steps) lands two `touch --down --up` events inside the recognizer's window. Confirmed on the seeded capture's result canvas: ~4 stripe-bands visible after a pinch-in, ~9-10 (matching 1× density) immediately after the double-tap. See `docs/logs/2026-08-18-02-guided-repair.md`. |
 
 So the layout-size fix (`viewport width × zoom` applied with `.frame`) and `ZoomState`'s
 accumulation are both real. Repair can stand on them.

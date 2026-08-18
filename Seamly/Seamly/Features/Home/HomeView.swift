@@ -143,6 +143,7 @@ struct HomeView: View {
                             thumbnail(capture)
                         }
                         .buttonStyle(.plain)
+                        .accessibilityIdentifier("recent-capture")
                         .contextMenu {
                             Button("Delete", systemImage: "trash", role: .destructive) {
                                 model.delete(capture.id)
@@ -174,6 +175,13 @@ struct HomeView: View {
         }
         .background(.quaternary)
         .clipShape(RoundedRectangle(cornerRadius: 8))
+        // Without this, the button's hit-test *and* accessibility frame follow the aspect-filled
+        // image's own unclipped render size rather than this 72×96 box — `.clipped()` above only
+        // affects painting. Harmless to miss on a normal, close-to-72:96 screenshot, but a long
+        // stitched capture is far more extreme (many screens tall, ~72 wide), so the mismatch grows
+        // with it: found by driving a real tap at the thumbnail's *reported* center, which landed
+        // well below the visible thumbnail and hit nothing — see docs/logs/2026-08-18-02-guided-repair.md.
+        .contentShape(Rectangle())
         .accessibilityLabel(Text(capture.session.createdAt, style: .date))
     }
 }

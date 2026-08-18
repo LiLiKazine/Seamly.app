@@ -9,6 +9,12 @@ import SwiftUI
 
 @main
 struct SeamlyApp: App {
+    init() {
+        #if DEBUG
+        DebugSeed.seedIfRequested()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()

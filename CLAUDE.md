@@ -13,13 +13,17 @@ trust it.
 
 The UI around it is a deliberately **one-shot shell**: a record-first home (record button,
 "From Video", "From Photos", a recents strip) that navigates itself to a single result
-screen whose primary action is **Save to Photos**. There is **no way to fix a bad stitch —
-only re-record.** `EditView` and the seam/chrome controls were removed with the rest of the
-test-harness UI, pending a guided-repair spec
-(`docs/superpowers/specs/2026-08-10-one-shot-capture-shell-design.md`). Do not re-add an
-edit surface as a "missing feature": its absence is an accepted decision. The manifest is
-still non-destructive and `CaptureModel.update(_:)` is still there, unused, as the
-reconnection point.
+screen whose primary action is **Save to Photos**. `EditView` and the old seam/chrome
+controls from the test-harness UI are still gone — do not re-add a per-seam or per-bar
+editing surface as a "missing feature"; that model was rejected on purpose (`docs/
+superpowers/specs/2026-08-17-guided-repair-design.md`). But there is now a way to fix a
+bad stitch: **guided repair** takes the user straight to a misjoined boundary and lets them
+drag the two halves until they line up, one join at a time, with pinch as the only precision
+control (`Features/Repair/RepairView.swift`, `JoinAlignment.swift`). It is offered loudly
+(inside `ConditionNotice`) when the pipeline flagged something alignment-fixable, and
+quietly (a nav-bar item on `ResultView`) for a `.clean` capture, since a green verdict has
+been confidently wrong before. `CaptureModel.update(_:)` is the reconnection point the
+manifest's non-destructive design was kept for, and now has its caller.
 
 One known gap is tracked as a `withKnownIssue` test, not hidden:
 
@@ -171,7 +175,7 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
 - **App:** `Seamly/Seamly/` — `Core/` (`CaptureModel`, `StitchAssembler`, `MediaImporter`,
   `AppGroup+Observer`), `DesignSystem/` (`CaptureCondition` — the *only* place pipeline facts
   and errors become English — plus `ConditionNotice`, `CaptureCanvas`, `ZoomState`), and
-  `Features/` (`Capture`, `Home`, `Result`, `Export`, `Onboarding`, `Diagnostics`)
+  `Features/` (`Capture`, `Home`, `Result`, `Repair`, `Export`, `Onboarding`, `Diagnostics`)
 - **Extension:** `Seamly/SeamlyBroadcast/SampleHandler.swift`
 - **Tests:** `Seamly/StitchKit/Tests/StitchKitTests/` (the bulk) ·
   `Seamly/SeamlyTests/` (app-level import/assembly) · `Seamly/SeamlyUITests/`
@@ -253,3 +257,18 @@ shattered while the suite stayed green. So:
 - **`#expect` over `contains(where:)` / `allSatisfy` won't compile** — the macro loses the
   `rethrows` conversion and demands a `try`. Bind to a local first. Not a `SWIFT_VERSION`
   artifact; it reproduces in `StitchKit`'s Swift 6 tests too.
+- **`StitchAssembler.composite` no longer refines — it draws the manifest verbatim.**
+  `freezeGeometry` (import-time only) is where the ±16 px seam search now happens; `composite`
+  and `writePDF` build `Compositor(refinementDelta: 0)`, which collapses the search range to
+  `lo == hi == provisional`. This is load-bearing for guided repair: a user's hand-aligned
+  `provisionalDy` is exactly what gets drawn, with nothing re-searching around it. **Freezing
+  must never move into the draw path** (`assemble`, `fullComposite`, `exportPDF`, or anywhere
+  `update(_:)` touches) — it would re-center its ±16 px window on the user's own value and can
+  silently move it, undoing a repair the next time the app opens. See
+  `docs/logs/2026-08-18-01-frozen-geometry.md` and `[GR-1]` in `DECISIONS.md`.
+- **A SwiftUI `.frame(w,h).clipped()` thumbnail can still report an inflated tap/accessibility
+  frame.** `.clipped()` only affects painting; without an explicit `.contentShape(Rectangle())`,
+  the hit-test and accessibility geometry follow the *unclipped* content's own render size. This
+  bit `HomeView`'s recents thumbnail for exactly this reason — see `docs/logs/
+  2026-08-18-02-guided-repair.md`, "What Was Discovered." Any new fixed-box image thumbnail
+  needs `.contentShape(Rectangle())` alongside `.clipped()`, not instead of it.
