@@ -63,6 +63,15 @@ nonisolated struct Imperfection: Equatable, Identifiable {
     /// present and merely imperfectly joined — guided repair (Spec 2) is the real answer
     /// there, and telling the user to record again would waste their time.
     let recommendsRecordingAgain: Bool
+    /// True when the fix for this observation is lining the join up by hand, rather than recording
+    /// again.
+    ///
+    /// Deliberately **not** the inverse of `recommendsRecordingAgain`: an assumed order is neither
+    /// (dragging one join cannot reorder a capture), and "some bars may repeat" is both — no new
+    /// recording helps, and lining up genuinely does, because the rows hidden behind an undetected
+    /// bar come back once the two halves are continuous. The band itself stays; removing it is not
+    /// this gesture's job, and cannot be folded into it (see the spec's "Out of scope").
+    let canBeLinedUp: Bool
 
     var id: Kind { kind }
 }
@@ -93,6 +102,29 @@ nonisolated enum CaptureCondition: Equatable {
         case .clean, .stitching: false
         }
     }
+
+    /// Whether the result screen should offer the repair at all.
+    ///
+    /// Read over **every** observation, unlike `recommendsRecordingAgain`, which reads only the
+    /// primary: a capture can have ended early *and* have a join worth fixing, and "record again"
+    /// being the loudest advice does not make the image already on disk unfixable.
+    ///
+    /// A clean capture offers it too — quietly. This app's own history is that a green verdict has
+    /// been confidently wrong, so flagged-only entry would leave a visibly bad stitch with no
+    /// recourse but re-recording. Whether there is actually a join to drag is a question about the
+    /// session, not about this verdict, and belongs to `RepairableJoins`.
+    var offersLiningUp: Bool {
+        switch self {
+        case .clean: true
+        case .imperfect(_, let all): all.contains(where: \.canBeLinedUp)
+        case .stitching, .nothingToStitch, .failed: false
+        }
+    }
+
+    /// The one label for the repair, wherever it appears. An imperfect capture shows it loudly and
+    /// a clean one quietly, but the words are identical — so this stays the only place the string
+    /// lives, which is the whole point of this type.
+    static let liningUpActionTitle = "Line it up"
 }
 
 nonisolated extension CaptureCondition {
@@ -162,7 +194,8 @@ nonisolated private extension Imperfection {
                 headline: "The recording ended early",
                 detail: "This is everything that was saved before it stopped.",
                 severity: .warning,
-                recommendsRecordingAgain: true
+                recommendsRecordingAgain: true,
+                canBeLinedUp: false
             )
 
         case .gaps:
@@ -172,7 +205,8 @@ nonisolated private extension Imperfection {
                 headline: "Joined from \(facts.segmentBreaks + 1) pieces",
                 detail: "You scrolled too fast in places, so this couldn't be made continuous.",
                 severity: .warning,
-                recommendsRecordingAgain: true
+                recommendsRecordingAgain: true,
+                canBeLinedUp: false
             )
 
         case .unresolvedBars:
@@ -183,7 +217,8 @@ nonisolated private extension Imperfection {
                 detail: "Couldn't tell which parts were the app's own bars on "
                     + Self.count(facts.unresolvedChrome, "screen", "screens") + ".",
                 severity: .guidance,
-                recommendsRecordingAgain: false
+                recommendsRecordingAgain: false,
+                canBeLinedUp: true
             )
 
         case .flaggedJoins:
@@ -193,7 +228,8 @@ nonisolated private extension Imperfection {
                 headline: "A join may not line up",
                 detail: Self.count(facts.flaggedSeams, "join", "joins") + " might be slightly off.",
                 severity: .guidance,
-                recommendsRecordingAgain: false
+                recommendsRecordingAgain: false,
+                canBeLinedUp: true
             )
 
         case .orderAssumed:
@@ -203,7 +239,8 @@ nonisolated private extension Imperfection {
                 headline: "Kept in the order they were taken",
                 detail: "These couldn't be put in order by their content, so the original order was used.",
                 severity: .guidance,
-                recommendsRecordingAgain: false
+                recommendsRecordingAgain: false,
+                canBeLinedUp: false
             )
         }
     }
