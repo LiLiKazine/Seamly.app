@@ -414,3 +414,52 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
 - Pixel-coded TDD covers both expanded→collapsed and collapsed→expanded transitions, proving
   continuous content with neither gaps nor duplicates. Full-resolution refinement receives the two
   independently resolved masks.
+
+---
+
+# Guided Repair (2026-08-18, branch feat/guided-repair)
+
+## [GR-1] Freeze seam offsets at import; the draw path never refines
+- Why: `StitchAssembler.composite` used to build `Compositor(refinementDelta: 16)`, and
+  `Compositor.composite` calls `refineSeams` on **every draw**, re-searching ±16 px around
+  whatever offset is stored and overwriting it whenever the local match scores well enough. Once
+  guided repair can write a user's hand-aligned `provisionalDy` into the manifest, that behavior
+  hands the final say straight back to the matcher the next time anything draws that capture — the
+  one join the user just corrected by hand could silently move again, by up to 16 px, which is
+  often more than a line of body text.
+- Decision: `StitchAssembler.freezeGeometry(_:in:compositor:)` runs
+  `Compositor(refinementDelta: 16).refineSeams` **once, at import** (both the App Group pickup path
+  and `MediaImporter.write`, immediately after `resolveGeometry`) and copies only the resulting
+  `provisionalDy` onto the stored seams — `confidence`, `isLowConfidence`, and `provisionalDx` pass
+  through untouched. `StitchAssembler.composite` and `writePDF` now default to
+  `Compositor(refinementDelta: 0)`, at which `Compositor.refineVertical`'s search range collapses
+  to `lo == hi == provisional`, so the stored `dy` is drawn back exactly as written. The draw path
+  becomes a pure function of the manifest.
+- Rejected alternatives: (a) persist the user's `dy` and leave `refinementDelta: 16` in place,
+  letting refinement "polish" it on every draw — rejected because it re-runs the matcher exactly
+  where the matcher already failed (that's why the user had to drag it), and abandons the promise
+  that the pixels under the finger are the pixels that get exported; (b) add `Seam.userDy: Int?`
+  mirroring `ChromeOverride` — the cleanest semantics, rejected because it is a `StitchKit` source
+  change plus a manifest schema bump, and `StitchKit` is a finished core, off-limits for this plan
+  (180 tests / 28 suites / 1 known issue, must not move).
+- **The one trap: freezing must never move into the draw path.** `assemble` is also what
+  `CaptureModel.update(_:)` calls after every repair, and what every relaunch calls for a capture
+  that loads with no cached proxy. If `freezeGeometry` ran there, it would re-search ±16 px around
+  *the user's own value* and can move it — silently undoing the repair the very next time the app
+  is opened. This is not merely a caveat to remember; a future change that "simplifies" by calling
+  `freezeGeometry` from `assemble` (or anywhere in `fullComposite`/`exportPDF`) would pass every
+  existing test and still be wrong, because nothing currently asserts freeze-is-called-exactly-once
+  short of reading the diff. `freezeGeometry` is idempotent-*looking* but is not idempotent in
+  effect: its search window recentres on whatever is currently stored, so a second pass over the
+  user's already-corrected value is a second, uninvited opinion, not a no-op.
+- Verified: `freezingThenDrawingMatchesRefiningWhileDrawing` composites the same real-device
+  fixture two ways — `Compositor(refinementDelta: 16).composite(coarse, ...)` (the old path) vs.
+  `Compositor(refinementDelta: 0).composite(freezeGeometry(coarse, ...), ...)` (the new path) — and
+  requires byte-identical output. It passed on first real-fixture run; this repo's synthetic
+  fixtures have hidden a sign-flip bug here before (`CLAUDE.md`, "A green suite here has lied three
+  times"), so the real-pixel check is what earns the "safe" label, not the synthetic ones.
+- Reversible: yes — reverting `refinementDelta` to 16 in `composite`/`writePDF` and dropping the
+  `freezeGeometry` call sites restores the pre-repair behavior; no schema or `StitchKit` change to
+  unwind.
+- Confidence: high. See `docs/logs/2026-08-18-01-frozen-geometry.md` (the freeze itself) and
+  `docs/logs/2026-08-18-02-guided-repair.md` (seeding it and proving the whole path end to end).
