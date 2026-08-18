@@ -91,18 +91,59 @@ enum StitchAssembler {
         return resolved
     }
 
-    /// Composite a session's keyframes into the full-resolution long image. The wider refinement
-    /// window matches `BatchStitcher`'s: a provisional offset recovered from the downscaled
-    /// profile can be a few source px off, more than the compositor's default ±6 at real geometry.
-    nonisolated static func composite(_ session: StitchSession, in folder: URL, compositor: Compositor = Compositor(refinementDelta: 16)) throws -> CGImage {
+    /// Resolve every seam's offset to the pixel-exact value the compositor would have chosen, and
+    /// return a manifest that **stores** it.
+    ///
+    /// Run once, at import, right beside `resolveGeometry` — never on the way to the screen.
+    /// `Compositor.composite` used to refine on every draw, which meant the matcher had the last
+    /// word on geometry forever: a user's hand-aligned join would be re-searched ±16 px and moved,
+    /// silently, the next time anything was drawn. Freezing makes the manifest the authority, so
+    /// the composite becomes a pure function of it — which is what non-destructive editing has
+    /// always claimed and, until now, was not.
+    ///
+    /// **Do not call this from `assemble` or any other draw path.** A second pass re-centres the
+    /// search window on the new value, so it is not idempotent, and the user's value is by
+    /// definition not the matcher's argmin — that is why they had to drag it.
+    ///
+    /// Only `provisionalDy` is taken from refinement. `confidence`, `isLowConfidence` and
+    /// `provisionalDx` stay as the planner left them, so no user-facing wording shifts as a side
+    /// effect of freezing.
+    nonisolated static func freezeGeometry(
+        _ session: StitchSession,
+        in folder: URL,
+        compositor: Compositor = Compositor(refinementDelta: 16)
+    ) throws -> StitchSession {
+        let cs = colorSpace(for: session)
+        let refined = try compositor.refineSeams(session) { keyframe in
+            try loadKeyframe(keyframe, in: folder, colorSpace: cs)
+        }
+        var frozen = session
+        // `refineSeams` maps over `session.seams`, so order and count match exactly. Zipping
+        // rather than keying by `fromIndex` avoids trapping on a malformed manifest with a
+        // duplicated seam.
+        frozen.seams = zip(session.seams, refined).map { stored, refined in
+            var updated = stored
+            updated.provisionalDy = refined.provisionalDy
+            return updated
+        }
+        return frozen
+    }
+
+    /// Composite a session's keyframes into the full-resolution long image.
+    ///
+    /// `refinementDelta: 0` is load-bearing, not a tuning choice: at delta 0 the search range in
+    /// `Compositor.refineVertical` collapses to `lo == hi == provisional`, so the stored offset is
+    /// returned untouched. The manifest is the authority — see `freezeGeometry`, which is where
+    /// the ±16 px refinement now happens, once, at import.
+    nonisolated static func composite(_ session: StitchSession, in folder: URL, compositor: Compositor = Compositor(refinementDelta: 0)) throws -> CGImage {
         let cs = colorSpace(for: session)
         return try compositor.composite(session) { keyframe in
             try loadKeyframe(keyframe, in: folder, colorSpace: cs)
         }
     }
 
-    /// Write a session's PDF to `url`.
-    nonisolated static func writePDF(_ session: StitchSession, in folder: URL, to url: URL, compositor: Compositor = Compositor(refinementDelta: 16)) throws {
+    /// Write a session's PDF to `url`. Frozen geometry for the same reason as `composite`.
+    nonisolated static func writePDF(_ session: StitchSession, in folder: URL, to url: URL, compositor: Compositor = Compositor(refinementDelta: 0)) throws {
         let cs = colorSpace(for: session)
         try compositor.writePDF(session, images: { keyframe in
             try loadKeyframe(keyframe, in: folder, colorSpace: cs)
