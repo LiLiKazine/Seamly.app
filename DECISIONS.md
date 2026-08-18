@@ -452,8 +452,9 @@ Reversible: yes — additive within StitchKit, behind the package API. Confidenc
   short of reading the diff. `freezeGeometry` is idempotent-*looking* but is not idempotent in
   effect: its search window recentres on whatever is currently stored, so a second pass over the
   user's already-corrected value is a second, uninvited opinion, not a no-op.
-- Verified: `freezingThenDrawingMatchesRefiningWhileDrawing` composites the same real-device
-  fixture two ways — `Compositor(refinementDelta: 16).composite(coarse, ...)` (the old path) vs.
+- Verified: `freezingThenDrawingMatchesRefiningWhileDrawing` composites the same real-pixel fixture
+  — `Screenshots/IMG_1757-1759.PNG`, the Photos-app screenshot set, *not* the `RealDevice/`
+  broadcast keyframes — two ways: `Compositor(refinementDelta: 16).composite(coarse, ...)` (the old path) vs.
   `Compositor(refinementDelta: 0).composite(freezeGeometry(coarse, ...), ...)` (the new path) — and
   requires byte-identical output. It passed on first real-fixture run; this repo's synthetic
   fixtures have hidden a sign-flip bug here before (`CLAUDE.md`, "A green suite here has lied three

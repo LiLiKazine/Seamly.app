@@ -78,6 +78,18 @@ struct RepairView: View {
     var body: some View {
         NavigationStack {
             content
+                // Every state fills the screen, so the black ground below is the whole ground —
+                // not a patch behind whichever state happens to be showing.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay { committingProgress }
+                .background(.black)
+                // Content drawn *for* that black ground rather than for the system appearance.
+                // Without this, the two non-canvas states (the spinner and the load-failure
+                // `ContentUnavailableView`) would paint their own text in the system's label
+                // color — the same black-on-black invisibility the forced-dark bar below exists
+                // to prevent, just one layer down.
+                .environment(\.colorScheme, .dark)
+                .ignoresSafeArea(edges: .horizontal)
                 .navigationTitle(CaptureCondition.liningUpActionTitle)
                 .navigationBarTitleDisplayMode(.inline)
                 // The canvas behind this bar is black in both appearances (see `content`'s doc
@@ -110,6 +122,12 @@ struct RepairView: View {
         }
     }
 
+    /// The three states this screen can be in — loading, unloadable, and loaded — all drawn on the
+    /// same black ground, which `body` supplies rather than any one branch. Black is a choice about
+    /// the *task*, not about the appearance: judging whether two halves line up wants a neutral,
+    /// non-reflective surround in light mode exactly as much as in dark, and it is what
+    /// `body`'s `.toolbarColorScheme(.dark, ...)` assumes is behind the bar. A branch owning the
+    /// background is how the title came to be invisible in light mode for two of the three states.
     @ViewBuilder
     private var content: some View {
         if let loadError {
@@ -132,10 +150,30 @@ struct RepairView: View {
                     .accessibilityLabel("The two halves of this join")
                     .accessibilityHint("Drag up or down to line them up. Pinch to zoom in.")
             }
-            .background(.black)
-            .ignoresSafeArea(edges: .horizontal)
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// Shown while `commit()` is writing. Committing awaits `CaptureModel.update(_:)`, which
+    /// persists the manifest *and* re-composites the capture at full resolution plus a proxy —
+    /// seconds on a long capture. The cover stays up for all of it, so without this the screen is
+    /// simply frozen: `Cancel`, `Done` and the chevrons are all disabled, and `content`'s own
+    /// `ProgressView` branch can't stand in because it requires `frames == nil` and the frames are
+    /// still loaded. `ResultView`'s `ProcessingView` is no help either — it is behind this cover.
+    @ViewBuilder
+    private var committingProgress: some View {
+        if busy {
+            ZStack {
+                // Dims the canvas rather than replacing it: the user keeps sight of the join they
+                // just lined up, and the dimming is itself the signal that it is no longer live.
+                Color.black.opacity(0.6)
+                ProgressView()
+                    .controlSize(.large)
+                    .accessibilityLabel("Saving")
+            }
+            .accessibilityIdentifier("repair-saving")
+            .transition(.opacity)
         }
     }
 
@@ -184,6 +222,13 @@ struct RepairView: View {
         ZStack(alignment: .topLeading) {
             Color.clear
             Image(decorative: image, scale: 1)
+                // `Compositor` draws with `.none`, so this must too. Zoom is this screen's only
+                // precision mechanism, and smoothing is precisely what it must not do: at 6× a
+                // source row is six points tall, and interpolation blends it with its neighbours
+                // into a gradient the exported image will not contain. The user would then be
+                // judging — and dragging against — rows that exist nowhere but this preview.
+                // Applied here, so both halves get it: this is the only image in either window.
+                .interpolation(.none)
                 .resizable()
                 .frame(width: width, height: width * CGFloat(image.height) / CGFloat(max(image.width, 1)))
                 .offset(y: offsetY)
@@ -274,7 +319,7 @@ struct RepairView: View {
             return
         }
         guard let join = currentJoin else {
-            loadError = "There's nothing here to line up."
+            loadError = CaptureCondition.nothingToLineUpMessage
             return
         }
         loadError = nil
@@ -285,7 +330,7 @@ struct RepairView: View {
         // silently discard the user's work.
         if let dy = edited[join] { next?.setDy(dy) }
         guard let resolved = next else {
-            loadError = "This part of the capture is missing, so there's nothing to line up."
+            loadError = CaptureCondition.joinNotDescribedMessage
             return
         }
         do {

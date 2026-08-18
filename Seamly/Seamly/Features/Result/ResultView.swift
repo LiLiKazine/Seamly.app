@@ -97,7 +97,7 @@ struct ResultView: View {
         }
         // Full screen rather than a push: a single-purpose surface with its own Cancel and Done,
         // and pushing it would sit a second back-chevron next to this screen's.
-        .fullScreenCover(item: $repairTarget) { target in
+        .fullScreenCover(item: $repairTarget, onDismiss: discardPreparedExports) { target in
             RepairView(captureID: captureID, model: model, openingJoin: target.id)
         }
         // Export actions are meaningless while stitching or after a failure — there is
@@ -162,6 +162,32 @@ struct ResultView: View {
         }
         .padding()
         .background(.bar)
+    }
+
+    /// Forget everything that was true of the *previous* manifest, on every return from the repair
+    /// screen.
+    ///
+    /// `pngURL` and `pdfURL` are files already rendered from the geometry as it was; once a join
+    /// moves they are stale bytes, and the buttons over them are `ShareLink`s that hand those bytes
+    /// straight out. `Save to Photos` and `Copy` re-composite on every tap and so were never
+    /// affected — which is exactly what made this easy to miss: two of four export paths silently
+    /// broke the promise that the pixels under the finger are the pixels you get. Before guided
+    /// repair nothing on this screen could change geometry, so caching them for the screen's
+    /// lifetime was safe.
+    ///
+    /// `savedToPhotos` is the serious one. It is what shows *"Done — remove from Seamly"*, so
+    /// leaving it set after a repair invites the user to delete the capture believing the repaired
+    /// image is in Photos, when what is there is the copy saved *before* the repair — and the
+    /// repaired one is then gone for good. That is data loss, not a stale cache.
+    ///
+    /// Cleared on *any* dismissal, Cancel included, rather than only on a committed change: this
+    /// screen cannot see whether the user actually moved anything, and the trade is one-sided —
+    /// re-preparing a file costs a tap, while handing over a stale export or a false "already
+    /// saved" costs the user their work.
+    private func discardPreparedExports() {
+        pngURL = nil
+        pdfURL = nil
+        savedToPhotos = false
     }
 
     private func save() {

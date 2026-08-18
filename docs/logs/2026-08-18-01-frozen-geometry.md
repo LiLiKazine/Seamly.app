@@ -95,12 +95,18 @@ not get to add.
   approach A is validated on real pixels, not just synthetic ones. This mattered specifically
   because this repo's synthetic fixtures have hidden a real sign-flip bug here before
   (`CLAUDE.md`, "A green suite here has lied three times").
-- `Seam.isLowConfidence` defaults to `false` in `Seam.init`, which is what makes
-  `freezingCorrectsAStoredOffsetToThePixelExactValue`'s `#expect(frozen.seams[0].isLowConfidence
-  == false)` a meaningful assertion rather than a tautology — the test's synthetic seam is
-  constructed with the default, and `freezeGeometry` is what has to *not* touch it, since
-  `refineSeams` itself does compute and would otherwise overwrite `isLowConfidence` based on the
-  refined match's own confidence.
+- **The field-preservation contract is structural, and is not pinned by a test that could fail.**
+  `freezeGeometry` copies exactly one field off the refined seam — `provisionalDy` — so
+  `confidence`, `provisionalDx` and `isLowConfidence` survive by construction; there is no code path
+  through which they could be overwritten. `freezingCorrectsAStoredOffsetToThePixelExactValue`'s
+  `#expect(frozen.seams[0].isLowConfidence == false)` therefore documents that contract rather than
+  testing it. An earlier draft of this log claimed the assertion was meaningful because `refineSeams`
+  "would otherwise overwrite" the field: that only bites when refinement comes back *unconfident* or
+  with `abs(dx) >= 2` (`refineSeams` computes `seam.isLowConfidence || !confident || abs(dx) >= 2`,
+  `Compositor.swift:93`), and the test establishes neither — its seam is pixel-exactly correctable,
+  so on this fixture the refined value is `false` anyway and the assertion holds whether or not the
+  copy is narrow. It is the known-tautological assertion, kept for documentation value. If the
+  contract ever needs a real test, it has to construct a seam whose refinement is unconfident.
 - The two real-fixture tests (`freezingThenDrawingMatchesRefiningWhileDrawing`,
   `importingThroughMediaImporterLeavesAFrozenManifest`) each take on the order of a minute per run
   under the Swift Testing parallel test runner (up to ~110s observed for the latter) — consistent

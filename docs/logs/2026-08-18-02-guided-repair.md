@@ -95,19 +95,27 @@ somewhere in `RepairView` that looks like a screen bug.
 
 ### Correction 4 — proving the assertion means what it claims
 
-`notice.waitForNonExistence(timeout:)` alone is satisfied the instant the capture flips to
-`.processing`: `ResultView`'s `.stitching` case renders `ProcessingView`, which has no
-`ConditionNotice` at all. That proves nothing about whether the write that triggered the flip was
-correct — a commit that transitioned to `.processing` without truly persisting the fix (or without
-writing anything, if some unrelated path re-triggered assembly) would make the notice disappear
-*transiently*, then reappear once the capture settles back to `.ready` with its still-flagged
-condition, and a test that stops watching the instant the notice first vanishes would report a
-false pass.
+`notice.waitForNonExistence(timeout:)` alone is worth almost nothing here — and the first version
+of this section got the reason wrong, so it is worth stating precisely.
 
-The test instead waits for `"Save to Photos"` to become **hittable** again (which only happens
-once `assemble` finishes and the capture is `.ready` with a proxy) and *then* asserts the notice is
-still absent. That can only hold if the capture actually came back `.ready` with a condition that
-recomputed clean.
+It is **not** that the wait is satisfied by a `.processing` flip. `RepairView.commit()` awaits
+`model.update(_:)`, which persists the manifest *and* runs `assemble` to completion, *before* it
+calls `dismiss()`; by the time the cover drops the capture is already `.ready` again, so
+`ResultView` never renders `ProcessingView` on this path at all. The actual reason is simpler and
+more damning: while the `fullScreenCover` is up, `ResultView` — notice included — is not in the
+accessibility tree, so on the real path `waitForNonExistence` is satisfied by *the cover*: the
+notice has been absent since "Line it up" was tapped, long before a single byte was written. What it
+reports therefore depends on whether the cover happens to still be up when it first polls — which is
+timing, not correctness. (In the discrimination run below the cover was already gone by then, so it
+was the *first* assertion that failed; that is luck about `XCUIElement.tap()`'s post-tap idle wait,
+not a property to rely on.)
+
+So the second, hittability-gated assertion is doing all of the work, not merely hardening the
+first. The test waits for `"Save to Photos"` to exist **and become hittable** — which requires
+`ResultView` to be back on screen and interactive, with a `.ready` capture and a proxy — and only
+*then* asserts the notice is absent. That can only hold if the condition recomputed clean from what
+was actually written to disk. The discrimination run below (commit reduced to `{ dismiss() }`)
+is what confirms the pair as a whole can fail.
 
 ### Discrimination, both directions
 
@@ -233,3 +241,10 @@ density. Confirmed working.
   content behind it in both system appearances (see "What Was Discovered").
 - `CLAUDE.md`, `README.md`, `DECISIONS.md` — status and documentation updates reflecting that
   guided repair now exists and ships.
+
+## Superseded in part
+
+The whole-branch review that followed found that the light-mode fix recorded here covered only the
+*loaded* state, and that "Correction 4" above named the wrong mechanism (rewritten in place). Both,
+plus the stale-export and frozen-commit defects, are in
+`docs/logs/2026-08-18-03-guided-repair-fix-wave.md`.

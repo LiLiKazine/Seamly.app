@@ -22,8 +22,14 @@ nonisolated struct JoinAlignment: Equatable {
     let lowerContentTop: Int
     /// One past the lower frame's last content row.
     let lowerContentBottom: Int
-    /// The lower frame's full height, including any bottom chrome — which the strip keeps, because
-    /// the last frame's bottom bar is the finished image's bottom bar.
+    /// The lower frame's full height, including any bottom chrome.
+    ///
+    /// Whether the strip *keeps* that chrome depends on where the join sits, and this is a
+    /// duplicate of `Compositor.plan`'s rule, so the distinction matters: `plan` appends the bottom
+    /// chrome of a segment's **last** frame only (`Compositor.swift:275`), while its per-pair `add`
+    /// stops every other frame at `currentContentBottom`. So for the final join in a segment this
+    /// height is the finished image's own bottom edge; for an interior join the strip continues
+    /// into the next frame instead and these rows are never drawn.
     let lowerPixelHeight: Int
     /// The offset being edited, in source pixels: the join's `Seam.provisionalDy`.
     private(set) var dy: Int
