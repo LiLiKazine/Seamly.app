@@ -501,20 +501,32 @@ final class CaptureModel {
 
     /// Persist an edited manifest and re-assemble the proxy.
     ///
-    /// **Intentionally has no caller in the shipped shell.** `EditView` was removed with the
-    /// harness UI; this is the path guided repair (Spec 2,
+    /// Throws — and leaves the in-memory capture untouched — on a lookup miss or a failed
+    /// manifest write, rather than quietly returning as if the edit had survived. `RepairView`
+    /// is this method's first caller since the one-shot shell shipped, and the first time either
+    /// failure could reach a user: a silently-swallowed write here is exactly the "coming back
+    /// does nothing" class of bug recorded in `DECISIONS.md [B4]`, just on the save path instead
+    /// of the import path. The caller is expected to surface the failure and keep the user's
+    /// edits around for a retry rather than dismissing as though they were saved.
+    ///
+    /// **Otherwise has no caller in the shipped shell.** `EditView` was removed with the harness
+    /// UI; this is the path guided repair (Spec 2,
     /// `docs/superpowers/specs/2026-08-10-one-shot-capture-shell-design.md`) reconnects to.
     /// Do not delete as dead code.
-    func update(_ session: StitchSession) async {
-        guard let index = captures.firstIndex(where: { $0.id == session.id }) else { return }
+    func update(_ session: StitchSession) async throws {
+        guard let index = captures.firstIndex(where: { $0.id == session.id }) else {
+            throw CaptureError.notFound
+        }
         let folder = captures[index].folder
         do {
             let store = SessionStore(containerURL: folder.deletingLastPathComponent().deletingLastPathComponent())
             try store.writeManifest(session)
         } catch {
-            // The in-memory capture still updates and re-assembles below, but the edit won't
-            // survive relaunch if this write fails. Log rather than silently lose it.
-            diag.log("update: \(session.id.uuidString.prefix(8)) manifest persist FAILED: \(error.localizedDescription)")
+            // Log the raw error and rethrow rather than continuing on: an edit that didn't
+            // survive to disk must not be reported as saved, and the in-memory capture below
+            // must not silently drift out of sync with what's actually on disk.
+            diag.log("update: \(session.id.uuidString.prefix(8)) manifest persist FAILED: \(error) (\(error.localizedDescription))")
+            throw error
         }
         captures[index] = Capture(session: session, folder: folder, phase: .processing, proxy: captures[index].proxy)
         await assemble(session.id)
