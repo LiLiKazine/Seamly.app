@@ -85,6 +85,60 @@ struct CaptureConditionTests {
         }
     }
 
+    // MARK: - Which problems a drag can fix
+
+    /// Not the inverse of `recommendsRecordingAgain`. Missing content needs a new recording;
+    /// a misjoined image needs a drag; an assumed order needs neither.
+    @Test(arguments: [
+        (Imperfection.Kind.endedEarly, false),
+        (Imperfection.Kind.gaps, false),
+        (Imperfection.Kind.unresolvedBars, true),
+        (Imperfection.Kind.flaggedJoins, true),
+        (Imperfection.Kind.orderAssumed, false),
+    ])
+    func liningUpHelpsOnlyAlignmentProblems(kind: Imperfection.Kind, expected: Bool) throws {
+        let facts: CaptureFacts = switch kind {
+        case .endedEarly: CaptureFacts(isIncomplete: true)
+        case .gaps: CaptureFacts(segmentBreaks: 1)
+        case .unresolvedBars: CaptureFacts(unresolvedChrome: 1)
+        case .flaggedJoins: CaptureFacts(flaggedSeams: 1)
+        case .orderAssumed: CaptureFacts(orderAssumed: true)
+        }
+        guard case .imperfect(let primary, _) = CaptureCondition(ready: facts) else {
+            Issue.record("expected imperfect for \(kind)"); return
+        }
+        #expect(primary.kind == kind)
+        #expect(primary.canBeLinedUp == expected)
+    }
+
+    @Test func aCleanCaptureStillOffersLiningUpQuietly() {
+        #expect(CaptureCondition(ready: CaptureFacts()).offersLiningUp)
+    }
+
+    /// The discriminating case, and the reason this reads every observation rather than only the
+    /// primary: the loudest advice here is "record again", but the image on disk still has a join
+    /// worth fixing.
+    @Test func anImperfectionThatWantsARerecordDoesNotHideAFixableJoinBehindIt() throws {
+        let condition = CaptureCondition(ready: CaptureFacts(flaggedSeams: 1, isIncomplete: true))
+        guard case .imperfect(let primary, _) = condition else {
+            Issue.record("expected imperfect, got \(condition)"); return
+        }
+        #expect(primary.kind == .endedEarly)
+        #expect(primary.canBeLinedUp == false)
+        #expect(condition.recommendsRecordingAgain)
+        #expect(condition.offersLiningUp)
+    }
+
+    @Test func anImperfectionNoDragCanFixDoesNotOfferLiningUp() {
+        #expect(CaptureCondition(ready: CaptureFacts(orderAssumed: true)).offersLiningUp == false)
+    }
+
+    @Test func thereIsNothingToLineUpBeforeOrWithoutAnImage() {
+        #expect(CaptureCondition.stitching.offersLiningUp == false)
+        #expect(CaptureCondition.nothingToStitch.offersLiningUp == false)
+        #expect(CaptureCondition.failed("broken").offersLiningUp == false)
+    }
+
     // MARK: - Error messages
 
     /// Every error the pipeline can hand us is a plain `Error` enum with no `LocalizedError`
