@@ -166,7 +166,7 @@ struct MediaImportTests {
         let capture = try #require(model.captures.first)
         model.consumePendingResult()
 
-        await model.update(capture.session)
+        try await model.update(capture.session)
 
         #expect(model.pendingResult == nil)
     }

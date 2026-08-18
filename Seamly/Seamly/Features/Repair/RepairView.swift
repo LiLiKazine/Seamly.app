@@ -28,10 +28,27 @@ struct RepairView: View {
     /// Offsets the user has changed, by join index. Empty means nothing to write.
     @State private var edited: [Int: Int] = [:]
     /// The offset this drag started from, so a cumulative translation maps to an absolute offset.
-    @State private var dragStart: Int?
+    /// `@GestureState`, not `@State`: SwiftUI resets it to `nil` automatically whenever the
+    /// gesture ends *or is cancelled/interrupted* — a plain `@State` var cleared only in
+    /// `onEnded` can't promise that (SwiftUI does not guarantee `onEnded` fires on every
+    /// interruption), and a stale baseline would make the next drag jump by the previous drag's
+    /// translation.
+    @GestureState private var dragStart: Int?
     @State private var zoom = ZoomState()
     @State private var loadError: String?
+    /// Set when `commit()`'s write fails or the capture it was writing to has vanished. Separate
+    /// from `loadError`: a save failure shouldn't blank out the canvas the user was just looking
+    /// at (and might retry Done against) the way a load failure blanks out an unloadable join.
+    @State private var saveError: String?
     @State private var busy = false
+    /// Bumped at the top of every `load()` call; a load only commits its result if this still
+    /// matches when its `await` returns. Needed because `model.joinFrames` reads through an
+    /// independent `Task.detached`, which does not observe `.task(id: position)`'s cancellation —
+    /// so a slow load can resolve after a faster, later one. Comparing *tokens* rather than join
+    /// indices matters here: paging away from a join and back to it is a legitimate way to reach
+    /// the same join index twice, and a stale load for the first visit must not be allowed to
+    /// overwrite state a fresh second visit (and a drag on top of it) already produced.
+    @State private var loadToken = 0
 
     /// `joins`/`position` are seeded here, synchronously, rather than in a `.task`: both depend
     /// only on `model`/`captureID`, which are already available, so there is nothing to await.
@@ -74,6 +91,14 @@ struct RepairView: View {
                 .safeAreaInset(edge: .bottom) { positionBar }
         }
         .task(id: position) { await load() }
+        .alert(
+            "Couldn't save",
+            isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(saveError ?? "")
+        }
     }
 
     @ViewBuilder
@@ -130,15 +155,22 @@ struct RepairView: View {
 
     /// A clipped window onto one frame, offset so a chosen source row lands where it belongs.
     ///
-    /// Shared by both halves. The upper window shows rows *above* `upperContentBottom`, which in
-    /// the real strip come from the previous frame — identical content, since that is what overlap
-    /// means. The lower window shows rows from `lowerSourceStart` down. The one thing that would
-    /// differ in either direction is that frame's *own* bar — top for the upper frame, bottom for
-    /// the lower — and neither window can reach it: each is clipped to at most half the screen,
-    /// which is at most a few hundred source pixels at 1×, while a frame is thousands tall, and
-    /// zooming only narrows the window further. (`JoinAlignment.lowerPixelHeight`'s doc comment
-    /// says the strip keeps the lower frame's bottom chrome, which is only true when that frame is
-    /// the segment's last — but this view never gets close enough to that row for it to matter.)
+    /// Shared by both halves, but the two behave differently under a drag. The **upper** window's
+    /// offset (`alignment.upperContentBottom`) never depends on `dy`, so it always shows the same
+    /// fixed slice of the upper frame no matter where the join sits. Half a screen is on the order
+    /// of a *thousand* source pixels at 1× on this hardware — roughly 1200, not "a few hundred" —
+    /// but a frame is thousands of pixels tall, so that fixed slice sits well inside the frame's
+    /// body, nowhere near its own top bar.
+    ///
+    /// The **lower** window's offset (`alignment.lowerSourceStart`) does move with `dy`, and near
+    /// the low end of `JoinAlignment.dyRange` it approaches the lower frame's own content-bottom
+    /// edge — so the lower window *can* show that frame's own bottom bar, and past it, black
+    /// beyond the image's actual pixels. That is honest, not a bug: for the segment's last join,
+    /// `Compositor.plan` draws exactly that. For an interior join dragged to that same extreme,
+    /// the finished strip instead continues into the *next* frame down, which this preview — only
+    /// ever showing the two frames either side of one join — has no way to draw. The discrepancy
+    /// is confined to the last sliver of an already-degenerate drag position, not anything a
+    /// normal "line it up" drag reaches.
     private func window(_ image: CGImage, width: CGFloat, offsetY: CGFloat, size: CGSize) -> some View {
         ZStack(alignment: .topLeading) {
             Color.clear
@@ -147,7 +179,12 @@ struct RepairView: View {
                 .frame(width: width, height: width * CGFloat(image.height) / CGFloat(max(image.width, 1)))
                 .offset(y: offsetY)
         }
-        .frame(width: size.width, height: max(size.height, 0), alignment: .topLeading)
+        // `.top`, not `.topLeading`: the image inside is `zoom.scale`× wider than this frame once
+        // zoomed in, so whichever edge this aligns to is the *only* slice the user can see (there
+        // is deliberately no panning to reach the rest). `.topLeading` showed the leftmost ~17% of
+        // the frame's width at 6× and nothing else — `.top` centres the zoomed slice horizontally
+        // while leaving the vertical placement, which `offsetY` already computes exactly, alone.
+        .frame(width: size.width, height: max(size.height, 0), alignment: .top)
         .clipped()
     }
 
@@ -160,10 +197,16 @@ struct RepairView: View {
         // The 1× ratio; `JoinAlignment` divides by the zoom itself.
         let sourcePixelsPerPoint = CGFloat(frames.upper.width) / max(size.width, 1)
         return DragGesture(minimumDistance: 1)
+            .updating($dragStart) { _, state, _ in
+                // Captures the offset this drag began from, once, the first time this fires for a
+                // fresh gesture. `onChanged` below still falls back to `alignment.dy` if this
+                // hasn't landed yet for the very first event of a drag, so the relative firing
+                // order between this closure and `onChanged` for the same event doesn't matter.
+                if state == nil { state = alignment?.dy }
+            }
             .onChanged { value in
                 guard var alignment, let join = currentJoin else { return }
                 let start = dragStart ?? alignment.dy
-                dragStart = start
                 let next = alignment.dy(
                     draggedBy: value.translation.height,
                     from: start,
@@ -174,7 +217,6 @@ struct RepairView: View {
                 self.alignment = alignment
                 edited[join] = next
             }
-            .onEnded { _ in dragStart = nil }
     }
 
     /// Where the user is, not a menu of places to go: chevrons and a count, so a join we never
@@ -216,6 +258,8 @@ struct RepairView: View {
     /// elsewhere) and a session with no walkable join at all, however unreachable that should be
     /// given `RepairableJoins.opening` gates whether this screen opens in the first place.
     private func load() async {
+        loadToken += 1
+        let token = loadToken
         guard let session else {
             loadError = CaptureCondition.message(for: CaptureModel.CaptureError.notFound)
             return
@@ -237,30 +281,42 @@ struct RepairView: View {
         }
         do {
             let loaded = try await model.joinFrames(captureID, joinIndex: join)
-            // `model.joinFrames` reads through an independent `Task.detached`, which does not
-            // observe this `.task(id: position)`'s cancellation — so a rapid chevron tap can
-            // start a second load before this one's disk read finishes, and the two can then
-            // complete in either order. Without this check, a slow, now-stale load landing after
-            // a faster, newer one would silently overwrite the screen with the wrong join's
-            // pixels while `position` already points elsewhere.
-            guard join == currentJoin else { return }
+            // See `loadToken`'s doc comment: a slow, now-stale load must not overwrite what a
+            // newer load (or a drag on top of it) has already put on screen.
+            guard token == loadToken else { return }
             frames = loaded
             alignment = resolved
         } catch {
-            guard join == currentJoin else { return }
+            guard token == loadToken else { return }
             // The model logged the raw error; this is the sentence a person can read.
             loadError = CaptureCondition.message(for: error)
         }
     }
 
     private func commit() {
-        guard !edited.isEmpty, let stored = session else { dismiss(); return }
+        guard !edited.isEmpty else { dismiss(); return }
+        guard let stored = session else {
+            // The capture disappeared out from under this screen (e.g. deleted elsewhere) while
+            // edits were still pending. There is nothing left to write them to — unlike the
+            // "nothing changed" case above, this drop is not silent: it reads like any other
+            // failed save instead of the screen just vanishing.
+            saveError = CaptureCondition.message(for: CaptureModel.CaptureError.notFound)
+            return
+        }
         var session = stored
         busy = true
         Task {
             defer { busy = false }
             for (join, dy) in edited {
-                guard let index = session.seams.firstIndex(where: { $0.fromIndex == join }) else { continue }
+                guard let index = session.seams.firstIndex(where: { $0.fromIndex == join }) else {
+                    // Unreachable: `edited[join]` is only ever set by `dragGesture`, which
+                    // requires a `JoinAlignment` to exist for `join`, and `JoinAlignment.init?`
+                    // itself requires the matching seam to be present. If the seam is somehow
+                    // missing anyway, skipping just this one join's edit is the least-bad response
+                    // to manifest data this code did not expect to see — better than discarding
+                    // every other edit in the same batch over it.
+                    continue
+                }
                 session.seams[index].provisionalDy = dy
                 // The user has now looked at this join with their own eyes. Leaving it flagged
                 // would put "a join may not line up" back on the result screen over a join they
@@ -269,8 +325,15 @@ struct RepairView: View {
                 // the badge.
                 session.seams[index].isLowConfidence = false
             }
-            await model.update(session)
-            dismiss()
+            do {
+                try await model.update(session)
+                dismiss()
+            } catch {
+                // The model logged the raw error; this is the sentence a person can read. Staying
+                // on screen (not dismissing) keeps `edited` intact so Done can be tried again —
+                // the user must never be led to believe a repair saved when it didn't.
+                saveError = CaptureCondition.message(for: error)
+            }
         }
     }
 }
