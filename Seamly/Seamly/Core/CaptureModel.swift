@@ -304,12 +304,16 @@ final class CaptureModel {
                             // confidence alone never changes the ordering policy.
                             do {
                                 let resolved = try StitchAssembler.resolveGeometry(session, in: dest, strategy: .recoverOrInputOrder)
-                                try appStore.writeManifest(resolved)
-                                diag.log("import: \(shortID) geometry resolved (\(resolved.keyframes.count) kf, \(resolved.seams.count) seams, \(resolved.segmentBreaks.count) breaks, orderAssumed=\(resolved.orderAssumed))")
+                                // Freeze beside resolution, once. See StitchAssembler.freezeGeometry:
+                                // the draw path must never re-derive geometry, or a repaired join
+                                // is silently un-repaired on the next launch.
+                                let frozen = try StitchAssembler.freezeGeometry(resolved, in: dest)
+                                try appStore.writeManifest(frozen)
+                                diag.log("import: \(shortID) geometry resolved + frozen (\(frozen.keyframes.count) kf, \(frozen.seams.count) seams, \(frozen.segmentBreaks.count) breaks, orderAssumed=\(frozen.orderAssumed))")
                             } catch {
                                 // Non-fatal: keep the extension's manifest so the capture still
                                 // imports (it may stitch imperfectly) rather than being lost.
-                                diag.log("import: \(shortID) geometry resolve FAILED, keeping extension manifest: \(error.localizedDescription)")
+                                diag.log("import: \(shortID) geometry resolve/freeze FAILED, keeping extension manifest: \(error.localizedDescription)")
                             }
                         }
                     } else {

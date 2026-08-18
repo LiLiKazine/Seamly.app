@@ -43,8 +43,11 @@ enum MediaImporter {
         try store.writeManifest(session)
 
         let resolved = try StitchAssembler.resolveGeometry(session, in: folder, strategy: strategy)
-        try store.writeManifest(resolved)
-        diag.log("import[\(source.rawValue)]: \(id.uuidString.prefix(8)) wrote \(images.count) kf, resolved \(resolved.seams.count) seams, \(resolved.segmentBreaks.count) breaks, orderAssumed=\(resolved.orderAssumed)")
+        // Freeze here, next to where geometry is derived — never on the draw path. From this point
+        // the manifest is the authority on where every join sits.
+        let frozen = try StitchAssembler.freezeGeometry(resolved, in: folder)
+        try store.writeManifest(frozen)
+        diag.log("import[\(source.rawValue)]: \(id.uuidString.prefix(8)) wrote \(images.count) kf, resolved \(frozen.seams.count) seams, \(frozen.segmentBreaks.count) breaks, orderAssumed=\(frozen.orderAssumed)")
         return id
     }
 }
