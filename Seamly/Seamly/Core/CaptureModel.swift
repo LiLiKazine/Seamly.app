@@ -435,6 +435,37 @@ final class CaptureModel {
         return try result.get()
     }
 
+    /// Load the two full-resolution keyframes either side of a join, off the main actor.
+    ///
+    /// Full resolution deliberately, and never the display proxy: the repair surface is where a
+    /// user judges single-pixel alignment, so a downscaled image would have them lining up
+    /// something the export does not draw. One pair at a time — never the whole set.
+    func joinFrames(_ id: UUID, joinIndex: Int) async throws -> (upper: CGImage, lower: CGImage) {
+        guard let capture = captures.first(where: { $0.id == id }) else { throw CaptureError.notFound }
+        let session = capture.session, folder = capture.folder
+        guard let upper = session.keyframes.first(where: { $0.index == joinIndex }),
+              let lower = session.keyframes.first(where: { $0.index == joinIndex + 1 })
+        else { throw CaptureError.notFound }
+        let diag = self.diag
+        let result: Result<(upper: CGImage, lower: CGImage), Error> = await Task.detached {
+            do {
+                let cs = StitchAssembler.colorSpace(for: session)
+                return .success((
+                    upper: try StitchAssembler.loadKeyframe(upper, in: folder, colorSpace: cs),
+                    lower: try StitchAssembler.loadKeyframe(lower, in: folder, colorSpace: cs)
+                ))
+            } catch {
+                return .failure(error)
+            }
+        }.value
+        // Log the raw error and rethrow: `Diagnostics` is the only window into a device failure,
+        // and the caller still has to tell the user what went wrong in their own language.
+        if case .failure(let error) = result {
+            diag.log("joinFrames: \(session.id.uuidString.prefix(8)) join \(joinIndex) FAILED: \(error) (\(error.localizedDescription))")
+        }
+        return try result.get()
+    }
+
     /// Render the capture to a PDF in a temp file for sharing.
     func exportPDF(_ id: UUID) async throws -> URL {
         guard let capture = captures.first(where: { $0.id == id }) else { throw CaptureError.notFound }
