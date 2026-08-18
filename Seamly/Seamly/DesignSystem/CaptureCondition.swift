@@ -125,6 +125,21 @@ nonisolated enum CaptureCondition: Equatable {
     /// a clean one quietly, but the words are identical — so this stays the only place the string
     /// lives, which is the whole point of this type.
     static let liningUpActionTitle = "Line it up"
+
+    /// The repair screen opened on a capture with no join it can walk to at all. Structurally
+    /// unreachable — `RepairableJoins.opening(in:flaggedOnly:)` gates whether the entry appears —
+    /// but the screen still says something rather than sitting on a spinner forever.
+    ///
+    /// Here rather than in the view for the reason the whole type exists: "there is no walkable
+    /// seam pair in this session" is a pipeline fact, and this is the only place one becomes
+    /// English.
+    static let nothingToLineUpMessage = "There's nothing here to line up."
+
+    /// The manifest does not describe the join being opened — a keyframe missing either side of it,
+    /// or no seam recorded for the pair (`JoinAlignment.init?` returning `nil`). Distinct from
+    /// `nothingToLineUpMessage`: there *is* a join at this position, but what was saved about it is
+    /// incomplete, so nothing can be placed on screen honestly.
+    static let joinNotDescribedMessage = "This part of the capture is missing, so there's nothing to line up."
 }
 
 nonisolated extension CaptureCondition {

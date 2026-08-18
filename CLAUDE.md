@@ -156,6 +156,13 @@ xcodebuild -project Seamly/Seamly.xcodeproj -scheme Seamly \
   -destination 'platform=iOS Simulator,name=iPhone 17' test
 ```
 
+**Launching with `-SeamlySeedMisalignedCapture` (`#if DEBUG` only) writes a deliberately
+misaligned two-keyframe capture straight into app storage** (`Core/DebugSeed.swift`) — the only way
+to reach guided repair from a UI test or by hand, since the real import paths are system pickers a
+test cannot drive. This narrowly reverses Spec 1's "no test-only hooks in app storage" decision; it
+stays a single explicit launch argument, not a general fixture mechanism (`docs/logs/
+2026-08-18-02-guided-repair.md`).
+
 All paths above are from the **repo root**. Note the nested layout: the root holds
 `README.md`, `CLAUDE.md`, `DECISIONS.md`, and `docs/`; the Xcode project and the package
 live one level down in `Seamly/`.

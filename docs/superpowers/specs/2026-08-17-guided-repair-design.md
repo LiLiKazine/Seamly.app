@@ -217,10 +217,16 @@ claim honest (below). If it ever fails, this approach is wrong, not inconvenient
 
 - The composite becomes a pure function of the manifest — which non-destructive editing already
   claims, but is not true while every draw silently re-derives geometry.
-- Exports stop re-refining. `fullComposite` and `exportPDF` each redo the full pass today, on
-  every tap.
 
-Refinement cost per capture drops from once per draw to once per lifetime.
+**What it does *not* buy: a cheaper export.** `Compositor.composite` and `Compositor.writePDF` call
+`refineSeams` unconditionally (`Compositor.swift:102`, `:146`), and `refinementDelta: 0` does not
+change that — `fullComposite` and `exportPDF` still load two full-resolution images per seam,
+profile both (`refineVertical` profiles *before* it checks its search range), and run the
+full-width `measureHorizontal`. What collapses is the **candidate count**: at delta 16 the search
+range `lo...hi` spans up to 33 offsets; at delta 0 it collapses to `lo == hi == provisional`,
+exactly one. That is the whole geometric point — the stored offset comes back verbatim — and it is
+the only claim made here. No measurement of the remaining per-draw cost has been taken, so none is
+claimed.
 
 **Accepted consequence for captures already on disk.** A dev capture imported before this change
 has coarse, unfrozen offsets, and would now composite from them directly instead of being refined
@@ -404,4 +410,5 @@ plausible-looking addition that would contradict the governing decision.
 - The bar band itself. It needs its own decision about where a chrome edit lives without becoming
   the per-bar control this model rejects — not a quiet extension of this gesture.
 - A permanently-failing capture is still re-composited on every foreground (Spec 1 follow-up,
-  unchanged here, and now one refine cheaper per attempt).
+  unchanged here — and not made cheaper by frozen geometry, which narrows refinement's search to a
+  single candidate but does not skip the pass; see "What it does *not* buy" above).

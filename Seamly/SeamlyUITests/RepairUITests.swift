@@ -49,15 +49,19 @@ final class RepairUITests: XCTestCase {
             "the join was still flagged after being lined up — the edit did not reach the manifest"
         )
 
-        // `waitForNonExistence` above is satisfied the instant the capture flips to `.processing`
-        // (`ResultView`'s `.stitching` case renders `ProcessingView`, which has no `ConditionNotice`
-        // at all) — that proves nothing about whether the write that triggered it was correct. A
-        // commit that flipped to processing without truly persisting the fix (or without writing
-        // anything at all before some other side effect re-triggered assembly) would make the
-        // notice vanish transiently and then reappear once the capture settles back to `.ready`
-        // with its still-flagged condition. So: wait for the primary action to become hittable
-        // again — which only happens once `assemble` finishes and the capture is `.ready` with a
-        // proxy — and only then assert the notice is *still* absent.
+        // `waitForNonExistence` above proves almost nothing on its own, and not for the reason it
+        // might appear to. It is satisfied by *the cover itself*: while `RepairView` is up,
+        // `ResultView` (notice included) is not in the accessibility tree at all, so the notice is
+        // already absent the moment "Line it up" is tapped, before anything is written. Nor does
+        // this catch a `.processing` flip on the way back: `commit()` awaits `model.update(_:)` —
+        // which persists the manifest *and* runs `assemble` to completion — *before* it calls
+        // `dismiss()`, so by the time the cover drops the capture is already back to `.ready`.
+        //
+        // So the hittability-gated re-assertion below is doing all the real work: it waits until
+        // `ResultView` is genuinely back on screen and interactive (the primary action existing
+        // *and* hittable, which needs a `.ready` capture with a proxy), and only then asserts the
+        // notice is absent — i.e. that the condition recomputed clean from what was actually
+        // written, rather than the notice merely being off-screen behind the cover.
         let saveButton = app.buttons["Save to Photos"]
         XCTAssertTrue(saveButton.waitForExistence(timeout: 30), "the result screen never came back")
         XCTAssertTrue(
@@ -66,7 +70,7 @@ final class RepairUITests: XCTestCase {
         )
         XCTAssertFalse(
             notice.exists,
-            "the join was flagged again once the re-composite settled — the earlier disappearance was just the processing flip"
+            "the join is still flagged now that the result screen is back and interactive — the earlier disappearance was only the repair cover covering it"
         )
     }
 

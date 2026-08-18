@@ -509,10 +509,9 @@ final class CaptureModel {
     /// of the import path. The caller is expected to surface the failure and keep the user's
     /// edits around for a retry rather than dismissing as though they were saved.
     ///
-    /// **Otherwise has no caller in the shipped shell.** `EditView` was removed with the harness
-    /// UI; this is the path guided repair (Spec 2,
-    /// `docs/superpowers/specs/2026-08-10-one-shot-capture-shell-design.md`) reconnects to.
-    /// Do not delete as dead code.
+    /// `EditView` was removed with the harness UI, which left this method with no caller at all for
+    /// a while; guided repair (Spec 2,
+    /// `docs/superpowers/specs/2026-08-17-guided-repair-design.md`) is what reconnected to it.
     func update(_ session: StitchSession) async throws {
         guard let index = captures.firstIndex(where: { $0.id == session.id }) else {
             throw CaptureError.notFound
