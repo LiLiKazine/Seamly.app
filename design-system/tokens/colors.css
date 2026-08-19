@@ -13,8 +13,8 @@
 
   /* --- ink --- */
   --ink:          #1f1d1a;
-  --ink-muted:    #6b665e;
-  --ink-faint:    #9a948b;
+  --ink-muted:    #55514b;
+  --ink-faint:    #6d6962;
   --ink-inverse:  #f6f4f0;
 
   /* --- one restrained accent: bookbinder's blue --- */
@@ -22,15 +22,18 @@
   --accent-hover: #253352;
   --accent-wash:  rgba(51, 69, 107, 0.09);
 
-  /* --- marks. Muted ink tones, one per kind of doubt. Never colour alone. --- */
+  /* --- marks. Muted ink tones, one per kind of doubt. Never colour alone.
+     Values are contrast-solved against --paper, not picked by eye: a mark that
+     cannot be read is not a mark. mark-flag carries the uncertain seam — the
+     thing the user must find — so it clears 4.5:1 for small text. --- */
   --mark-ok:      #3e6b4f;   /* confident, complete */
-  --mark-flag:    #a8781e;   /* seam match uncertain */
+  --mark-flag:    #8a6219;   /* seam match uncertain */
   --mark-gap:     #a6482a;   /* content genuinely missing */
   --mark-error:   #a3302b;   /* stitch or export failed */
   --mark-rec:     #ff3b30;   /* live broadcast — iOS red, never restyle */
 
   --wash-ok:      rgba(62, 107, 79, 0.10);
-  --wash-flag:    rgba(168, 120, 30, 0.12);
+  --wash-flag:    rgba(138, 98, 25, 0.13);
   --wash-gap:     rgba(166, 72, 42, 0.11);
   --wash-error:   rgba(163, 48, 43, 0.10);
 
@@ -62,7 +65,7 @@
 
   --ink:          #f2efe9;
   --ink-muted:    #a49d93;
-  --ink-faint:    #6f6960;
+  --ink-faint:    #878075;
   --ink-inverse:  #1f1d1a;
 
   --accent:       #93a6d4;

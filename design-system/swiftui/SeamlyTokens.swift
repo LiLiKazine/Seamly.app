@@ -64,8 +64,8 @@ public enum SeamlyColor {
 
     // Ink
     public static let ink        = Color.seamly(light: 0x1F1D1A, dark: 0xF2EFE9)
-    public static let inkMuted   = Color.seamly(light: 0x6B665E, dark: 0xA49D93)
-    public static let inkFaint   = Color.seamly(light: 0x9A948B, dark: 0x6F6960)
+    public static let inkMuted   = Color.seamly(light: 0x55514B, dark: 0xA49D93)
+    public static let inkFaint   = Color.seamly(light: 0x6D6962, dark: 0x878075)
     public static let inkInverse = Color.seamly(light: 0xF6F4F0, dark: 0x1F1D1A)
 
     // One accent — bookbinder's blue
@@ -74,7 +74,7 @@ public enum SeamlyColor {
 
     // Marks — one per kind of doubt. Never colour alone; always paired with text.
     public static let markOK    = Color.seamly(light: 0x3E6B4F, dark: 0x6FAE86)
-    public static let markFlag  = Color.seamly(light: 0xA8781E, dark: 0xD9A544)
+    public static let markFlag  = Color.seamly(light: 0x8A6219, dark: 0xD9A544)
     public static let markGap   = Color.seamly(light: 0xA6482A, dark: 0xD9754E)
     public static let markError = Color.seamly(light: 0xA3302B, dark: 0xD9615A)
 
