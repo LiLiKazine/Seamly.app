@@ -13,10 +13,7 @@ trust it.
 
 The UI around it is a deliberately **one-shot shell**: a record-first home (record button,
 "From Video", "From Photos", a recents strip) that navigates itself to a single result
-screen whose primary action is **Save to Photos**. `EditView` and the old seam/chrome
-controls from the test-harness UI are still gone — do not re-add a per-seam or per-bar
-editing surface as a "missing feature"; that model was rejected on purpose (`docs/
-superpowers/specs/2026-08-17-guided-repair-design.md`). But there is now a way to fix a
+screen whose primary action is **Save to Photos**. There is a way to fix a
 bad stitch: **guided repair** takes the user straight to a misjoined boundary and lets them
 drag the two halves until they line up, one join at a time, with pinch as the only precision
 control (`Features/Repair/RepairView.swift`, `JoinAlignment.swift`). It is offered loudly
@@ -24,6 +21,21 @@ control (`Features/Repair/RepairView.swift`, `JoinAlignment.swift`). It is offer
 quietly (a nav-bar item on `ResultView`) for a `.clean` capture, since a green verdict has
 been confidently wrong before. `CaptureModel.update(_:)` is the reconnection point the
 manifest's non-destructive design was kept for, and now has its caller.
+
+**The design has since moved on, and the design now governs.** `design-system/` is the
+design source of truth (see "Design" below). It specifies a different repair model — a
+queue that walks the user through each flagged join, one question at a time, with numeric
+controls behind an explicit *Adjust manually* path — and it puts the pipeline's own words
+on screen rather than hiding them. That supersedes
+`docs/superpowers/specs/2026-08-17-guided-repair-design.md`, which rejected per-seam and
+per-bar controls and kept "seam", "chrome", "confidence", "offset" and "segment" off the
+screen entirely. **That earlier prohibition no longer holds.**
+
+The code has not moved yet: what ships today is guided repair exactly as described above.
+When the UI is rebuilt, build to `design-system/`, not to this paragraph. One caveat that
+survives the reversal — the design's manual path is a narrow secondary affordance reached
+from the queue, not a return of the old `EditView` form, which was a test harness rather
+than a design.
 
 One known gap is tracked as a `withKnownIssue` test, not hidden:
 
@@ -39,6 +51,32 @@ Closed since: `BatchStitcher` mis-scoring scroll direction on image-heavy conten
 — the video tier now stitches into one continuous segment. Its last break was blamed on an
 "unmatchable" fixture keyframe for two cycles; the real cause was `OffsetMatcher` discarding
 large offsets, `docs/logs/2026-08-08-02-masked-overlap-floor.md`.
+
+## Design
+
+`design-system/` is the **design source of truth**: tokens, 20 components each with a
+`.d.ts` contract and a `.prompt.md`, guideline cards, and a live click-through UI kit
+covering six screens in both size classes. Also published at
+[claude.ai/design](https://claude.ai/design/p/f9e8831d-2cc1-4513-9cf0-aea67fd27259).
+Where it disagrees with shipped UI, **the design is the intent and the code is history.**
+
+- **Direction: Paper.** The capture is a sheet lying on a desk — warm light ground,
+  square-cornered sheets, depth from rules rather than shadow.
+- **The load-bearing rule.** On a light ground a thin rule over white captured content is
+  easy to miss, so the mark on the sheet stays quiet and *findability lives in the margin*,
+  where the ground is always paper and contrast is guaranteed whatever was captured.
+- **IA: return-home.** The app opens on the most recent capture, because its most common
+  launch context is "I just stopped a broadcast — what did I get?"
+- **Repair: a queue.** The capture enumerates its own problems and asks about them one at
+  a time, rather than the user hunting a 15 000 px image.
+- `design-system/swiftui/SeamlyTokens.swift` — token port, typechecks under Swift 6
+  against the iOS 26 SDK. `FEASIBILITY.md` beside it records what does **not** port:
+  line-height is a multiplier in CSS but additive leading in SwiftUI, `.tracking()` does
+  not scale with Dynamic Type, and the CSS breakpoints should be replaced by
+  `horizontalSizeClass` rather than translated.
+
+Colour tokens are contrast-solved against the ground, not picked by eye; every token
+clears 4.5:1. If you change one, re-check it.
 
 ## Architecture
 
