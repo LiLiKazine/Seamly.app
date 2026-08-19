@@ -1,7 +1,13 @@
 # Guided Repair — Design (Spec 2)
 
 **Date:** 2026-08-17
-**Status:** Implemented — see `docs/logs/2026-08-18-02-guided-repair.md` for the seed, UI test, and
+**Status:** Implemented, then **superseded** — the repair model below was replaced by the
+design system in `design-system/` (see `CLAUDE.md`, "Design"). The implementation described
+here still ships; the model it argues for no longer governs. Specifically, the rejection of
+per-seam controls and the ban on pipeline vocabulary on screen were both reversed. Kept as
+the record of why it was built this way.
+
+**Original status:** Implemented — see `docs/logs/2026-08-18-02-guided-repair.md` for the seed, UI test, and
 manual-pass findings that proved it end to end.
 
 ## Summary
