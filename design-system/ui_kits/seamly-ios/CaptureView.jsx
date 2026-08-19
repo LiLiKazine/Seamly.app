@@ -37,7 +37,11 @@ function CaptureView({ capture, zoom = 1, top = 0, selected, onSelect, onScrub,
           <div style={{ position: "absolute", left: 0, right: 0, top: `${-top}%`,
             height: `${zoom * 100}%`,
             transition: "top var(--dur-jump) var(--ease-out), height var(--dur-jump) var(--ease-out)",
-            background: PROXY, backgroundColor: "#fff" }}>
+            backgroundImage: capture.image ? `url(${capture.image})` : PROXY,
+            backgroundPosition: "top center",
+            backgroundSize: capture.image ? "100% auto" : "auto",
+            backgroundRepeat: "no-repeat",
+            backgroundColor: "#fff" }}>
             {capture.marks.map((m, i) => (
               <SeamMark key={i} kind={m.kind} atPct={m.atPct} lostPx={m.lostPx} />
             ))}

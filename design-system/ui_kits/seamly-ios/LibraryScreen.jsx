@@ -24,7 +24,7 @@ function LibraryScreen({ regular, captures, onOpen, onBack, onCapture, onVideo, 
             gap: "var(--s-7)", paddingTop: "var(--s-5)" }}>
             {captures.map((c) => (
               <CaptureGridCard key={c.id} title={c.title} widthPx={c.widthPx}
-                heightPx={c.heightPx} marks={c.marks.filter((m) => m.n)}
+                heightPx={c.heightPx} image={c.image} marks={c.marks.filter((m) => m.n)}
                 flaggedCount={flagged(c)} gapCount={gaps(c)} incomplete={c.incomplete}
                 onClick={() => onOpen(c)} />
             ))}
@@ -33,7 +33,7 @@ function LibraryScreen({ regular, captures, onOpen, onBack, onCapture, onVideo, 
           <div>
             {captures.map((c) => (
               <CaptureListRow key={c.id} title={c.title} widthPx={c.widthPx}
-                heightPx={c.heightPx} marks={c.marks.filter((m) => m.n)}
+                heightPx={c.heightPx} image={c.image} marks={c.marks.filter((m) => m.n)}
                 flaggedCount={flagged(c)} gapCount={gaps(c)} incomplete={c.incomplete}
                 onClick={() => onOpen(c)} />
             ))}

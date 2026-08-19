@@ -1,27 +1,40 @@
 /* One sample capture with two real problems in it, plus a clean one — so every
    screen can be seen in both its "needs a look" and "nothing to fix" state. */
 const CAPTURES = [
-  { id: "c1", title: "Today", widthPx: 884, heightPx: 15402, frames: 9,
+  /* REAL capture: 7 device frames from StitchKit's own RealDevice fixtures, run
+     through BatchStitcher. 884 × 9927 px. Every number below comes from the
+     engine, not from imagination — 3 segment breaks (lost lock), only 3 seams
+     recovered from 7 frames, and 2 of 4 content bands with undetected chrome,
+     which is why the iOS status bar is sitting in the middle of the image.
+     This is what an ordinary capture actually looks like. */
+  { id: "c1", title: "Today", widthPx: 884, heightPx: 9927, frames: 7,
+    image: "real-capture.jpg",
     marks: [
-      { atPct: 21, kind: "confident" },
-      { atPct: 38, kind: "flagged", n: 1 },
-      { atPct: 55, kind: "confident" },
-      { atPct: 68, kind: "gap", n: 2, lostPx: "1 200" },
-      { atPct: 84, kind: "flagged", n: 3 },
+      { atPct: 7.5, kind: "confident" },
+      { atPct: 9.0, kind: "flagged", n: 4 },
+      { atPct: 11.0, kind: "confident" },
+      { atPct: 19.3, kind: "gap", n: 1, lostPx: "lost lock" },
+      { atPct: 22.5, kind: "confident" },
+      { atPct: 49.6, kind: "gap", n: 2, lostPx: "lost lock" },
+      { atPct: 59.0, kind: "flagged", n: 5 },
+      { atPct: 68.9, kind: "gap", n: 3, lostPx: "lost lock" },
     ],
     findings: [
-      { n: 1, kind: "flagged", atPct: 38, title: "Seam after frame 4",
-        question: "Does this line up?",
-        detail: "The match here was uncertain — an ad may have loaded between frames.",
-        dy: 750, conf: 0.54 },
-      { n: 2, kind: "gap", atPct: 68, title: "Gap · 1 200 px",
+      { n: 1, kind: "gap", atPct: 19.3, title: "Gap after frame 1",
         question: "Recapture this stretch?",
-        detail: "The scroll outran the frame rate here, so this content was never revealed.",
-        dy: null },
-      { n: 3, kind: "flagged", atPct: 84, title: "Seam after frame 8",
-        question: "Does this line up?",
-        detail: "A collapsing header can shift the match by a few pixels.",
-        dy: -120, conf: 0.61 },
+        detail: "Tracking was lost here, so this content was never revealed.", dy: null },
+      { n: 2, kind: "gap", atPct: 49.6, title: "Gap after frame 4",
+        question: "Recapture this stretch?",
+        detail: "Tracking was lost here, so this content was never revealed.", dy: null },
+      { n: 3, kind: "gap", atPct: 68.9, title: "Gap after frame 5",
+        question: "Recapture this stretch?",
+        detail: "Tracking was lost here, so this content was never revealed.", dy: null },
+      { n: 4, kind: "flagged", atPct: 9.0, title: "Bars uncertain — section 1",
+        question: "Where do the bars end?",
+        detail: "Bars weren't detected confidently here — set the crop.", dy: 0, conf: 0.41 },
+      { n: 5, kind: "flagged", atPct: 59.0, title: "Bars uncertain — section 3",
+        question: "Where do the bars end?",
+        detail: "Bars weren't detected confidently here — set the crop.", dy: 0, conf: 0.44 },
     ] },
   { id: "c2", title: "Today", widthPx: 884, heightPx: 6210, frames: 4,
     marks: [{ atPct: 33, kind: "confident" }, { atPct: 71, kind: "confident" }],

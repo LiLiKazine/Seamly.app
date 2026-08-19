@@ -16,12 +16,17 @@ export function CaptureSheet({ image, ribbon = true, marks = [], children,
       borderRadius: "var(--radius-sheet)", boxShadow: "var(--lift-sheet)",
       overflow: "hidden", ...style }} {...rest}>
       <div style={{ position: "absolute", inset: ribbon ? "0 10px 0 0" : 0,
-        background: image ? `url(${image}) top center / 100% auto no-repeat` : PROXY_PATTERN,
+        backgroundImage: image ? `url(${image})` : PROXY_PATTERN,
+        backgroundPosition: "top center",
+        backgroundSize: image ? "100% auto" : "auto",
+        backgroundRepeat: "no-repeat",
         backgroundColor: "#fff" }} />
       {ribbon && (
         <div style={{ position: "absolute", inset: "0 0 0 auto", width: 10,
           borderLeft: "1px solid rgba(31,29,26,.12)",
-          background: image ? `url(${image}) center / 100% 100% no-repeat` : PROXY_PATTERN_DENSE,
+          backgroundImage: image ? `url(${image})` : PROXY_PATTERN_DENSE,
+          backgroundPosition: "center", backgroundSize: image ? "100% 100%" : "auto",
+          backgroundRepeat: "no-repeat",
           backgroundColor: "#fff", opacity: 0.85 }}>
           {marks.map((m, i) => (
             <span key={i} aria-hidden="true" style={{ position: "absolute", left: 0, right: 0,

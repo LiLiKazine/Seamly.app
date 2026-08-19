@@ -35,7 +35,10 @@
       top: `${-top}%`,
       height: `${zoom * 100}%`,
       transition: "top var(--dur-jump) var(--ease-out), height var(--dur-jump) var(--ease-out)",
-      background: PROXY,
+      backgroundImage: capture.image ? `url(${capture.image})` : PROXY,
+      backgroundPosition: "top center",
+      backgroundSize: capture.image ? "100% auto" : "auto",
+      backgroundRepeat: "no-repeat",
       backgroundColor: "#fff"
     } }, capture.marks.map((m, i) => /* @__PURE__ */ React.createElement(SeamMark, { key: i, kind: m.kind, atPct: m.atPct, lostPx: m.lostPx }))))), showScale && /* @__PURE__ */ React.createElement(
       PositionScale,
@@ -178,6 +181,7 @@
         title: c.title,
         widthPx: c.widthPx,
         heightPx: c.heightPx,
+        image: c.image,
         marks: c.marks.filter((m) => m.n),
         flaggedCount: flagged(c),
         gapCount: gaps(c),
@@ -191,6 +195,7 @@
         title: c.title,
         widthPx: c.widthPx,
         heightPx: c.heightPx,
+        image: c.image,
         marks: c.marks.filter((m) => m.n),
         flaggedCount: flagged(c),
         gapCount: gaps(c),
