@@ -1,0 +1,15 @@
+/* Restrained: the main object is a 15 000 px image someone is trying to read. */
+:root {
+  --dur-press: 120ms;
+  --dur-base: 220ms;
+  --dur-jump: 420ms;        /* the pan that jumps to a mark — the one that matters */
+  --dur-stitching: 1100ms;  /* indeterminate sweep; stitching has no percentage */
+  --ease-standard: cubic-bezier(.32,.72,0,1);
+  --ease-out: cubic-bezier(.22,1,.36,1);
+  --press-scale: 0.98;
+  --hover-lift: -1px;
+  --disabled-opacity: 0.38;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --dur-press: 1ms; --dur-base: 1ms; --dur-jump: 1ms; }
+}

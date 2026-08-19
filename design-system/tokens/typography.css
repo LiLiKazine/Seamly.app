@@ -1,0 +1,53 @@
+/* Seamly type. SF Pro is the real typeface — the app is SwiftUI and must honour
+   Dynamic Type, so the ladder is Apple's pt scale 1:1 and is IDENTICAL on iPhone
+   and iPad (Apple does not vary it by size class; iPad gets more content, not
+   bigger type).
+
+   The PAPER direction is carried by margin, measure and rule — NOT by a serif.
+   An iOS app that ships a display serif fights Dynamic Type and the platform;
+   the document feeling comes from layout. */
+:root {
+  --font-ui:      -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-display: -apple-system, "SF Pro Display", system-ui, sans-serif;
+  --font-mono:    ui-monospace, "SF Mono", Menlo, monospace;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --size-largetitle: 34px;
+  --size-title1: 28px;
+  --size-title2: 22px;
+  --size-title3: 20px;
+  --size-headline: 17px;
+  --size-body: 17px;
+  --size-callout: 16px;
+  --size-subheadline: 15px;
+  --size-footnote: 13px;
+  --size-caption: 12px;
+  --size-caption2: 11px;
+
+  --leading-tight: 1.1;
+  --leading-snug: 1.26;
+  --leading-normal: 1.4;
+  --leading-relaxed: 1.5;
+
+  --tracking-display: -0.02em;
+  --tracking-title: -0.012em;
+  --tracking-caps: 0.08em;
+
+  --measure: 38ch;   /* explainer copy never runs wider than this */
+
+  --type-largetitle: var(--weight-bold) var(--size-largetitle) / var(--leading-tight) var(--font-display);
+  --type-title2:     var(--weight-semibold) var(--size-title2) / var(--leading-snug) var(--font-display);
+  --type-title3:     var(--weight-semibold) var(--size-title3) / var(--leading-snug) var(--font-display);
+  --type-headline:   var(--weight-semibold) var(--size-headline) / var(--leading-snug) var(--font-ui);
+  --type-body:       var(--weight-regular) var(--size-body) / var(--leading-relaxed) var(--font-ui);
+  --type-subheadline: var(--weight-regular) var(--size-subheadline) / var(--leading-normal) var(--font-ui);
+  --type-footnote:   var(--weight-regular) var(--size-footnote) / var(--leading-normal) var(--font-ui);
+  --type-caption:    var(--weight-medium) var(--size-caption) / var(--leading-normal) var(--font-ui);
+  --type-caps:       var(--weight-semibold) var(--size-caption2) / var(--leading-normal) var(--font-ui);
+  --type-mono:       var(--weight-medium) var(--size-footnote) / var(--leading-normal) var(--font-mono);
+  --type-mono-lg:    var(--weight-medium) var(--size-callout) / var(--leading-snug) var(--font-mono);
+}

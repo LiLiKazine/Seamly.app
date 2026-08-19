@@ -1,0 +1,46 @@
+/* Seamly space, radii, depth. 4 pt base — an iOS convention, not lifted from any
+   build. PAPER runs wider margins than a typical iOS app because a document has
+   margins; that is the direction showing up in the numbers. */
+:root {
+  --s-1: 2px;  --s-2: 4px;  --s-3: 8px;  --s-4: 12px; --s-5: 16px;
+  --s-6: 20px; --s-7: 24px; --s-8: 32px; --s-9: 40px; --s-10: 48px; --s-11: 64px;
+
+  --gutter-compact: 20px;    /* document margin, iPhone */
+  --gutter-regular: 32px;    /* iPad */
+  --margin-rail: 34px;       /* the left margin that carries markers */
+  --scale-rail: 16px;        /* the right margin that carries the position scale */
+  --column-max: 440px;       /* capture column never grows past this */
+  --sidebar-width: 340px;    /* regular-width review rail */
+  --hit-min: 44px;
+  --safe-top: 44px;
+  --safe-bottom: 34px;
+
+  /* size classes, not devices */
+  --bp-regular: 700px;
+  --bp-wide: 1000px;
+  --vp-short: 500px;
+
+  /* PAPER: sheets have square corners. Rounding is for controls only. */
+  --radius-sheet: 0px;
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --border-hair: 1px;
+  --focus-width: 2px;
+  --focus-offset: 2px;
+
+  /* Depth is a rule plus a lifted edge — paper, not glass. No large blurs. */
+  --lift-sheet: 0 1px 0 rgba(31,29,26,.10), 0 8px 24px -14px rgba(31,29,26,.45);
+  --lift-card:  0 1px 0 rgba(31,29,26,.08);
+  --lift-modal: 0 -2px 0 rgba(31,29,26,.06), 0 -18px 48px -18px rgba(31,29,26,.40);
+  --inset-well: inset 0 1px 2px rgba(31,29,26,.08);
+}
+[data-theme="dark"] {
+  --lift-sheet: 0 1px 0 rgba(0,0,0,.5), 0 10px 30px -14px rgba(0,0,0,.7);
+  --lift-card:  0 1px 0 rgba(0,0,0,.4);
+  --lift-modal: 0 -18px 48px -18px rgba(0,0,0,.75);
+  --inset-well: inset 0 1px 2px rgba(0,0,0,.4);
+}
