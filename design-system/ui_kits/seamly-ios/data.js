@@ -6,7 +6,10 @@ const CAPTURES = [
      engine, not from imagination — 3 segment breaks (lost lock), only 3 seams
      recovered from 7 frames, and 2 of 4 content bands with undetected chrome,
      which is why the iOS status bar is sitting in the middle of the image.
-     This is what an ordinary capture actually looks like. */
+     NOT a typical capture: these fixtures come from a known-broken recording
+     with fast-flick gaps (tracked as a withKnownIssue in the app repo), so it
+     over-states how often lock is lost. It earns its place as the BAD case —
+     proof the design stays calm when a capture comes back rough. */
   { id: "c1", title: "Today", widthPx: 884, heightPx: 9927, frames: 7,
     image: "real-capture.jpg",
     marks: [
