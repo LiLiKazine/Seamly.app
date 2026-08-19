@@ -1,0 +1,77 @@
+<!-- @dsCard group="Seamly iOS" viewport="1100x900" name="Seamly for iPhone & iPad" subtitle="The whole app, click-through, with a size-class switcher for the compact and regular answers." -->
+<!DOCTYPE html><html data-theme="light"><head><meta charset="utf-8">
+<title>Seamly — iOS UI kit</title>
+<link rel="stylesheet" href="../../styles.css">
+<style>html,body{margin:0;background:#d9d5cd}
+#boot{padding:24px;font:14px/1.5 -apple-system,system-ui,sans-serif;color:#6b665e}</style>
+<!-- Everything is local: no CDN, no in-browser Babel. React is vendored and the
+     screens are precompiled to kit.js, so the kit renders with no network. -->
+<script src="vendor/react.js"></script>
+<script src="vendor/react-dom.js"></script>
+<!-- Our OWN component bundle. We deliberately do NOT load ../../_ds_bundle.js:
+     the app regenerates that file on every self-check, and its React binding was
+     evaluating to null at load time, throwing before our kit ever ran. This file
+     is ours, so the kit cannot be broken by a rebuild we do not control. -->
+<script src="components.js"></script>
+<script src="data.js"></script>
+</head>
+<body>
+<div id="root"><div id="boot">Loading the kit…</div></div>
+<script src="kit.js"></script>
+<script>
+/* Mounting lives HERE, not in App.jsx. The app rebuilds _ds_bundle.js from the
+   .jsx sources — including this kit's — and that bundle loads in <head>, before
+   #root exists. A top-level createRoot there threw React #299 and left the page
+   blank. Keeping the mount in the page means it can only run once the element is
+   real, whatever the app decides to bundle. */
+(function () {
+  function mount() {
+    var el = document.getElementById("root");
+    if (!el || el.__seamlyMounted) return;
+    if (!window.App || !window.ReactDOM) { window.__kitError = "App or ReactDOM missing"; return; }
+    el.__seamlyMounted = true;
+    try { window.ReactDOM.createRoot(el).render(window.React.createElement(window.App)); }
+    catch (e) { window.__kitError = "render threw: " + ((e && (e.stack || e.message)) || e); }
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", mount);
+  else mount();
+  window.addEventListener("error", function (ev) {
+    window.__kitError = window.__kitError ||
+      ("error: " + (ev.message || "") + " @ " + String(ev.filename || "").split("/").pop() + ":" + (ev.lineno || "?"));
+  });
+})();
+</script>
+<script>
+/* Persistent diagnostic strip, OUTSIDE #root so React cannot replace it. It
+   reports what the page actually sees. Remove once the kit is confirmed good. */
+setTimeout(function () {
+  var d = document, root = d.getElementById("root");
+  var probe = getComputedStyle(d.body).getPropertyValue("--paper").trim();
+  var ns = window.SeamlyKit || window.SeamlyApp_f9e883 || window.SeamlyPaper;
+  var lines = [
+    "styles.css  : " + (probe ? "loaded (--paper " + probe + ")" : "NOT LOADED — tokens undefined"),
+    "React       : " + (window.React ? "v" + window.React.version : "MISSING"),
+    "ReactDOM    : " + (window.ReactDOM ? "ok" : "MISSING"),
+    "bundle      : " + (ns ? Object.keys(ns).length + " exports" : "MISSING"),
+    "sample data : " + (window.CAPTURES ? window.CAPTURES.length + " captures" : "MISSING"),
+    "screens     : " + ["HomeScreen","LibraryScreen","ReviewScreen","RepairQueue","ExportSheet","ImportSheet","FirstRun"]
+        .filter(function (n) { return typeof window[n] === "function"; }).length + "/7",
+    "#root nodes : " + (root ? root.children.length : "no #root"),
+    "buttons     : " + d.querySelectorAll("button").length,
+    "error       : " + (window.__kitError || "none reported")
+  ];
+  /* Only surface this when something is actually wrong — a healthy kit shows
+     nothing. Keeps the diagnostic without it becoming furniture. */
+  var healthy = !window.__kitError && root && root.children.length > 0 &&
+                d.querySelectorAll("button").length > 0 && ns;
+  if (healthy) return;
+  var el = d.createElement("pre");
+  el.style.cssText = "position:fixed;left:0;right:0;bottom:0;margin:0;z-index:99999;" +
+    "background:#14110e;color:#e8e2d8;font:11px/1.5 ui-monospace,Menlo,monospace;" +
+    "padding:10px 12px;white-space:pre;overflow:auto;max-height:45%;" +
+    "border-top:2px solid #a8781e";
+  el.textContent = "SEAMLY KIT DIAGNOSTIC\n" + lines.join("\n");
+  d.body.appendChild(el);
+}, 600);
+</script>
+</body></html>

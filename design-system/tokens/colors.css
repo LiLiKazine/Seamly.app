@@ -1,0 +1,88 @@
+/* Seamly colour. Direction: PAPER — the capture is a sheet lying on a desk.
+   Chosen for the concept, not sampled from any icon.
+
+   The load-bearing decision: on a light ground a faint line on white content is
+   easy to miss, so SIGNAL LIVES IN THE MARGIN, not on the image. Marks are muted
+   ink; the margin marker and the position scale carry findability. */
+:root {
+  /* --- ground: warm uncoated stock, clearly darker than a white capture --- */
+  --paper:        #ece9e3;   /* app ground */
+  --paper-sunk:   #e3dfd8;   /* grouped list wells, inset */
+  --paper-raised: #f4f2ee;   /* bars, docks */
+  --sheet:        #ffffff;   /* a capture, a card. White in BOTH themes. */
+
+  /* --- ink --- */
+  --ink:          #1f1d1a;
+  --ink-muted:    #6b665e;
+  --ink-faint:    #9a948b;
+  --ink-inverse:  #f6f4f0;
+
+  /* --- one restrained accent: bookbinder's blue --- */
+  --accent:       #33456b;
+  --accent-hover: #253352;
+  --accent-wash:  rgba(51, 69, 107, 0.09);
+
+  /* --- marks. Muted ink tones, one per kind of doubt. Never colour alone. --- */
+  --mark-ok:      #3e6b4f;   /* confident, complete */
+  --mark-flag:    #a8781e;   /* seam match uncertain */
+  --mark-gap:     #a6482a;   /* content genuinely missing */
+  --mark-error:   #a3302b;   /* stitch or export failed */
+  --mark-rec:     #ff3b30;   /* live broadcast — iOS red, never restyle */
+
+  --wash-ok:      rgba(62, 107, 79, 0.10);
+  --wash-flag:    rgba(168, 120, 30, 0.12);
+  --wash-gap:     rgba(166, 72, 42, 0.11);
+  --wash-error:   rgba(163, 48, 43, 0.10);
+
+  /* --- rules. A document is ruled, not shadowed. --- */
+  --rule:         rgba(31, 29, 26, 0.14);
+  --rule-strong:  rgba(31, 29, 26, 0.30);
+  --rule-faint:   rgba(31, 29, 26, 0.07);
+
+  /* --- how a join is drawn ON the sheet (deliberately quiet) --- */
+  --seam-confident: rgba(31, 29, 26, 0.10);
+  --seam-flag:      var(--mark-flag);
+  --seam-gap:       var(--mark-gap);
+  --seam-width:       1px;
+  --seam-width-mark:  1.5px;
+
+  /* --- protection: chrome over a capture of unknown brightness --- */
+  --protect-top:    linear-gradient(to bottom, rgba(236,233,227,.94) 0%, rgba(236,233,227,0) 100%);
+  --protect-bottom: linear-gradient(to top,    rgba(236,233,227,.94) 0%, rgba(236,233,227,0) 100%);
+}
+
+/* Night desk. NOT an inversion: the sheet stays paper-white, because a capture
+   has its own brightness and must not be dimmed. The desk goes dark; the page
+   does not. Marks lift to hold contrast against the darker surround. */
+[data-theme="dark"] {
+  --paper:        #1a1815;
+  --paper-sunk:   #131110;
+  --paper-raised: #24211d;
+  --sheet:        #ffffff;
+
+  --ink:          #f2efe9;
+  --ink-muted:    #a49d93;
+  --ink-faint:    #6f6960;
+  --ink-inverse:  #1f1d1a;
+
+  --accent:       #93a6d4;
+  --accent-hover: #b0bfe4;
+  --accent-wash:  rgba(147, 166, 212, 0.14);
+
+  --mark-ok:      #6fae86;
+  --mark-flag:    #d9a544;
+  --mark-gap:     #d9754e;
+  --mark-error:   #d9615a;
+
+  --wash-ok:      rgba(111, 174, 134, 0.14);
+  --wash-flag:    rgba(217, 165, 68, 0.16);
+  --wash-gap:     rgba(217, 117, 78, 0.15);
+  --wash-error:   rgba(217, 97, 90, 0.14);
+
+  --rule:         rgba(242, 239, 233, 0.16);
+  --rule-strong:  rgba(242, 239, 233, 0.32);
+  --rule-faint:   rgba(242, 239, 233, 0.08);
+
+  --protect-top:    linear-gradient(to bottom, rgba(26,24,21,.94) 0%, rgba(26,24,21,0) 100%);
+  --protect-bottom: linear-gradient(to top,    rgba(26,24,21,.94) 0%, rgba(26,24,21,0) 100%);
+}
