@@ -40,7 +40,10 @@ final class RepairUITests: XCTestCase {
         let to = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
         from.press(forDuration: 0.2, thenDragTo: to)
 
-        app.buttons["Done"].tap()
+        // The queue commits through QueuePrompt's wide affirmative, not a nav-bar Done — the
+        // affirmative is the whole point of the interaction. Task 19 rewrites this test around
+        // the queue properly; this keeps it honest in the meantime.
+        app.buttons["queue-accept"].tap()
 
         // The seeded capture has exactly one flagged join. Once it is answered, Review has
         // nothing left to offer a repair for, so the entry disappears.

@@ -78,9 +78,12 @@ struct AppShell: View {
             nothingToStitch.presentationDetents([.medium])
         }
         .fullScreenCover(item: $repairTarget) { target in
-            // Replaced by RepairQueueView in Task 13. Until then the shipped repair screen
-            // stays reachable, so nothing regresses between commits.
-            legacyRepair(target)
+            RepairQueueView(
+                captureID: target.captureID,
+                model: model,
+                startAt: target.findingNumber,
+                onClose: { repairTarget = nil }
+            )
         }
         .alert(
             "Import failed",
@@ -125,23 +128,5 @@ struct AppShell: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(SeamlyColor.paper)
-    }
-
-    @ViewBuilder
-    private func legacyRepair(_ target: RepairTarget) -> some View {
-        if let capture = model.captures.first(where: { $0.id == target.captureID }),
-           let finding = capture.findings.first(where: { $0.n == target.findingNumber }),
-           case .join(let joinIndex) = finding.target {
-            RepairView(captureID: target.captureID, model: model, openingJoin: joinIndex)
-        } else if let capture = model.captures.first(where: { $0.id == target.captureID }),
-                  let opening = RepairableJoins.opening(in: capture.session, flaggedOnly: true) {
-            RepairView(captureID: target.captureID, model: model, openingJoin: opening)
-        } else {
-            EmptyState(symbol: "checkmark.seal", title: CaptureCondition.nothingToLineUpMessage) {
-                SeamlyButton("Close") { repairTarget = nil }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(SeamlyColor.paper)
-        }
     }
 }

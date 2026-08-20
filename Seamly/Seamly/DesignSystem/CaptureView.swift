@@ -55,10 +55,19 @@ struct CaptureView: View {
     var jump: CaptureJump?
     var onSelect: ((Int) -> Void)?
     /// Called on every update of a drag over a `.join` sheet, with the gesture's cumulative
-    /// translation in points and the frame's 1× source-pixels-per-point ratio. The caller
-    /// applies it through `JoinAlignment.dy(draggedBy:from:sourcePixelsPerPoint:zoom:)` —
-    /// this view draws, it does not decide geometry.
-    var onDrag: ((CGFloat, CGFloat) -> Void)?
+    /// translation in points, the frame's 1× source-pixels-per-point ratio, and the offset the
+    /// gesture *started* from. The caller applies it through
+    /// `JoinAlignment.dy(draggedBy:from:sourcePixelsPerPoint:zoom:)`.
+    var onDrag: ((CGFloat, CGFloat, Int) -> Void)?
+
+    /// The offset a fresh drag begins from. `@GestureState`, not `@State`: SwiftUI resets it
+    /// automatically whenever the gesture ends *or is cancelled or interrupted*, which a plain
+    /// var cleared in `onEnded` cannot promise — and a stale baseline would make the next drag
+    /// jump by the previous drag's translation.
+    var currentDy: Int?
+    // `= nil` explicitly: a property wrapper without an initial value joins the
+    // memberwise init, and every call site would then have to pass it.
+    @GestureState private var dragStart: Int? = nil
 
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
@@ -214,10 +223,28 @@ struct CaptureView: View {
         }
         .contentShape(Rectangle())
         .gesture(
-            DragGesture(minimumDistance: 1).onChanged { value in
-                onDrag?(value.translation.height, sourcePixelsPerPoint)
-            }
+            DragGesture(minimumDistance: 1)
+                .updating($dragStart) { _, state, _ in
+                    // Captures the offset this drag began from, once, the first time this
+                    // fires for a fresh gesture.
+                    if state == nil { state = currentDy }
+                }
+                .onChanged { value in
+                    onDrag?(value.translation.height, sourcePixelsPerPoint, dragStart ?? currentDy ?? 0)
+                }
         )
+        // Each `joinWindow` draws a full-resolution image at up to 6x zoom, then clips it down
+        // to its slice — `.clipped()` only affects painting, so the two `Image`s stay in the
+        // accessibility tree at their own huge, unclipped size. Without this, the *reported*
+        // accessibility frame for "repair-canvas" is the union of both raw images (thousands of
+        // points tall, offset far off-screen) rather than this VStack's actual on-screen bounds,
+        // and a driver that computes a drag from that frame's normalized coordinates misses the
+        // real content entirely — the same class of bug as the recents thumbnail
+        // (CLAUDE.md, "A SwiftUI `.frame(w,h).clipped()` thumbnail..."), one layer worse because
+        // there the oversized content was a sibling, not two independently-accessible children.
+        // Collapsing to one opaque element also matches the intent: VoiceOver has no reason to
+        // drill into the two raw halves separately from the label describing the join as a whole.
+        .accessibilityElement(children: .ignore)
         .accessibilityIdentifier("repair-canvas")
         .accessibilityLabel("The two halves of this join")
         .accessibilityHint("Drag up or down to line them up. Pinch to zoom in.")
