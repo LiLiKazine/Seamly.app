@@ -44,12 +44,7 @@ final class RepairQueueModel {
     init(captureID: UUID, model: CaptureModel, startAt: Int) {
         self.captureID = captureID
         self.model = model
-        // Seams only, for now. `CaptureFindings.all` already emits gaps and bars from real
-        // pipeline facts, but this task can only *answer* a seam — and `load()` has nothing to
-        // put on screen for the others, which would leave the stage spinning forever on a
-        // finding the queue cannot address. Task 14 adds those two kinds and removes this filter.
-        let findings = (model.captures.first { $0.id == captureID }?.findings ?? [])
-            .filter { if case .join = $0.target { true } else { false } }
+        let findings = model.captures.first { $0.id == captureID }?.findings ?? []
         self.findings = findings
         self.position = findings.firstIndex { $0.n == startAt } ?? 0
     }
@@ -199,10 +194,50 @@ final class RepairQueueModel {
 
     func clearSaveError() { saveError = nil }
 
-    /// Record a chrome answer. Used by Task 14.
-    func setChrome(_ insets: ChromeInsets, keyframeID: UUID) {
+    // MARK: - Answering bars
+
+    /// The crop currently in force for one edge, including any answer held but not yet written.
+    func chromeValue(_ edge: ChromeEdge, for finding: Finding) -> Int {
+        guard case .chrome(let keyframeID, _) = finding.target else { return 0 }
+        if let held = editedChrome[keyframeID] {
+            return edge == .top ? held.top : held.bottom
+        }
+        return session?.chromeValueForEditing(edge, keyframeID: keyframeID) ?? 0
+    }
+
+    /// The compositor refuses a combined crop past half the frame, and
+    /// `setChromeOverride` clamps to it — so the control must stop there too, rather than
+    /// letting a stepper run on while the picture stops moving.
+    func chromeRange(for finding: Finding) -> ClosedRange<Int> {
+        guard case .chrome(let keyframeID, _) = finding.target,
+              let keyframe = session?.keyframes.first(where: { $0.id == keyframeID })
+        else { return 0...0 }
+        let limit = Int(Double(keyframe.pixelHeight) * ChromeInsets.maxCombinedCropFraction)
+        return 0...max(0, limit)
+    }
+
+    func setChrome(_ value: Int, edge: ChromeEdge, for finding: Finding) {
+        guard case .chrome(let keyframeID, _) = finding.target else { return }
+        var insets = editedChrome[keyframeID] ?? ChromeInsets(
+            top: session?.chromeValueForEditing(.top, keyframeID: keyframeID) ?? 0,
+            bottom: session?.chromeValueForEditing(.bottom, keyframeID: keyframeID) ?? 0
+        )
+        switch edge {
+        case .top: insets.top = value
+        case .bottom: insets.bottom = value
+        }
         editedChrome[keyframeID] = insets
     }
 
-    func chrome(for keyframeID: UUID) -> ChromeInsets? { editedChrome[keyframeID] }
+    /// "No bars here" — the affirmative answer for a bars finding.
+    ///
+    /// Writes an explicit **zero** override rather than leaving the edge alone. Resolution is
+    /// already lossless at zero, so nothing about the picture changes; what changes is that the
+    /// edge now has a *user* value, which is what stops `chromeEdgesNeedingReview` returning it
+    /// and stops the queue asking again. An unanswered edge and an edge answered "none" resolve
+    /// to the same crop and must not read as the same state.
+    func acceptNoBars(for finding: Finding) {
+        guard case .chrome(let keyframeID, _) = finding.target else { return }
+        editedChrome[keyframeID] = ChromeInsets(top: 0, bottom: 0)
+    }
 }

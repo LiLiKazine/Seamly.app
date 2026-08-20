@@ -24,6 +24,11 @@ struct RepairQueueView: View {
     /// than the pixels actually moved, which silently defeats "zoom is the precision mechanism".
     private static let openingZoom: CGFloat = 6
 
+    /// A bars or gap finding is judged against the whole-capture proxy, jumped into position —
+    /// there is nothing to drag, so it opens at the same base scale `ReviewScreen` uses for the
+    /// same proxy, rather than the seam stage's 6x close-up.
+    private static let reviewZoom: CGFloat = 1
+
     init(captureID: UUID, model: CaptureModel, startAt: Int, onClose: @escaping () -> Void) {
         self.captureID = captureID
         self.model = model
@@ -36,6 +41,7 @@ struct RepairQueueView: View {
     /// marker the user tapped stays visible beside the pixels it points at.
     private var captureSize: CGSize { capture?.pixelSize ?? .zero }
     private var marks: [CaptureMark] { capture?.displayMarks ?? [] }
+    private var findings: [Finding] { queue.findings }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -85,42 +91,65 @@ struct RepairQueueView: View {
 
     // MARK: - The problem, zoomed
 
+    /// A seam is judged against the live frame pair, because the proxy would not move under
+    /// the finger. Bars and gaps are judged against the capture itself, jumped to the frame or
+    /// the break in question — there is nothing to drag, and what the user needs to see is the
+    /// picture as it stands.
     @ViewBuilder
     private func stage(_ finding: Finding) -> some View {
         Group {
             if let message = queue.loadError {
                 EmptyState(symbol: "exclamationmark.triangle", title: "Can't show this", message: message)
-            } else if let frames = queue.frames, let alignment = queue.alignment {
+            } else if finding.kind == .seam {
+                if let frames = queue.frames, let alignment = queue.alignment {
+                    CaptureView(
+                        content: .join(upper: frames.upper, lower: frames.lower, alignment: alignment),
+                        captureSize: captureSize,
+                        marks: marks,
+                        findings: findings,
+                        zoom: Self.openingZoom * zoom.scale,
+                        selected: finding.n,
+                        showScale: false,
+                        onDrag: { translation, ratio, start in
+                            queue.drag(translation: translation, sourcePixelsPerPoint: ratio,
+                                       from: start, zoom: Self.openingZoom * zoom.scale)
+                        },
+                        currentDy: alignment.dy
+                    )
+                    .simultaneousGesture(magnify)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else if let proxy = capture?.proxy {
                 CaptureView(
-                    content: .join(upper: frames.upper, lower: frames.lower, alignment: alignment),
+                    content: .proxy(proxy),
                     captureSize: captureSize,
                     marks: marks,
-                    zoom: Self.openingZoom * zoom.scale,
+                    findings: findings,
+                    zoom: Self.reviewZoom * zoom.scale,
                     selected: finding.n,
                     showScale: false,
-                    onDrag: { translation, ratio, start in
-                        queue.drag(
-                            translation: translation,
-                            sourcePixelsPerPoint: ratio,
-                            from: start,
-                            zoom: Self.openingZoom * zoom.scale
-                        )
-                    },
-                    currentDy: alignment.dy
+                    jump: CaptureJump(atPct: finding.atPct, fraction: 0.25, token: queue.position)
                 )
-                .simultaneousGesture(
-                    MagnifyGesture()
-                        .onChanged { zoom.update(magnification: $0.magnification) }
-                        .onEnded { _ in withAnimation(SeamlyMotion.base) { zoom.end() } }
-                )
+                .simultaneousGesture(magnify)
             } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                EmptyState(
+                    symbol: "photo.badge.exclamationmark",
+                    title: "Can't show this",
+                    message: "This capture is no longer on the device."
+                )
             }
         }
         .padding(.horizontal, SeamlySpace.gutterCompact)
         .padding(.top, SeamlySpace.s3)
         .padding(.bottom, SeamlySpace.s5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var magnify: some Gesture {
+        MagnifyGesture()
+            .onChanged { zoom.update(magnification: $0.magnification) }
+            .onEnded { _ in withAnimation(SeamlyMotion.base) { zoom.end() } }
     }
 
     // MARK: - The question
@@ -133,32 +162,76 @@ struct RepairQueueView: View {
             kind: finding.kind,
             question: finding.question,
             detail: finding.detail,
-            value: queue.alignment?.dy,
-            onNudge: { queue.nudge($0) },
-            onAccept: { Task { if await queue.answer() { onClose() } } },
+            // Only a seam has an offset to state. A gap has nothing overlapping; a bars answer
+            // is a crop, and the steppers show it.
+            value: finding.kind == .seam ? queue.alignment?.dy : nil,
+            affirmative: affirmative(finding),
+            // A gap has no lever — the content was never captured, so a nudge would move
+            // nothing. Offering a control that does nothing is worse than offering none.
+            onNudge: finding.kind == .seam ? { queue.nudge($0) } : nil,
+            onAccept: { accept(finding) },
             onSkipAll: { Task { if await queue.commit() { onClose() } } }
         ) {
             manualPath(finding)
         }
     }
 
+    private func affirmative(_ finding: Finding) -> String {
+        switch finding.kind {
+        case .seam: "Looks right"
+        case .bars: "No bars here"
+        case .gap: "Got it"
+        }
+    }
+
+    private func accept(_ finding: Finding) {
+        // "No bars here" is itself the answer, and must be recorded as one: an edge nobody has
+        // answered and an edge answered "none" crop identically but are not the same state.
+        if finding.kind == .bars { queue.acceptNoBars(for: finding) }
+        Task { if await queue.answer() { onClose() } }
+    }
+
     @ViewBuilder
     private func manualPath(_ finding: Finding) -> some View {
-        if !showManual {
+        // A gap cannot be adjusted at all — there is no number behind it.
+        if finding.kind == .gap {
+            EmptyView()
+        } else if !showManual {
             Button("Adjust manually") { showManual = true }
                 .font(SeamlyFont.footnote)
                 .foregroundStyle(SeamlyColor.accent)
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        } else if let alignment = queue.alignment {
+        } else {
             VStack(spacing: 0) {
-                StepperRow(
-                    label: "Offset",
-                    value: alignment.dy,
-                    step: 1,
-                    range: alignment.dyRange,
-                    hint: "Source pixels between the two halves"
-                ) { queue.setDy($0) }
+                switch finding.kind {
+                case .seam:
+                    if let alignment = queue.alignment {
+                        StepperRow(
+                            label: "Offset",
+                            value: alignment.dy,
+                            step: 1,
+                            range: alignment.dyRange,
+                            hint: "Source pixels between the two halves"
+                        ) { queue.setDy($0) }
+                    }
+                case .bars:
+                    StepperRow(
+                        label: "Top bar",
+                        value: queue.chromeValue(.top, for: finding),
+                        step: 5,
+                        range: queue.chromeRange(for: finding),
+                        hint: "Repeated chrome cropped from this frame"
+                    ) { queue.setChrome($0, edge: .top, for: finding) }
+                    StepperRow(
+                        label: "Bottom bar",
+                        value: queue.chromeValue(.bottom, for: finding),
+                        step: 5,
+                        range: queue.chromeRange(for: finding)
+                    ) { queue.setChrome($0, edge: .bottom, for: finding) }
+                case .gap:
+                    EmptyView()
+                }
             }
             .padding(.horizontal, SeamlySpace.s4)
             .background(SeamlyColor.paper)
