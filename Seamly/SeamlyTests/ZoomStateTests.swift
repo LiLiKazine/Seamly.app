@@ -57,4 +57,14 @@ struct ZoomStateTests {
         zoom.reset()
         #expect(zoom.scale == 1)
     }
+
+    @Test func settingAnAbsoluteScaleIsClampedAndEndsAnyGesture() {
+        var zoom = ZoomState()
+        zoom.set(3)
+        #expect(zoom.scale == 3)
+        zoom.set(99)
+        #expect(zoom.scale == ZoomState.maxScale)
+        zoom.set(-4)
+        #expect(zoom.scale == ZoomState.minScale)
+    }
 }

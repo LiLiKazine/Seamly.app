@@ -14,7 +14,12 @@ struct ReviewScreen: View {
     @Environment(\.verticalSizeClass) private var vSize
 
     @State private var selected: Int?
-    @State private var zoom: CGFloat = 1
+    /// `ZoomState`, not a bare `CGFloat`. `MagnifyGesture.magnification` is cumulative from the
+    /// START of the current gesture, so multiplying it into an already-updated scale on every
+    /// tick compounds superlinearly and slams into the clamp instead of tracking the finger.
+    /// `ZoomState` exists in this codebase precisely to bank the committed scale separately —
+    /// see its doc comment, which records the bug it was written for.
+    @State private var zoom = ZoomState()
     @State private var jump: CaptureJump?
     @State private var jumpToken = 0
 
@@ -72,7 +77,7 @@ struct ReviewScreen: View {
             captureSize: capture.pixelSize,
             marks: capture.displayMarks,
             findings: capture.findings,
-            zoom: zoom,
+            zoom: zoom.scale,
             selected: selected,
             jump: jump,
             onSelect: { jumpTo($0, in: capture) }
@@ -82,7 +87,8 @@ struct ReviewScreen: View {
         .padding(.bottom, SeamlySpace.s5)
         .gesture(
             MagnifyGesture()
-                .onChanged { zoom = min(max(1, $0.magnification * zoom), 6) }
+                .onChanged { zoom.update(magnification: $0.magnification) }
+                .onEnded { _ in withAnimation(SeamlyMotion.base) { zoom.end() } }
         )
     }
 
@@ -91,7 +97,7 @@ struct ReviewScreen: View {
     private func jumpTo(_ n: Int, in capture: Capture) {
         guard let finding = capture.findings.first(where: { $0.n == n }) else { return }
         selected = n
-        zoom = 3
+        zoom.set(3)
         jumpToken += 1
         jump = CaptureJump(atPct: finding.atPct, token: jumpToken)
     }
@@ -212,7 +218,10 @@ private struct FindingLine: View {
     private var measurement: String {
         var parts: [String] = []
         if let dy = finding.dy {
-            parts.append("dy \(dy > 0 ? "+" : "")\(dy) px")
+            // Through `SeamlyNumber`, not hand-formatted: a real scroll step runs to four
+            // figures, and an ungrouped "dy +1420 px" beside a grouped "884 × 15 402 px" is
+            // exactly the inconsistency the thin-space rule exists to prevent.
+            parts.append("dy \(dy > 0 ? "+" : "")" + SeamlyNumber.px(dy))
         } else if finding.kind == .gap {
             parts.append("never revealed")
         }

@@ -34,6 +34,13 @@ nonisolated struct ZoomState: Equatable {
         gesture = 1
     }
 
+    /// Bank an absolute scale, clamped. A jump to a mark sets the zoom outright rather than
+    /// arriving there through a gesture, so it needs a way in that is not `update`/`end`.
+    mutating func set(_ value: CGFloat) {
+        committed = Self.clamp(value)
+        gesture = 1
+    }
+
     private static func clamp(_ value: CGFloat) -> CGFloat {
         min(max(value, minScale), maxScale)
     }
