@@ -133,9 +133,10 @@ struct HomeScreen: View {
 
     @ViewBuilder
     private func statusRow(_ capture: Capture) -> some View {
-        let findings = capture.phase == .ready ? capture.findings : []
-        let flagged = findings.filter { $0.kind == .seam || $0.kind == .bars }.count
-        let gaps = findings.filter { $0.kind == .gap }.count
+        let ready = capture.phase == .ready
+        let findings = ready ? capture.findings : []
+        let flagged = ready ? capture.flaggedCount : 0
+        let gaps = ready ? capture.gapCount : 0
 
         HStack(spacing: SeamlySpace.s4) {
             HStack(spacing: SeamlySpace.s3) {

@@ -189,8 +189,8 @@ struct ReviewScreen: View {
     @ViewBuilder
     private func summary(_ capture: Capture) -> some View {
         let findings = capture.findings
-        let flagged = findings.filter { $0.kind == .seam || $0.kind == .bars }.count
-        let gaps = findings.filter { $0.kind == .gap }.count
+        let flagged = capture.flaggedCount
+        let gaps = capture.gapCount
         HStack(spacing: SeamlySpace.s3) {
             if flagged > 0 { StatusNote(kind: .flagged, count: flagged) }
             if gaps > 0 { StatusNote(kind: .gap, count: gaps) }

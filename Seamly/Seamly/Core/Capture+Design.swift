@@ -25,6 +25,13 @@ extension Capture {
         CaptureFindings.all(in: session, placement: placement)
     }
 
+    /// How many findings each badge speaks for. On `Capture` rather than in a view, because
+    /// three screens show these counts and "which kinds read as flagged" must be answered once —
+    /// a capture that says "1 flagged" on Home and "2 flagged" in Library is the same state
+    /// reading two ways, which is the thing the badges exist to prevent.
+    var flaggedCount: Int { findings.filter { $0.kind == .seam || $0.kind == .bars }.count }
+    var gapCount: Int { findings.filter { $0.kind == .gap }.count }
+
     var displayMarks: [CaptureMark] {
         let p = placement
         return CaptureMarks.all(
