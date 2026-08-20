@@ -11,6 +11,7 @@ import SwiftUI
 struct SeamlyApp: App {
     init() {
         #if DEBUG
+        DebugSeed.resetIfRequested()
         DebugSeed.seedIfRequested()
         #endif
     }

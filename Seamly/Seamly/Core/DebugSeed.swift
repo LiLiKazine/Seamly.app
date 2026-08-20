@@ -17,6 +17,18 @@ import StitchKit
 enum DebugSeed {
     static let launchArgument = "-SeamlySeedMisalignedCapture"
 
+    /// Wipes every capture from app storage, independent of the seed above.
+    ///
+    /// Exists because the seed writes into the same on-disk store every other UI test reads,
+    /// and nothing removed it once written — so `RepairUITests` (which alphabetizes before
+    /// `SeamlyUITests`) left a capture behind that made `testHomeShowsRecordFirst` see a
+    /// non-empty Home on a simulator that had already run the suite once. That produced the
+    /// exact lie `CLAUDE.md` warns about: green on a freshly erased device, red on a dirty one,
+    /// with an unwritten "erase between runs" ritual as the only thing keeping it green. A test
+    /// that needs a known-empty store now asks for one explicitly instead of hoping nothing ran
+    /// first.
+    static let resetLaunchArgument = "-SeamlyResetCaptures"
+
     /// A fixed id, so repeated launches replace the seed instead of piling up captures.
     private static let id = UUID(uuidString: "5EED0000-0000-0000-0000-00000000C0DE")!
 
@@ -44,6 +56,30 @@ enum DebugSeed {
             // somewhere far away, looking like a bug in the repair screen.
             print("Seamly: DebugSeed FAILED: \(error)")
         }
+    }
+
+    /// Same shape as `seedIfRequested()`, and run first from `SeamlyApp.init()` so a launch that
+    /// passes both arguments resets before it seeds rather than the other way around.
+    @MainActor
+    static func resetIfRequested() {
+        guard ProcessInfo.processInfo.arguments.contains(resetLaunchArgument) else { return }
+        do {
+            try resetAllCaptures()
+        } catch {
+            // Loud for the same reason as the seed failure above: a test that assumed an empty
+            // store must not fail somewhere far from this cause.
+            print("Seamly: DebugSeed reset FAILED: \(error)")
+        }
+    }
+
+    @MainActor
+    private static func resetAllCaptures() throws {
+        let store = SessionStore(containerURL: CaptureModel.appContainerURL())
+        let fm = FileManager.default
+        // No sessions directory yet is the expected case on a fresh container — `SessionStore
+        // .loadAll()` already tolerates this, so this reset does too.
+        guard fm.fileExists(atPath: store.sessionsDirectory.path) else { return }
+        try fm.removeItem(at: store.sessionsDirectory)
     }
 
     @MainActor

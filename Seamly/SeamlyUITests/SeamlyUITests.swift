@@ -37,11 +37,19 @@ final class SeamlyUITests: XCTestCase {
     }
 
     /// Verifies the empty-home state: the dock is present with all three ways in, and the
-    /// empty state is capture-first. This never seeds a capture, so it only exercises the
-    /// no-captures branch.
+    /// empty state is capture-first. This only exercises the no-captures branch, so it asks
+    /// for a known-empty store explicitly (`-SeamlyResetCaptures`) rather than assuming one.
+    ///
+    /// XCTest runs test classes alphabetically, so `RepairUITests` runs before this one and
+    /// launches with `-SeamlySeedMisalignedCapture`, which writes a capture straight into app
+    /// storage — and that capture used to stay there for every launch after. This test would
+    /// then find a non-empty Home and fail, but only on a simulator that had already run the
+    /// suite once; a freshly erased one stayed green. That "green here, red there" split is
+    /// exactly what `CLAUDE.md` calls a lie, so the reset is the real fix, not the erase.
     @MainActor
     func testHomeShowsRecordFirst() throws {
         let app = XCUIApplication()
+        app.launchArguments += ["-SeamlyResetCaptures"]
         app.launch()
         dismissOnboardingIfPresented(app)
 
@@ -61,6 +69,29 @@ final class SeamlyUITests: XCTestCase {
         XCTAssertTrue(record.isHittable, "the dock's hero is missing")
         XCTAssertTrue(app.buttons["From a screen recording"].isHittable)
         XCTAssertTrue(app.buttons["From screenshots"].isHittable)
+    }
+
+    /// Library is reachable from Home and lists the capture Home is showing.
+    @MainActor
+    func testLibraryListsTheCapture() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-SeamlySeedMisalignedCapture"]
+        app.launch()
+        dismissOnboardingIfPresented(app)
+
+        let library = app.buttons["Library"]
+        XCTAssertTrue(library.waitForExistence(timeout: 30), "Home never offered Library")
+        library.tap()
+
+        let row = app.descendants(matching: .any).matching(identifier: "library-row").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the capture is not listed")
+
+        // Same fix `testHomeShowsRecordFirst` already needed: the dock's hero wraps
+        // `RPSystemBroadcastPickerView` in a `UIViewRepresentable`, which surfaces as an
+        // `Other` carrying the "Record" label, not a `Button` — matching `app.buttons["Record"]`
+        // finds nothing and reads as "the dock is gone" even though it is sitting right there.
+        let record = app.descendants(matching: .any).matching(identifier: "record-button").firstMatch
+        XCTAssertTrue(record.isHittable, "the dock must stay on Library")
     }
 
     /// First launch presents onboarding as a sheet over home. Its button reads "Next" on every
