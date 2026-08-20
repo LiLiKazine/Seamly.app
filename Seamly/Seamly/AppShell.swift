@@ -104,9 +104,13 @@ struct AppShell: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(SeamlyColor.paper)
         case .review(let id):
-            // Replaced by ReviewScreen in Task 10.
-            ResultView(captureID: id, model: model, onRecordAgain: { path.removeAll() })
-                .toolbar(.visible, for: .navigationBar)
+            ReviewScreen(
+                captureID: id,
+                model: model,
+                onBack: { path.removeLast() },
+                onRepair: { repairTarget = RepairTarget(captureID: id, findingNumber: $0) },
+                onExport: {}
+            )
         }
     }
 
