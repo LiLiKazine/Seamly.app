@@ -2171,6 +2171,11 @@ struct SeamlyButton<Label: View>: View {
             }
             .seamlyCorners(SeamlyRadius.sm)
             .opacity(isEnabled ? 1 : SeamlyMotion.disabledOpacity)
+            // The design specifies a 36pt slab for `.small`, and that is what gets painted —
+            // but a 36pt tap target is below the 44pt floor. So the target grows around the
+            // slab rather than the slab growing to meet it: `minHeight` first, `contentShape`
+            // after, so the whole 44pt box is tappable while only 36pt is drawn.
+            .frame(minHeight: SeamlySpace.hitMin)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -2250,7 +2255,10 @@ struct NavBar<Trailing: View>: View {
                         if !backLabel.isEmpty { Text(backLabel).font(SeamlyFont.body) }
                     }
                     .foregroundStyle(SeamlyColor.accent)
-                    .frame(minHeight: SeamlySpace.hitMin)
+                    // BOTH dimensions: `backLabel` is empty on most screens, leaving a bare
+                    // 20pt chevron whose intrinsic width is far under the 44pt floor. A height
+                    // floor alone would have left it tall and thin.
+                    .frame(minWidth: SeamlySpace.hitMin, minHeight: SeamlySpace.hitMin)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -2292,10 +2300,16 @@ extension NavBar where Trailing == EmptyView {
 
 /// Tracking is absolute points and does not scale with Dynamic Type, so it is applied only at
 /// display sizes — never to the subtitle or to body copy. See FEASIBILITY.md.
+///
+/// The CSS has `--tracking-title: -0.012em` for the compact title, and `em` scales with the
+/// type. SwiftUI's `.tracking()` does not, so porting that number would be right at one size
+/// and wrong at every other — worse the larger the user sets their type. The compact title is
+/// `SeamlyFont.headline`, which grows with Dynamic Type, so it gets no tracking at all. Only
+/// the `large` variant, a capped display size, keeps it.
 private struct TitleTracking: ViewModifier {
     let large: Bool
     func body(content: Content) -> some View {
-        large ? AnyView(content.seamlyDisplayTracking()) : AnyView(content.tracking(-0.2))
+        large ? AnyView(content.seamlyDisplayTracking()) : AnyView(content)
     }
 }
 ```
@@ -2519,7 +2533,13 @@ struct CaptureDock: View {
                 .allowsHitTesting(false)
                 // The picker sits on top, transparent, and takes the tap. Reaching into its
                 // private subviews to restyle or auto-tap it is the fragility we refuse.
+                // Must fill the slab. `RPSystemBroadcastPickerView` reports a small intrinsic
+                // size, and a ZStack child without its own flexible frame is laid out at that
+                // size and centred — which would leave the hero button tappable only in a
+                // circle at its middle, with dead zones either side. The other call site in
+                // this app sizes it explicitly for the same reason.
                 BroadcastPickerButton()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .opacity(0.02)
                     .accessibilityLabel(recording ? "Recording" : "Record")
                     .accessibilityIdentifier("record-button")
