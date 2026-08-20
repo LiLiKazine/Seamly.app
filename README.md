@@ -8,13 +8,15 @@ iOS doesn't natively support scrolling screenshots outside of Safari's full-page
 export. Seamly fills that gap for every app.
 
 > **Status: the pipeline is built and works end to end** — live broadcast capture, video
-> import, photo import, stitching, and export all ship, behind a deliberately one-shot shell:
-> a record-first home and a single result screen whose primary action is **Save to Photos**.
-> A bad stitch is no longer a dead end: **guided repair** takes you straight to a misjoined
-> boundary and lets you drag the two halves until they line up, with pinch as the only precision
-> control ([spec 2](docs/superpowers/specs/2026-08-17-guided-repair-design.md)). It's offered
-> loudly when something looks off and quietly otherwise — a green verdict has been confidently
-> wrong before.
+> import, photo import, stitching, and export all ship. The interface is built to
+> [`design-system/`](design-system/): direction **Paper**, and it opens on your most recent
+> capture rather than an empty home, because the usual reason you launch it is "I just stopped
+> a broadcast — what did I get?"
+> A bad stitch is no longer a dead end: **repair is a queue**. The capture enumerates its own
+> weak points and walks you through them one question at a time — *Does this line up?* — with a
+> wide affirmative answer, because most flagged seams turn out fine. Numeric controls sit behind
+> an explicit *Adjust manually* path
+> ([spec 3](docs/superpowers/specs/2026-08-20-paper-interface-design.md)).
 > One known gap is tracked as a `withKnownIssue` test rather than hidden: the sparse
 > broken-capture fixture still needs to be replaced by a dense live-frame regression oracle
 > ([log](docs/logs/2026-07-05-03-real-frame-orientation-and-signal-fix.md)).
@@ -72,8 +74,8 @@ Seamly falls back to your pick order and says so on the result screen.
 - 💬 **One plain-language verdict** — an uncertain join, a bar that couldn't be identified,
   a gap from fast scrolling, or a recording that stopped early is reported as *one* sentence
   in ordinary English, not a wall of badges. Pipeline vocabulary never reaches the screen.
-- 🔧 **Guided repair** — a misjoined boundary is fixable, not fatal: drag the two halves until
-  they line up, right on the result screen, with pinch as the only precision control
+- 🔧 **Repair as a queue** — a misjoined boundary is fixable, not fatal: the capture asks about
+  each weak point in turn, zoomed to it, and you drag the two halves until they line up
 - 🖼️ **Flexible export** — **Save to Photos** is the primary action; also PNG share, copy to
   clipboard, and **PDF** (paginated for very long pages)
 - 🕘 **Recents** — finished captures stay reachable until you remove them, so nothing is lost
@@ -103,7 +105,7 @@ Three build products plus a diagnostic CLI and a shared container:
 | Piece | Role |
 |---|---|
 | **`StitchKit`** (local Swift package) | Pure, testable core — vertical profiling, offset matching, chrome-band detection, frame picking, order recovery, and compositing. Core Graphics + Accelerate only; no UIKit, no ReplayKit. Imported by both the app and the extension. |
-| **`Seamly`** (app target, SwiftUI) | The one-shot shell: a record-first home with the two import entries and onboarding, and one result screen — the scrollable, zoomable proxy, a single plain-language notice, export, and guided repair for a misjoined boundary. **Derives all stitch geometry** and does the heavy compositing. |
+| **`Seamly`** (app target, SwiftUI) | The Paper interface: Home opens on the most recent capture, Library lists them all, Review is the capture at length, and repair is a queue that walks you through its weak points one at a time. **Derives all stitch geometry** and does the heavy compositing. |
 | **`SeamlyBroadcast`** (Broadcast Upload Extension) | `RPBroadcastSampleHandler` that receives live frames and does only the minimum real-time work: profile each frame, bank a keyframe when the view has scrolled far enough, fire the safety cue. Holds one frame at a time and computes **no** geometry (stays under the ~50 MB extension memory limit). |
 | **`stitch-cli`** (package executable) | Runs the real pipeline over an arbitrary clip or screenshot directory and writes the result where you can look at it. Exists because the failure modes here are *visual* — see [Testing](#testing). |
 | App Group container | Shared handoff — the extension writes raw keyframes + a manifest; the app reads them after the broadcast stops, then moves them into app storage. |
@@ -318,17 +320,23 @@ Seamly/                            # repo root (README, CLAUDE.md, DECISIONS.md,
     │   ├── Sources/stitch-cli/                      # visual triage driver
     │   └── Tests/StitchKitTests/                    # + Fixtures/ (synthetic, wikipedia, RealDevice)
     ├── Seamly/                    # app target
-    │   ├── SeamlyApp.swift, ContentView.swift
-    │   ├── Core/                  # CaptureModel, MediaImporter, StitchAssembler, AppGroup+Observer
-    │   ├── DesignSystem/          # CaptureCondition (the only pipeline→English translation),
-    │   │                          # ConditionNotice, CaptureCanvas, ZoomState
+    │   ├── SeamlyApp.swift, AppShell.swift          # routing
+    │   ├── Core/                  # CaptureModel, MediaImporter, StitchAssembler,
+    │   │                          # Capture+Design, AppGroup+Observer
+    │   ├── DesignSystem/          # Tokens/ (the Paper token port), Components/ (20 components),
+    │   │                          # CaptureGeometry (the one coordinate space),
+    │   │                          # CaptureView (the shared capture surface),
+    │   │                          # CaptureFinding, ZoomState, and CaptureCondition
+    │   │                          # (the only pipeline→English translation)
     │   └── Features/
-    │       ├── Capture/           # broadcast picker, video + photo import buttons
-    │       ├── Home/              # record-first home + recents strip
-    │       ├── Result/            # ResultView + the outcome destinations
-    │       │                      # (ProcessingView, NothingToStitchView, CaptureFailureView)
+    │       ├── Capture/           # broadcast picker
+    │       ├── Home/              # opens on the most recent capture (return-home)
+    │       ├── Library/           # every capture; a grid at regular width
+    │       ├── Result/            # ReviewScreen — the capture at length, rail at regular width
+    │       ├── Repair/            # the queue: one question at a time
+    │       ├── Import/            # the import sheet, and PickedMovie
     │       ├── Export/            # Photos / PDF / share / clipboard
-    │       ├── Onboarding/
+    │       ├── Onboarding/        # FirstRunView
     │       └── Diagnostics/       # reads back the extension's shared log
     ├── SeamlyBroadcast/           # Broadcast Upload Extension (RPBroadcastSampleHandler)
     ├── SeamlyTests/               # app-level tests (import, batch assembly)

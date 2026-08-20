@@ -11,31 +11,39 @@ import, photo import, order recovery, stitching, and export (Photos / PNG / PDF 
 clipboard) all ship. `README.md` is now an accurate description of the code, not a spec —
 trust it.
 
-The UI around it is a deliberately **one-shot shell**: a record-first home (record button,
-"From Video", "From Photos", a recents strip) that navigates itself to a single result
-screen whose primary action is **Save to Photos**. There is a way to fix a
-bad stitch: **guided repair** takes the user straight to a misjoined boundary and lets them
-drag the two halves until they line up, one join at a time, with pinch as the only precision
-control (`Features/Repair/RepairView.swift`, `JoinAlignment.swift`). It is offered loudly
-(inside `ConditionNotice`) when the pipeline flagged something alignment-fixable, and
-quietly (a nav-bar item on `ResultView`) for a `.clean` capture, since a green verdict has
-been confidently wrong before. `CaptureModel.update(_:)` is the reconnection point the
-manifest's non-destructive design was kept for, and now has its caller.
+**The UI is now built to `design-system/`** (`docs/logs/2026-08-20-paper-interface.md`).
+Direction **Paper**; IA **return-home**. Four screens and two sheets:
 
-**The design has since moved on, and the design now governs.** `design-system/` is the
-design source of truth (see "Design" below). It specifies a different repair model — a
-queue that walks the user through each flagged join, one question at a time, with numeric
-controls behind an explicit *Adjust manually* path — and it puts the pipeline's own words
-on screen rather than hiding them. That supersedes
-`docs/superpowers/specs/2026-08-17-guided-repair-design.md`, which rejected per-seam and
-per-bar controls and kept "seam", "chrome", "confidence", "offset" and "segment" off the
-screen entirely. **That earlier prohibition no longer holds.**
+- **Home** opens on the most recent capture, because the common launch context is "I just
+  stopped a broadcast — what did I get?" A dock carries Record / From Video / From Photos.
+- **Library** lists every capture, and grids them at regular width. Diagnostics is behind
+  its overflow.
+- **Review** is the capture at length, with a margin rail at regular width.
+- **Repair is a queue** (`Features/Repair/RepairQueueView.swift`, `RepairQueueModel.swift`):
+  the capture enumerates its own problems and asks about them one at a time — seams, bars
+  and gaps — with a wide affirmative answer, because most flagged seams turn out fine and
+  the common case must be one tap. Numeric steppers live behind an explicit *Adjust
+  manually* path. That is a narrow secondary affordance, **not** a return of the old
+  `EditView` form, which was a test harness rather than a design.
 
-The code has not moved yet: what ships today is guided repair exactly as described above.
-When the UI is rebuilt, build to `design-system/`, not to this paragraph. One caveat that
-survives the reversal — the design's manual path is a narrow secondary affordance reached
-from the queue, not a return of the old `EditView` form, which was a test harness rather
-than a design.
+This puts the pipeline's own words on screen (`UNCERTAIN SEAM`, `dy +420 px`), which
+supersedes `docs/superpowers/specs/2026-08-17-guided-repair-design.md` — it rejected
+per-seam and per-bar controls and kept "seam", "chrome", "confidence", "offset" and
+"segment" off the screen entirely. **That earlier prohibition no longer holds.**
+
+`CaptureModel.update(_:)` is the reconnection point the manifest's non-destructive design
+was kept for; `RepairQueueModel` is its caller.
+
+**Two things about that UI are load-bearing and easy to break by accident:**
+
+1. **`CaptureGeometry` is the one coordinate space.** The margin marker, the rule on the
+   sheet, the image and the scale bracket all resolve from a single `scrollY` in a single
+   `GeometryReader`, so there is nothing for them to drift relative to. Do not add a second
+   source of scroll position, and note that `CaptureView`'s overlay must stay
+   `alignment: .topLeading` — at the default `.center` every mark is displaced by half the
+   viewport/content difference, which looks plausible until the capture is long.
+2. **`SeamlyColor.sheet` is fixed white in BOTH themes**, and `seamConfident` is fixed ink.
+   A capture must never be dimmed at night. Do not "fix" either into a semantic colour.
 
 One known gap is tracked as a `withKnownIssue` test, not hidden:
 
@@ -58,7 +66,8 @@ large offsets, `docs/logs/2026-08-08-02-masked-overlap-floor.md`.
 `.d.ts` contract and a `.prompt.md`, guideline cards, and a live click-through UI kit
 covering six screens in both size classes. Also published at
 [claude.ai/design](https://claude.ai/design/p/f9e8831d-2cc1-4513-9cf0-aea67fd27259).
-Where it disagrees with shipped UI, **the design is the intent and the code is history.**
+The shipped UI is built to it. Where the two ever disagree again, **the design is the
+intent and the code is history.**
 
 - **Direction: Paper.** The capture is a sheet lying on a desk — warm light ground,
   square-cornered sheets, depth from rules rather than shadow.
@@ -217,10 +226,13 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
   `BatchStitcher` (order recovery + manifest), `Compositor` (assembly, PDF),
   `StitchSession`/`SessionStore`/`KeyframeIO`/`Diagnostics` (persistence),
   `AppGroup` (identifiers shared with the extension)
-- **App:** `Seamly/Seamly/` — `Core/` (`CaptureModel`, `StitchAssembler`, `MediaImporter`,
-  `AppGroup+Observer`), `DesignSystem/` (`CaptureCondition` — the *only* place pipeline facts
-  and errors become English — plus `ConditionNotice`, `CaptureCanvas`, `ZoomState`), and
-  `Features/` (`Capture`, `Home`, `Result`, `Repair`, `Export`, `Onboarding`, `Diagnostics`)
+- **App:** `Seamly/Seamly/` — `AppShell` (routing), `Core/` (`CaptureModel`,
+  `StitchAssembler`, `MediaImporter`, `Capture+Design`, `AppGroup+Observer`), `DesignSystem/`
+  (`Tokens/SeamlyTokens`, `Components/` — 20 components in seven folders — plus
+  `CaptureGeometry` (the one coordinate space), `CaptureView` (the shared capture surface),
+  `CaptureFinding` (a capture's own problems, enumerated), `ZoomState`, and `CaptureCondition`
+  — the *only* place pipeline facts and errors become English), and `Features/` (`Capture`,
+  `Home`, `Library`, `Result`, `Repair`, `Import`, `Export`, `Onboarding`, `Diagnostics`)
 - **Extension:** `Seamly/SeamlyBroadcast/SampleHandler.swift`
 - **Tests:** `Seamly/StitchKit/Tests/StitchKitTests/` (the bulk) ·
   `Seamly/SeamlyTests/` (app-level import/assembly) · `Seamly/SeamlyUITests/`
@@ -297,6 +309,12 @@ shattered while the suite stayed green. So:
   bridges to `NotificationCenter`. The foreground scan is still the source of truth.
 - **Display proxies are capped at 4096 px tall.** A GPU texture tops out ~16,384 px/side, so
   a full-res stitch cannot render as one texture — never bind a full composite to an `Image`.
+- **Landscape iPhone is unproven on screen.** `SeamlyLayout.isShort` moves the position scale
+  under the sheet, and no automated run has ever photographed it: `XCUIDevice.shared.orientation`
+  rotates the screenshot buffer but the app's window scene does not resize, so every landscape
+  capture is portrait content rotated 90° on black — with or without test clones. The branch is
+  self-consistent by inspection (`CaptureView.swift:85`, `:96`, `:106`), but rotate a device by
+  hand before trusting it (`docs/logs/2026-08-20-paper-interface.md`).
 - **The real-frame test tiers are slow** (several minutes for the package). Inherent to the
   fixtures, not a hang; use `--filter` while iterating.
 - **`#expect` over `contains(where:)` / `allSatisfy` won't compile** — the macro loses the
