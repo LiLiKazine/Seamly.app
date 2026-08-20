@@ -102,10 +102,14 @@ struct AppShell: View {
     private func destination(_ route: Route) -> some View {
         switch route {
         case .library:
-            // Replaced by LibraryScreen in Task 15.
-            EmptyState(symbol: "list.bullet", title: "Library")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(SeamlyColor.paper)
+            LibraryScreen(
+                model: model,
+                onOpen: { path.append(.review($0)) },
+                onBack: { path.removeLast() },
+                onVideo: {},
+                onPhotos: {},
+                onDiagnostics: { showDiagnostics = true }
+            )
         case .review(let id):
             ReviewScreen(
                 captureID: id,
