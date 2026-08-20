@@ -598,13 +598,16 @@ Then correct the four existing washes, which the port approximated with a single
     static let washError = Color.seamlyAlpha(light: (0xA3302B, 0.10), dark: (0xD9615A, 0.14))
 ```
 
-And do the same for the rules, whose alphas also differ (`rule` 0.14 light / 0.16 dark, `ruleStrong` 0.30 / 0.32, `ruleFaint` 0.07 / 0.08, `seamConfident` 0.10 / 0.10):
+And do the same for the rules, whose alphas also differ (`rule` 0.14 light / 0.16 dark, `ruleStrong` 0.30 / 0.32, `ruleFaint` 0.07 / 0.08). `seamConfident` is the exception and stays fixed:
 
 ```swift
     static let rule       = Color.seamlyAlpha(light: (0x1F1D1A, 0.14), dark: (0xF2EFE9, 0.16))
     static let ruleStrong = Color.seamlyAlpha(light: (0x1F1D1A, 0.30), dark: (0xF2EFE9, 0.32))
     static let ruleFaint  = Color.seamlyAlpha(light: (0x1F1D1A, 0.07), dark: (0xF2EFE9, 0.08))
-    static let seamConfident = Color.seamlyAlpha(light: (0x1F1D1A, 0.10), dark: (0xF2EFE9, 0.10))
+    /// NOT theme-varying, unlike the rules above. This draws a join ON THE SHEET, and the
+    /// sheet is fixed white in both themes — so the ink must not flip either. colors.css:46
+    /// defines it once in `:root` with no dark override, deliberately.
+    static let seamConfident = Color(rgb: 0x1F1D1A).opacity(0.10)
 ```
 
 Add to `SeamlySpace`:
@@ -1723,7 +1726,7 @@ The load-bearing screen element. **Nothing else is built until this is looked at
 - Produces:
   - `struct CaptureJump: Equatable` — `init(atPct: Double, fraction: CGFloat = 0.4, token: Int)`
   - `enum CaptureSheetContent` — `.proxy(CGImage)`, `.join(upper: CGImage, lower: CGImage, alignment: JoinAlignment)` (the `.join` case is filled in by Task 11; declare both now with `.join` unhandled by a `switch` default only where noted)
-  - `struct CaptureView: View` — `init(content:captureSize:marks:zoom:selected:showScale:jump:onSelect:onZoomChange:)`
+  - `struct CaptureView: View` — `init(content:captureSize:marks:findings:zoom:selected:showScale:jump:onSelect:)`. **Two collections, not one:** `marks` drives the quiet rules on the sheet and the position scale's ticks; `findings` drives the numbered rings in the margin. They are different sets — a confident join is a mark with no finding, and a bars finding is a finding with no mark.
 
 - [ ] **Step 1: Write `CaptureView` with the proxy content source**
 
@@ -1771,7 +1774,16 @@ struct CaptureView: View {
     let content: CaptureSheetContent
     /// The whole capture in source pixels — `Placement.totalHeight` and the keyframe width.
     let captureSize: CGSize
+    /// Every join, drawn as a quiet rule ON the sheet. Confident ones included and unnumbered.
     var marks: [CaptureMark] = []
+    /// Every doubt, drawn as a numbered ring IN the margin.
+    ///
+    /// Deliberately a separate collection from `marks`, because the two are not the same set.
+    /// A confident join is a mark with no finding; a bars finding is a finding with no mark —
+    /// it is about a whole frame rather than a join, so there is no line to draw on the sheet,
+    /// but it must still be numbered and reachable in the margin. Driving the rail from `marks`
+    /// would make every bars finding invisible and unanswerable.
+    var findings: [Finding] = []
     var zoom: CGFloat = 1
     var selected: Int?
     var showScale: Bool = true
@@ -1822,14 +1834,15 @@ struct CaptureView: View {
     private func marginRail(_ g: CaptureGeometry) -> some View {
         ZStack(alignment: .topLeading) {
             Color.clear
-            ForEach(marks.filter { $0.n != nil }) { mark in
-                let y = g.y(atPct: mark.atPct)
+            ForEach(findings) { finding in
+                let y = g.y(atPct: finding.atPct)
                 if g.isVisible(y) {
                     MarginMarker(
-                        n: mark.n ?? 0,
-                        kind: mark.kind,
-                        selected: selected == mark.n,
-                        action: { mark.n.map { onSelect?($0) } }
+                        n: finding.n,
+                        // A gap reads in its own tone; bars and seams are both "uncertain".
+                        kind: finding.kind == .gap ? .gap : .flagged,
+                        selected: selected == finding.n,
+                        action: { onSelect?(finding.n) }
                     )
                     .offset(y: y - 12)
                 }
@@ -1977,6 +1990,14 @@ Append to `CaptureView.swift`:
             CaptureMark(id: "a", kind: .flagged, atPct: 0.2, n: 1, lostLabel: nil),
             CaptureMark(id: "b", kind: .gap, atPct: 0.5, n: 2, lostLabel: "lost lock"),
             CaptureMark(id: "c", kind: .confident, atPct: 0.8, n: nil, lostLabel: nil),
+        ],
+        findings: [
+            Finding(id: "a", n: 1, kind: .seam, atPct: 0.2, target: .join(0),
+                    title: "Seam after frame 1", question: "Does this line up?",
+                    detail: "", dy: 100, confidence: 0.3),
+            Finding(id: "b", n: 2, kind: .gap, atPct: 0.5, target: .gap(afterKeyframeIndex: 1),
+                    title: "Gap after frame 2", question: "Nothing was captured here",
+                    detail: "", dy: nil, confidence: nil),
         ],
         selected: 1,
         onSelect: { _ in }
@@ -2771,6 +2792,7 @@ struct HomeScreen: View {
                         content: .proxy(proxy),
                         captureSize: capture.pixelSize,
                         marks: capture.displayMarks,
+                        findings: capture.findings,
                         onSelect: { n in onRepair(capture.id, n) }
                     )
                 } else {
@@ -3238,6 +3260,7 @@ struct ReviewScreen: View {
             content: .proxy(proxy),
             captureSize: capture.pixelSize,
             marks: capture.displayMarks,
+            findings: capture.findings,
             zoom: zoom,
             selected: selected,
             jump: jump,
@@ -4207,6 +4230,7 @@ struct RepairQueueView: View {
     /// marker the user tapped stays visible beside the pixels it points at.
     private var captureSize: CGSize { capture?.pixelSize ?? .zero }
     private var marks: [CaptureMark] { capture?.displayMarks ?? [] }
+    private var findings: [Finding] { queue.findings }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -4681,6 +4705,7 @@ In `RepairQueueView`, replace `stage(_:)`:
                         content: .join(upper: frames.upper, lower: frames.lower, alignment: alignment),
                         captureSize: captureSize,
                         marks: marks,
+                        findings: findings,
                         zoom: 6 * zoom.scale,
                         selected: finding.n,
                         showScale: false,
@@ -4699,6 +4724,7 @@ In `RepairQueueView`, replace `stage(_:)`:
                     content: .proxy(proxy),
                     captureSize: captureSize,
                     marks: marks,
+                    findings: findings,
                     zoom: 3 * zoom.scale,
                     selected: finding.n,
                     showScale: false,
