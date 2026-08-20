@@ -29,7 +29,13 @@ struct CaptureDock: View {
                 .allowsHitTesting(false)
                 // The picker sits on top, transparent, and takes the tap. Reaching into its
                 // private subviews to restyle or auto-tap it is the fragility we refuse.
+                // Must fill the slab. `RPSystemBroadcastPickerView` reports a small intrinsic
+                // size, and a ZStack child without its own flexible frame is laid out at that
+                // size and centred — which would leave the hero button tappable only in a
+                // circle at its middle, with dead zones either side. The other call site in
+                // this app sizes it explicitly for the same reason.
                 BroadcastPickerButton()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .opacity(0.02)
                     .accessibilityLabel(recording ? "Recording" : "Record")
                     .accessibilityIdentifier("record-button")

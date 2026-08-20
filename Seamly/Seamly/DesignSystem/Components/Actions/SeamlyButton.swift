@@ -74,6 +74,11 @@ struct SeamlyButton<Label: View>: View {
             }
             .seamlyCorners(SeamlyRadius.sm)
             .opacity(isEnabled ? 1 : SeamlyMotion.disabledOpacity)
+            // The design specifies a 36pt slab for `.small`, and that is what gets painted —
+            // but a 36pt tap target is below the 44pt floor. So the target grows around the
+            // slab rather than the slab growing to meet it: `minHeight` first, `contentShape`
+            // after, so the whole 44pt box is tappable while only 36pt is drawn.
+            .frame(minHeight: SeamlySpace.hitMin)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

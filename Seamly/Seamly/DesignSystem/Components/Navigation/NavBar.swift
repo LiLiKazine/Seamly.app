@@ -24,7 +24,10 @@ struct NavBar<Trailing: View>: View {
                         if !backLabel.isEmpty { Text(backLabel).font(SeamlyFont.body) }
                     }
                     .foregroundStyle(SeamlyColor.accent)
-                    .frame(minHeight: SeamlySpace.hitMin)
+                    // BOTH dimensions: `backLabel` is empty on most screens, leaving a bare
+                    // 20pt chevron whose intrinsic width is far under the 44pt floor. A height
+                    // floor alone would have left it tall and thin.
+                    .frame(minWidth: SeamlySpace.hitMin, minHeight: SeamlySpace.hitMin)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -66,9 +69,15 @@ extension NavBar where Trailing == EmptyView {
 
 /// Tracking is absolute points and does not scale with Dynamic Type, so it is applied only at
 /// display sizes — never to the subtitle or to body copy. See FEASIBILITY.md.
+///
+/// The CSS has `--tracking-title: -0.012em` for the compact title, and `em` scales with the
+/// type. SwiftUI's `.tracking()` does not, so porting that number would be right at one size
+/// and wrong at every other — worse the larger the user sets their type. The compact title is
+/// `SeamlyFont.headline`, which grows with Dynamic Type, so it gets no tracking at all. Only
+/// the `large` variant, a capped display size, keeps it.
 private struct TitleTracking: ViewModifier {
     let large: Bool
     func body(content: Content) -> some View {
-        large ? AnyView(content.seamlyDisplayTracking()) : AnyView(content.tracking(-0.2))
+        large ? AnyView(content.seamlyDisplayTracking()) : AnyView(content)
     }
 }
