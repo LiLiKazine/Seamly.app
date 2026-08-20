@@ -79,7 +79,10 @@ struct QueuePrompt<Manual: View>: View {
 
             HStack {
                 if let value {
-                    Text("dy \(value > 0 ? "+" : "")\(value) px")
+                    // Through `SeamlyNumber`: a real offset runs to four figures, and an
+                    // ungrouped reading here beside a grouped one elsewhere is the exact
+                    // inconsistency the thin-space rule exists to prevent.
+                    Text("dy \(value > 0 ? "+" : "")" + SeamlyNumber.px(value))
                         .font(SeamlyFont.mono)
                         .monospacedDigit()
                         .foregroundStyle(SeamlyColor.inkMuted)

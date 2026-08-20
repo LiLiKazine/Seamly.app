@@ -300,8 +300,14 @@ nonisolated enum SeamlyNumber {
         return f
     }()
 
+    /// Just the grouped digits, no unit. The entry point for a measurement whose unit is not
+    /// "px" — without it, callers hand-format and silently lose the thin space.
+    static func grouped(_ value: Int) -> String {
+        formatter.string(from: NSNumber(value: value)) ?? String(value)
+    }
+
     static func px(_ value: Int) -> String {
-        (formatter.string(from: NSNumber(value: value)) ?? String(value)) + " px"
+        grouped(value) + " px"
     }
 
     /// e.g. "884 × 15 402 px"
