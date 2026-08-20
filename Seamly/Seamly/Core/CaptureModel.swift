@@ -154,7 +154,7 @@ final class CaptureModel {
     /// `lastPickupWasEmpty` is an *event* ("a pickup was just empty"), not a level — the same
     /// trap `consumePendingResult()` guards against: left unconsumed, a second consecutive
     /// empty pickup overwrites `true` with `true`, and since a view's `.onChange` only fires on
-    /// an actual change, the nudge silently never appears the second time. (`PhotoImportButton`
+    /// an actual change, the nudge silently never appears the second time. (`ImportSheet`
     /// documents the identical `.onChange` pitfall on the picker-selection side.)
     func consumeLastPickupWasEmpty() {
         lastPickupWasEmpty = false
@@ -502,12 +502,12 @@ final class CaptureModel {
     /// Persist an edited manifest and re-assemble the proxy.
     ///
     /// Throws — and leaves the in-memory capture untouched — on a lookup miss or a failed
-    /// manifest write, rather than quietly returning as if the edit had survived. `RepairView`
-    /// is this method's first caller since the one-shot shell shipped, and the first time either
-    /// failure could reach a user: a silently-swallowed write here is exactly the "coming back
-    /// does nothing" class of bug recorded in `DECISIONS.md [B4]`, just on the save path instead
-    /// of the import path. The caller is expected to surface the failure and keep the user's
-    /// edits around for a retry rather than dismissing as though they were saved.
+    /// manifest write, rather than quietly returning as if the edit had survived. `RepairQueueModel`
+    /// is this method's caller, and the first time either failure could reach a user: a
+    /// silently-swallowed write here is exactly the "coming back does nothing" class of bug
+    /// recorded in `DECISIONS.md [B4]`, just on the save path instead of the import path. The
+    /// caller is expected to surface the failure and keep the user's edits around for a retry
+    /// rather than dismissing as though they were saved.
     ///
     /// `EditView` was removed with the harness UI, which left this method with no caller at all for
     /// a while; guided repair (Spec 2,

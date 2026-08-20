@@ -10,7 +10,7 @@ import StitchKit
 /// that drifts is how a preview starts promising something the exported image will not honour, so
 /// `JoinAlignmentTests` asserts this against a real composite instead of trusting it.
 ///
-/// Holds no images: this supplies the numbers, `RepairView` supplies the pixels.
+/// Holds no images: this supplies the numbers, `RepairQueueView` supplies the pixels.
 ///
 /// `nonisolated` because this target defaults new declarations to `@MainActor`
 /// (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`), and drag arithmetic has no business being pinned
