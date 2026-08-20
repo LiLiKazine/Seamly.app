@@ -225,6 +225,15 @@ struct CaptureView: View {
         data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
         space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
     )!
+    // A CGBitmapContext has a BOTTOM-left origin, so a bar filled at `pct * height` renders
+    // at `1 - pct` from the top once `Image(decorative:)` draws it top-down. Flip the context
+    // so the fixture shares the orientation of the thing it is testing. This repo has shipped
+    // the un-flipped version of this mistake before: an upside-down synthetic fixture cancelled
+    // out a real sign error in VerticalProfile and hid it for three fix cycles (CLAUDE.md,
+    // "A green suite here has lied three times"). `TestImages.make` in StitchKit flips for the
+    // same reason.
+    ctx.translateBy(x: 0, y: CGFloat(height))
+    ctx.scaleBy(x: 1, y: -1)
     ctx.setFillColor(gray: 1, alpha: 1)
     ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
     ctx.setFillColor(gray: 0.72, alpha: 1)
@@ -232,8 +241,11 @@ struct CaptureView: View {
         ctx.fill(CGRect(x: 0, y: band, width: width, height: 22))
     }
     // A black bar exactly at each mark, so the rule and the marker have something to agree with.
+    // Deliberately ASYMMETRIC. A symmetric set (0.2/0.5/0.8) is mirror-invariant, so every ring
+    // would land on *a* bar even if the fixture and the geometry were both flipped — the preview
+    // could not tell "correct" from "two errors cancelling".
     ctx.setFillColor(gray: 0.1, alpha: 1)
-    for pct in [0.2, 0.5, 0.8] {
+    for pct in [0.15, 0.5, 0.72] {
         ctx.fill(CGRect(x: 0, y: Int(Double(height) * pct), width: width, height: 3))
     }
     let image = ctx.makeImage()!
@@ -242,12 +254,12 @@ struct CaptureView: View {
         content: .proxy(image),
         captureSize: CGSize(width: width, height: height),
         marks: [
-            CaptureMark(id: "a", kind: .flagged, atPct: 0.2, n: 1, lostLabel: nil),
+            CaptureMark(id: "a", kind: .flagged, atPct: 0.15, n: 1, lostLabel: nil),
             CaptureMark(id: "b", kind: .gap, atPct: 0.5, n: 2, lostLabel: "lost lock"),
-            CaptureMark(id: "c", kind: .confident, atPct: 0.8, n: nil, lostLabel: nil),
+            CaptureMark(id: "c", kind: .confident, atPct: 0.72, n: nil, lostLabel: nil),
         ],
         findings: [
-            Finding(id: "a", n: 1, kind: .seam, atPct: 0.2, target: .join(0),
+            Finding(id: "a", n: 1, kind: .seam, atPct: 0.15, target: .join(0),
                     title: "Seam after frame 1", question: "Does this line up?",
                     detail: "", dy: 100, confidence: 0.3),
             Finding(id: "b", n: 2, kind: .gap, atPct: 0.5, target: .gap(afterKeyframeIndex: 1),
