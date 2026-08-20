@@ -2703,6 +2703,13 @@ extension Capture {
         CaptureFindings.all(in: session, placement: placement)
     }
 
+    /// How many findings each badge speaks for. On `Capture` rather than in a view, because
+    /// three screens show these counts and "which kinds read as flagged" must be answered once —
+    /// a capture that says "1 flagged" on Home and "2 flagged" in Library is the same state
+    /// reading two ways, which is the thing the badges exist to prevent.
+    var flaggedCount: Int { findings.filter { $0.kind == .seam || $0.kind == .bars }.count }
+    var gapCount: Int { findings.filter { $0.kind == .gap }.count }
+
     var displayMarks: [CaptureMark] {
         let p = placement
         return CaptureMarks.all(
@@ -2873,9 +2880,10 @@ struct HomeScreen: View {
 
     @ViewBuilder
     private func statusRow(_ capture: Capture) -> some View {
-        let findings = capture.phase == .ready ? capture.findings : []
-        let flagged = findings.filter { $0.kind == .seam || $0.kind == .bars }.count
-        let gaps = findings.filter { $0.kind == .gap }.count
+        let ready = capture.phase == .ready
+        let findings = ready ? capture.findings : []
+        let flagged = ready ? capture.flaggedCount : 0
+        let gaps = ready ? capture.gapCount : 0
 
         HStack(spacing: SeamlySpace.s4) {
             HStack(spacing: SeamlySpace.s3) {
@@ -3441,8 +3449,8 @@ struct ReviewScreen: View {
     @ViewBuilder
     private func summary(_ capture: Capture) -> some View {
         let findings = capture.findings
-        let flagged = findings.filter { $0.kind == .seam || $0.kind == .bars }.count
-        let gaps = findings.filter { $0.kind == .gap }.count
+        let flagged = capture.flaggedCount
+        let gaps = capture.gapCount
         HStack(spacing: SeamlySpace.s3) {
             if flagged > 0 { StatusNote(kind: .flagged, count: flagged) }
             if gaps > 0 { StatusNote(kind: .gap, count: gaps) }
@@ -5192,16 +5200,17 @@ struct CaptureListRow: View {
     }
 }
 
-/// The badges a capture wears wherever it is listed. One implementation, so the same state can
-/// never read two different ways in two different places.
+/// The badges a capture wears wherever it is listed. The counts come from `Capture` itself, so
+/// this really is one answer to "how many are flagged" rather than a third hand-rolled copy of
+/// the filter.
 struct CaptureStatusNotes: View {
     let capture: Capture
     var size: StatusNote.Size = .small
 
     var body: some View {
-        let findings = capture.phase == .ready ? capture.findings : []
-        let flagged = findings.filter { $0.kind == .seam || $0.kind == .bars }.count
-        let gaps = findings.filter { $0.kind == .gap }.count
+        let ready = capture.phase == .ready
+        let flagged = ready ? capture.flaggedCount : 0
+        let gaps = ready ? capture.gapCount : 0
         HStack(spacing: SeamlySpace.s2) {
             if case .failed = capture.phase { StatusNote(kind: .failed, size: size) }
             if capture.phase == .processing { StatusNote(kind: .processing, size: size) }
