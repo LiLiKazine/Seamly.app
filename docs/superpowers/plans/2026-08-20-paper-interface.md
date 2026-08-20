@@ -3850,7 +3850,10 @@ struct QueuePrompt<Manual: View>: View {
 
             HStack {
                 if let value {
-                    Text("dy \(value > 0 ? "+" : "")\(value) px")
+                    // Through `SeamlyNumber`: a real offset runs to four figures, and an
+                    // ungrouped reading here beside a grouped one elsewhere is the exact
+                    // inconsistency the thin-space rule exists to prevent.
+                    Text("dy \(value > 0 ? "+" : "")" + SeamlyNumber.px(value))
                         .font(SeamlyFont.mono)
                         .monospacedDigit()
                         .foregroundStyle(SeamlyColor.inkMuted)
@@ -3938,7 +3941,7 @@ struct StepperRow: View {
                 }
             }
             Spacer(minLength: SeamlySpace.s4)
-            Text("\(value) \(unit)")
+            Text("\(SeamlyNumber.grouped(value)) \(unit)")
                 .font(SeamlyFont.mono)
                 .monospacedDigit()
                 .foregroundStyle(SeamlyColor.inkMuted)
@@ -3971,7 +3974,13 @@ struct StepperRow: View {
                 .font(.system(size: 16))
                 .foregroundStyle(SeamlyColor.accent)
                 .frame(width: 44, height: 34)
+                // The design draws a 34pt-tall stepper box, which is under the 44pt floor. Grow
+                // the TARGET vertically only — pad, take the shape, then un-pad — rather than
+                // growing the box. Insetting all four sides would overlap the sibling button's
+                // target, since the two sit side by side separated by a 1pt divider.
+                .padding(.vertical, (SeamlySpace.hitMin - 34) / 2)
                 .contentShape(Rectangle())
+                .padding(.vertical, -(SeamlySpace.hitMin - 34) / 2)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label)
