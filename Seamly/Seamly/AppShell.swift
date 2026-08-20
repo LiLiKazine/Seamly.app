@@ -32,6 +32,7 @@ struct AppShell: View {
 
     @State private var repairTarget: RepairTarget?
     @State private var exportTarget: UUID?
+    @State private var importSource: ImportSheet.Source?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -41,8 +42,8 @@ struct AppShell: View {
                 onReview: { path.append(.review($0)) },
                 onRepair: { repairTarget = RepairTarget(captureID: $0, findingNumber: $1) },
                 onHelp: { showFirstRun = true },
-                onVideo: {},
-                onPhotos: {}
+                onVideo: { importSource = .video },
+                onPhotos: { importSource = .photos }
             )
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: Route.self) { route in
@@ -65,6 +66,7 @@ struct AppShell: View {
         // screen over it would bury the thing the user came back for.
         .onChange(of: model.pendingResult) { _, id in
             guard id != nil else { return }
+            importSource = nil
             path.removeAll()
             model.consumePendingResult()
         }
@@ -96,16 +98,10 @@ struct AppShell: View {
             ExportSheet(captureID: target.id, model: model, onClose: { exportTarget = nil })
                 .presentationDetents([.medium, .large])
         }
-        .alert(
-            "Import failed",
-            isPresented: Binding(
-                get: { model.importError != nil },
-                set: { if !$0 { model.clearImportError() } }
-            )
-        ) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(model.importError ?? "")
+        .sheet(item: $importSource) { source in
+            ImportSheet(source: source, model: model, onClose: { importSource = nil })
+                .presentationDetents([.medium])
+                .interactiveDismissDisabled(model.importProgress != nil || model.isAssemblingNewArrival)
         }
     }
 
@@ -117,8 +113,8 @@ struct AppShell: View {
                 model: model,
                 onOpen: { path.append(.review($0)) },
                 onBack: { path.removeLast() },
-                onVideo: {},
-                onPhotos: {},
+                onVideo: { importSource = .video },
+                onPhotos: { importSource = .photos },
                 onDiagnostics: { showDiagnostics = true }
             )
         case .review(let id):
