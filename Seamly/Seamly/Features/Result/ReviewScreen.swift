@@ -237,6 +237,10 @@ private struct FindingLine: View {
                 Text("\(finding.n)")
                     .font(SeamlyFont.caps)
                     .monospacedDigit()
+                    // Capped for the reason `MarginMarker` documents: a 22 pt ring cannot hold a
+                    // growing digit, and at accessibility sizes it renders as a clipped crescent.
+                    // The row's own title and detail beside it still scale.
+                    .dynamicTypeSize(...DynamicTypeSize.large)
                     .foregroundStyle(color)
                     .frame(width: 22, height: 22)
                     .overlay { Circle().strokeBorder(color, lineWidth: 1.5) }

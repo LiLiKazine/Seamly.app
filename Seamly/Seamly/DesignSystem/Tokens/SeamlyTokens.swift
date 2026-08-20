@@ -177,6 +177,9 @@ nonisolated enum SeamlySpace {
 
     /// A 1024pt-wide capture button is absurd; the column stops here.
     static let columnMax: CGFloat = 440
+    /// The repair queue's stage cap at regular width. Wider than `columnMax` because this column
+    /// holds a zoomed capture rather than prose — `RepairQueue.jsx` sets 620 for the same reason.
+    static let queueStageMax: CGFloat = 620
     static let sidebarWidth: CGFloat = 340
     static let hitMin: CGFloat = 44
 

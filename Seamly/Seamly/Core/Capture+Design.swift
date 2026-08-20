@@ -9,10 +9,6 @@ import StitchKit
 /// repair. `refinementDelta: 0` matches `StitchAssembler.composite` — the manifest is the
 /// authority and the draw path never re-searches.
 extension Capture {
-    var placement: Placement {
-        Compositor(refinementDelta: 0).placement(session)
-    }
-
     /// The finished composite in source pixels — the width of a keyframe by the placed height.
     var pixelSize: CGSize {
         CGSize(
@@ -33,12 +29,7 @@ extension Capture {
     var gapCount: Int { findings.filter { $0.kind == .gap }.count }
 
     var displayMarks: [CaptureMark] {
-        let p = placement
-        return CaptureMarks.all(
-            in: session,
-            placement: p,
-            findings: CaptureFindings.all(in: session, placement: p)
-        )
+        CaptureMarks.all(in: session, placement: placement, findings: findings)
     }
 
     /// "Today" / "Yesterday" / "16 August" — a capture is named by when it was made.

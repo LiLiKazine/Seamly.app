@@ -76,7 +76,7 @@ final class RepairQueueModel {
             loadError = CaptureCondition.nothingToLineUpMessage
             return
         }
-        // Only a seam has frames to load. Bars and gaps answer against the proxy (Task 14).
+        // Only a seam has frames to load. Bars and gaps answer against the proxy.
         guard case .join(let joinIndex) = finding.target else { return }
 
         var next = JoinAlignment(session: session, joinIndex: joinIndex)
@@ -245,12 +245,26 @@ final class RepairQueueModel {
     /// edge alone — the other may carry a confidently measured crop — and blanketing both would
     /// overwrite that measurement with a user "none", un-cropping a bar the pipeline had got
     /// right. That is the precise regression this whole feature exists to prevent.
+    /// An edge the user has already dialled in is **not** zeroed either. Held answers were being
+    /// read back and then overwritten with 0, so a crop typed into *Adjust manually* was destroyed
+    /// by the very tap that submitted it — and the affirmative was the only way to advance a bars
+    /// finding, which made the manual path unreachable in practice. Only "Skip all" preserved it,
+    /// so the two exits did exactly opposite things.
     func acceptNoBars(for finding: Finding) {
         guard case .chrome(let keyframeID, let edges) = finding.target else { return }
+        let held = editedChrome[keyframeID]
         var insets = heldOrResolvedChrome(for: keyframeID)
-        if edges.contains(.top) { insets.top = 0 }
-        if edges.contains(.bottom) { insets.bottom = 0 }
+        if edges.contains(.top), held == nil { insets.top = 0 }
+        if edges.contains(.bottom), held == nil { insets.bottom = 0 }
         editedChrome[keyframeID] = insets
+    }
+
+    /// Whether the user has typed a crop for this finding's keyframe, which changes what the
+    /// affirmative answer means: "no bars here" for an untouched finding, "this is right" once
+    /// they have said what the bars actually are.
+    func hasEditedChrome(for finding: Finding) -> Bool {
+        guard case .chrome(let keyframeID, _) = finding.target else { return false }
+        return editedChrome[keyframeID] != nil
     }
 
     /// The crop currently in force for a keyframe — a held answer if there is one, otherwise

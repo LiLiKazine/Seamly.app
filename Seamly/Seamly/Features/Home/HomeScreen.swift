@@ -21,7 +21,6 @@ struct HomeScreen: View {
 
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
-    @State private var jumpToken = 0
 
     private var layout: SeamlyLayout { SeamlyLayout(horizontal: hSize, vertical: vSize) }
     private var capture: Capture? { model.captures.first }

@@ -17,7 +17,7 @@ enum CaptureSheetContent {
     /// The two full-resolution frames either side of one join, live under the finger.
     ///
     /// The proxy is only rebuilt after a commit, so a repair drag against it would move
-    /// nothing visible. Filled in by Task 11.
+    /// nothing visible. Drawn by the join stage.
     case join(upper: CGImage, lower: CGImage, alignment: JoinAlignment)
 }
 
@@ -74,6 +74,13 @@ struct CaptureView: View {
 
     @State private var scrollY: CGFloat = 0
     @State private var scrollPosition = ScrollPosition(edge: .top)
+    /// The stage's measured size, published out of the `GeometryReader` so the SHORT scale —
+    /// which is a sibling of it, not a child — can build the same `CaptureGeometry` from the same
+    /// `scrollY`. Without this it was handed `viewportTopPct: 0, viewportPct: 1, onScrub: nil` as
+    /// literals, so on landscape iPhone the bracket always covered the whole scale, never tracked
+    /// the viewport, could not be scrubbed, and always announced "0 percent". Still ONE geometry:
+    /// the size travels, the arithmetic does not move.
+    @State private var stageSize: CGSize = .zero
 
     private var layout: SeamlyLayout { SeamlyLayout(horizontal: hSize, vertical: vSize) }
 
@@ -81,21 +88,20 @@ struct CaptureView: View {
         VStack(spacing: SeamlySpace.s3) {
             HStack(spacing: SeamlySpace.s3) {
                 GeometryReader { geo in
-                    let sheetWidth = geo.size.width - SeamlySpace.marginRail - SeamlySpace.s3
-                        - (showScale && !layout.isShort ? SeamlySpace.scaleRail + SeamlySpace.s3 : 0)
-                    let g = CaptureGeometry(
-                        sheetWidth: max(0, sheetWidth),
-                        viewportHeight: geo.size.height,
-                        captureSize: captureSize,
-                        zoom: zoom,
-                        scrollY: scrollY
-                    )
+                    let g = geometry(forStageOf: geo.size)
                     HStack(spacing: SeamlySpace.s3) {
                         marginRail(g)
                         sheet(g)
                         if showScale && !layout.isShort { scale(g) }
                     }
-                    .onChange(of: jump) { _, target in
+                    // `initial: true` because the queue hands a jump in at CONSTRUCTION: a bars
+                    // or gap finding builds a fresh `CaptureView` already carrying its target,
+                    // and an edge-triggered `onChange` never fires for that. The queue's first
+                    // proxy-backed question therefore opened at scroll 0 — the top of a 15 000 px
+                    // capture — with its marker off screen. Gaps rank first, so that was the
+                    // opening question on any capture with one.
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { stageSize = $0 }
+                    .onChange(of: jump, initial: true) { _, target in
                         guard let target else { return }
                         withAnimation(SeamlyMotion.jump) {
                             scrollPosition.scrollTo(y: g.scrollY(toShow: target.atPct, at: target.fraction))
@@ -290,17 +296,37 @@ struct CaptureView: View {
         )
     }
 
+    /// THE geometry, from one formula. Both the stage and the short scale call this, so the
+    /// horizontal scale below the sheet cannot drift from the sheet it describes — the same
+    /// reason everything else here resolves through a single `CaptureGeometry`.
+    private func geometry(forStageOf size: CGSize) -> CaptureGeometry {
+        let sheetWidth = size.width - SeamlySpace.marginRail - SeamlySpace.s3
+            - (showScale && !layout.isShort ? SeamlySpace.scaleRail + SeamlySpace.s3 : 0)
+        return CaptureGeometry(
+            sheetWidth: max(0, sheetWidth),
+            viewportHeight: size.height,
+            captureSize: captureSize,
+            zoom: zoom,
+            scrollY: scrollY
+        )
+    }
+
     /// A short viewport (landscape iPhone) gets a horizontal scale below the sheet, because a
     /// vertical one would eat the little height there is.
     @ViewBuilder
     private func shortScale() -> some View {
+        let g = geometry(forStageOf: stageSize)
         PositionScale(
             heightPx: Int(captureSize.height),
-            viewportTopPct: 0,
-            viewportPct: 1,
+            viewportTopPct: g.viewportTopPct,
+            viewportPct: g.viewportPct,
             marks: marks,
             orientation: .horizontal,
-            onScrub: nil
+            onScrub: { pct in
+                withAnimation(SeamlyMotion.jump) {
+                    scrollPosition.scrollTo(y: g.scrollY(toShow: pct, at: 0.1))
+                }
+            }
         )
     }
 }

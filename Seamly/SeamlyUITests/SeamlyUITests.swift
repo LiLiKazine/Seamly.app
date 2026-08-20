@@ -24,7 +24,7 @@ final class SeamlyUITests: XCTestCase {
 
     // No `testExample` here on purpose. XCTest runs methods alphabetically, so the template
     // stub — which asserted nothing — launched the app before `testHomeShowsRecordFirst` and
-    // let `HomeView.task` set `hasSeenOnboarding`. Onboarding was then never on screen for the
+    // let `AppShell.task` set `hasSeenOnboarding`. Onboarding was then never on screen for the
     // test that exists to walk through and dismiss it, so its dismissal path went unexercised
     // and a deliberate break in it would not have reproduced.
 

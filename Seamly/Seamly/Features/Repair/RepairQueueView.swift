@@ -17,6 +17,12 @@ struct RepairQueueView: View {
     @State private var queue: RepairQueueModel
     @State private var zoom = ZoomState()
     @State private var showManual = false
+    @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.verticalSizeClass) private var vSize
+    /// The queue was the one screen family that read no size class at all, so on iPad it ran
+    /// full-bleed at the phone gutter while Home, Review and Library all adapt. The kit's own
+    /// `RepairQueue.jsx` uses the size-class gutter and caps the stage at 620.
+    private var layout: SeamlyLayout { SeamlyLayout(horizontal: hSize, vertical: vSize) }
 
     /// The queue opens hard at 6x; pinch multiplies from there. A named constant because it
     /// must reach BOTH the rendering zoom and the drag's zoom divisor — passing the bare pinch
@@ -37,8 +43,6 @@ struct RepairQueueView: View {
     }
 
     private var capture: Capture? { model.captures.first { $0.id == captureID } }
-    /// The stage shows one join, but the margin still describes the WHOLE capture — so the
-    /// marker the user tapped stays visible beside the pixels it points at.
     private var captureSize: CGSize { capture?.pixelSize ?? .zero }
     private var marks: [CaptureMark] { capture?.displayMarks ?? [] }
     private var findings: [Finding] { queue.findings }
@@ -105,7 +109,14 @@ struct RepairQueueView: View {
                     CaptureView(
                         content: .join(upper: frames.upper, lower: frames.lower, alignment: alignment),
                         captureSize: captureSize,
-                        marks: marks,
+                        // NO margin marks on the seam stage. The intention was that the margin
+                        // keep describing the whole capture, but it cannot: `.join` has no
+                        // ScrollView, so `scrollY` is pinned at 0 while `captureSize` is the whole
+                        // capture at 6×. Every mark resolves to `atPct · sheetWidth · 6 · aspect`,
+                        // which puts all of them thousands of points below the viewport on a long
+                        // capture — and, worse, lands one at a meaningless position on a short
+                        // one. A rail that is either empty or lying is worse than no rail.
+                        marks: [],
                         findings: findings,
                         zoom: Self.openingZoom * zoom.scale,
                         selected: finding.n,
@@ -140,7 +151,9 @@ struct RepairQueueView: View {
                 )
             }
         }
-        .padding(.horizontal, SeamlySpace.gutterCompact)
+        .frame(maxWidth: SeamlySpace.queueStageMax)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, layout.gutter)
         .padding(.top, SeamlySpace.s3)
         .padding(.bottom, SeamlySpace.s5)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -179,7 +192,9 @@ struct RepairQueueView: View {
     private func affirmative(_ finding: Finding) -> String {
         switch finding.kind {
         case .seam: "Looks right"
-        case .bars: "No bars here"
+        // Once the user has said what the bars ARE, "No bars here" is the wrong sentence on the
+        // button that accepts it — and the wrong instruction to the model behind it.
+        case .bars: queue.hasEditedChrome(for: finding) ? "Looks right" : "No bars here"
         case .gap: "Got it"
         }
     }

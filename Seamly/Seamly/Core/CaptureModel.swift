@@ -18,6 +18,26 @@ struct Capture: Identifiable {
     /// Downscaled proxy for on-screen display (never the full-res stitch).
     var proxy: CGImage?
 
+    /// The composite's layout, walked ONCE per capture value rather than per property read.
+    ///
+    /// `placement` was computed, and `pixelSize`, `findings`, `flaggedCount`, `gapCount` and
+    /// `displayMarks` each re-derived it — so one `ReviewScreen` body pass walked the manifest
+    /// about nine times, on the main actor, and a pinch did that on every gesture tick because
+    /// `zoom` is `@State`. Each walk sorts the keyframes and resolves chrome per frame.
+    ///
+    /// Storing it is safe precisely because `session` is a `let`: a capture value's geometry
+    /// cannot change under it, and any real change builds a new `Capture`. There is nothing to
+    /// invalidate.
+    let placement: Placement
+
+    init(session: StitchSession, folder: URL, phase: Phase = .processing, proxy: CGImage? = nil) {
+        self.session = session
+        self.folder = folder
+        self.phase = phase
+        self.proxy = proxy
+        self.placement = Compositor(refinementDelta: 0).placement(session)
+    }
+
     var id: UUID { session.id }
     /// Scroll order used the input-order fallback for Photos or broadcast rather than recovery.
     var orderAssumed: Bool { session.orderAssumed }

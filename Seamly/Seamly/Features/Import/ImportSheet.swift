@@ -20,11 +20,20 @@ struct ImportSheet: View {
     @State private var photoSelection: [PhotosPickerItem] = []
     @State private var pickError: String?
     @State private var started = false
+    /// True for the WHOLE of a pick, from the tap to the import returning.
+    ///
+    /// `CaptureModel`'s two published flags do not cover the whole job, and inferring "finished"
+    /// from their absence claimed success before the work began: `importPhotos` never sets
+    /// `importProgress` at all, and neither flag is up during `MediaImporter.write`. So picking
+    /// six screenshots showed a green "✓ Stitched." with a Done button for the entire decode and
+    /// write, then flipped back to "Stitching…". A false success is the one thing this app's
+    /// error handling exists to prevent — it cannot be a gap between two other flags.
+    @State private var running = false
 
     private var isVideo: Bool { source == .video }
     private var reading: Double? { model.importProgress }
     private var stitching: Bool { model.isAssemblingNewArrival }
-    private var working: Bool { reading != nil || stitching }
+    private var working: Bool { running || reading != nil || stitching }
 
     var body: some View {
         SheetChrome(title: isVideo ? "From Video" : "From Photos") {
@@ -145,6 +154,8 @@ struct ImportSheet: View {
         // makes re-picking the same video a no-op and the row looks dead.
         videoSelection = nil
         started = true
+        running = true
+        defer { running = false }
         do {
             guard let movie = try await item.loadTransferable(type: PickedMovie.self) else {
                 pickError = "That video couldn't be read."
@@ -160,6 +171,8 @@ struct ImportSheet: View {
         pickError = nil
         photoSelection = []
         started = true
+        running = true
+        defer { running = false }
         var images: [CGImage] = []
         for (i, item) in items.enumerated() {
             do {

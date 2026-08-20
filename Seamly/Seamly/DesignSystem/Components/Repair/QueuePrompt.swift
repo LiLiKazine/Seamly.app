@@ -75,7 +75,12 @@ struct QueuePrompt<Manual: View>: View {
                     nudge(symbol: "chevron.down", label: "Nudge down") { onNudge(1) }
                 }
             }
-            .frame(height: 52)
+            // MINIMUM. A fixed height here silently undid `SeamlyButton`'s own `minHeight` +
+            // `fixedSize`: at accessibility sizes "No bars here" wraps, the button asks for
+            // ~150 pt, and a 52 pt frame centred it straight through the question above and the
+            // offset row below. Same class as the eight heights the visual pass converted — this
+            // one was a parent overriding a child that had already been fixed.
+            .frame(minHeight: 52)
 
             HStack {
                 if let value {
