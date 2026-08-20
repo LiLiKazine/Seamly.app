@@ -3,6 +3,18 @@ import XCTest
 /// The end-to-end gate on the repair queue — see `testAnsweringAJoinClearsTheFinding` below for
 /// what "gate" means here. Both tests drive the queue open through Home's margin marker, the
 /// design's own entry, rather than a route through Review.
+///
+/// **Only the seam path is covered here, and that is a limit of the seed, not an oversight.**
+/// `DebugSeed` writes one flagged seam, a confident zero-inset chrome measurement on every
+/// keyframe, and no segment breaks — so `Capture.findings` yields exactly one finding, of kind
+/// `.seam`. The queue's `.bars` and `.gap` branches are therefore unreachable from any UI test
+/// until a second seed variant exists, and inventing one was out of scope for the task that
+/// wrote these tests. That seed shape is deliberate: `DebugSeed.seed()` explains why unresolved
+/// chrome would outrank the flagged join and hide the very text this seed exists to exercise.
+/// Those two branches are covered at the model level instead, by `RepairQueueModelTests`
+/// (`answeringNoBarsClearsTheFinding`, `acceptNoBarsPreservesTheConfidentEdge`,
+/// `aBarsAnswerReachesTheManifest`) — which is real coverage of the answer reaching the
+/// manifest, but not of the taps that get there.
 final class RepairUITests: XCTestCase {
 
     override func setUpWithError() throws {
