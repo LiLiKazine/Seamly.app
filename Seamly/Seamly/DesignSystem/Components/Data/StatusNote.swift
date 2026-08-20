@@ -73,7 +73,13 @@ struct StatusNote: View {
         .font(small ? SeamlyFont.caps : SeamlyFont.caption)
         .foregroundStyle(tone ?? SeamlyColor.inkMuted)
         .padding(.horizontal, small ? 7 : 9)
-        .frame(height: small ? 20 : 24)
+        // A MINIMUM height, not a fixed one. Fixed, the chip could not grow with Dynamic Type,
+        // so at accessibility sizes its own word was elided — "1 fla…" — and a note whose entire
+        // job is to carry the word in text rather than in colour had nothing left to carry it
+        // with. The padding keeps it at exactly 20/24 pt at default sizes.
+        .padding(.vertical, small ? 3 : 4)
+        .frame(minHeight: small ? 20 : 24)
+        .fixedSize(horizontal: false, vertical: true)
         .background(wash)
         .seamlyCorners(SeamlyRadius.xs)
         .accessibilityElement()

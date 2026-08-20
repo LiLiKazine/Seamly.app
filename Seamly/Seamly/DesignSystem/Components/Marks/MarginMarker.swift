@@ -25,6 +25,13 @@ struct MarginMarker: View {
             Text("\(n)")
                 .font(SeamlyFont.caps)
                 .monospacedDigit()
+                // The ONE place a size is capped, and deliberately: this is a proof-reader's
+                // mark, not copy. The rail it lives in is a fixed 34 pt, so a growing digit
+                // does not enlarge the ring — it bursts it, and at AX5 the ring rendered as a
+                // clipped crescent. Nothing is lost by holding it: the number is decoration for
+                // the accessibility label ("Mark 1") that VoiceOver actually reads, and the tap
+                // target is already well past 44 pt via the `contentShape` below.
+                .dynamicTypeSize(...DynamicTypeSize.large)
                 .foregroundStyle(selected ? SeamlyColor.sheet : color)
                 .frame(width: 24, height: 24)
                 .background {

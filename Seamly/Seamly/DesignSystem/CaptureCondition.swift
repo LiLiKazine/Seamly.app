@@ -128,11 +128,6 @@ nonisolated enum CaptureCondition: Equatable {
         }
     }
 
-    /// The one label for the repair, wherever it appears. An imperfect capture shows it loudly and
-    /// a clean one quietly, but the words are identical — so this stays the only place the string
-    /// lives, which is the whole point of this type.
-    static let liningUpActionTitle = "Line it up"
-
     /// The repair screen opened on a capture with no join it can walk to at all. Structurally
     /// unreachable — `RepairableJoins.opening(in:flaggedOnly:)` gates whether the entry appears —
     /// but the screen still says something rather than sitting on a spinner forever.

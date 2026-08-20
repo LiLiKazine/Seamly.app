@@ -19,7 +19,7 @@ struct LibraryScreen: View {
         VStack(spacing: 0) {
             NavBar(
                 title: "Library",
-                subtitle: "\(model.captures.count) captures",
+                subtitle: SeamlyNumber.counted(model.captures.count, "capture", "captures"),
                 large: true,
                 onBack: onBack
             ) {

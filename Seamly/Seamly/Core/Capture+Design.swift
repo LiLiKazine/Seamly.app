@@ -41,16 +41,6 @@ extension Capture {
         )
     }
 
-    /// The aggregate verdict, from the phase and the facts. The single caller-side rule for
-    /// which `CaptureCondition` case applies, so no screen invents its own.
-    var condition: CaptureCondition {
-        switch phase {
-        case .processing: .stitching
-        case .failed(let message): .failed(message)
-        case .ready: CaptureCondition(ready: CaptureFacts(session))
-        }
-    }
-
     /// "Today" / "Yesterday" / "16 August" — a capture is named by when it was made.
     var title: String {
         let calendar = Calendar.current

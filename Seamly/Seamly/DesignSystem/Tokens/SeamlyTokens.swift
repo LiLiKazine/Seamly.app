@@ -315,4 +315,16 @@ nonisolated enum SeamlyNumber {
         let w = formatter.string(from: NSNumber(value: width)) ?? String(width)
         return "\(w) × \(px(height))"
     }
+
+    /// A count and the thing it counts, in agreement — "1 capture", "2 captures".
+    ///
+    /// Here rather than at each call site because interpolating a bare `"\(n) captures"` reads
+    /// correctly for every value except the one a new user actually sees first. Both call sites
+    /// this was added for ("1 captures" in Library's subtitle, "1 frames" in Review's) shipped
+    /// that way and were caught by looking at the screen, not by a test.
+    ///
+    /// The count keeps its grouping, so a library of 1 200 captures still gets its thin space.
+    static func counted(_ n: Int, _ singular: String, _ plural: String) -> String {
+        "\(grouped(n)) \(n == 1 ? singular : plural)"
+    }
 }

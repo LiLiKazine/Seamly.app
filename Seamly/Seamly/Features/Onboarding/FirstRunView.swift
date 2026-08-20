@@ -29,22 +29,35 @@ struct FirstRunView: View {
 
     var body: some View {
         VStack(spacing: SeamlySpace.s7) {
-            VStack(spacing: SeamlySpace.s7) {
-                CueCard(
-                    symbol: steps[page].symbol,
-                    title: steps[page].title,
-                    message: steps[page].message
-                )
-                if page == 1 {
-                    Text("Seamly cannot show you anything while it records — a banner would be captured along with everything else. The buzz is the only signal it can send.")
-                        .font(SeamlyFont.footnote)
-                        .foregroundStyle(SeamlyColor.inkMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+            // The card scrolls; the dots and the button do not. At
+            // `accessibility-extra-extra-extra-large` step 2's card is taller than the screen,
+            // and without this it pushed "Next" clean off the bottom — 1 061 pt down an 874 pt
+            // screen, past even VoiceOver's scroll-to-visible. First run became a dead end at
+            // the largest text size, which is precisely the user who most needs the explanation.
+            //
+            // `minHeight: proxy.size.height` with `.center` keeps the card vertically centred
+            // whenever it *does* fit, so the ordinary case looks exactly as it did.
+            GeometryReader { proxy in
+                ScrollView {
+                    VStack(spacing: SeamlySpace.s7) {
+                        CueCard(
+                            symbol: steps[page].symbol,
+                            title: steps[page].title,
+                            message: steps[page].message
+                        )
+                        if page == 1 {
+                            Text("Seamly cannot show you anything while it records — a banner would be captured along with everything else. The buzz is the only signal it can send.")
+                                .font(SeamlyFont.footnote)
+                                .foregroundStyle(SeamlyColor.inkMuted)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .frame(maxWidth: SeamlySpace.columnMax)
+                    .frame(maxWidth: .infinity, minHeight: proxy.size.height, alignment: .center)
                 }
+                .scrollBounceBehavior(.basedOnSize)
             }
-            .frame(maxHeight: .infinity)
-            .frame(maxWidth: SeamlySpace.columnMax)
 
             PageDots(count: steps.count, index: page)
 

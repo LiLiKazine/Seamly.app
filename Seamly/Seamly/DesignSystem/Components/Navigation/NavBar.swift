@@ -31,6 +31,10 @@ struct NavBar<Trailing: View>: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                // `backLabel` is empty on every compact screen, which leaves a bare SF Symbol
+                // and nothing for VoiceOver to say. The design kit has the same gap because it
+                // is a web mock — supplying the spoken name is the port's job, not the mock's.
+                .accessibilityLabel(backLabel.isEmpty ? "Back" : backLabel)
                 .accessibilityLabel(backLabel.isEmpty ? "Back" : backLabel)
             }
             VStack(alignment: .leading, spacing: 2) {

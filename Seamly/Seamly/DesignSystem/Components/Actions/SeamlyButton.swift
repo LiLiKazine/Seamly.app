@@ -59,11 +59,20 @@ struct SeamlyButton<Label: View>: View {
                     Image(systemName: symbol).font(.system(size: size == .small ? 16 : 18))
                 }
                 label()
+                    // Wraps rather than elides. With a fixed height the label was single-line,
+                    // so "Review them" became "Review the…" at accessibility sizes — an action
+                    // whose own name is cut off.
+                    .fixedSize(horizontal: false, vertical: true)
+                    .multilineTextAlignment(.center)
             }
             .font(font)
             .foregroundStyle(foreground)
             .frame(minWidth: SeamlySpace.hitMin)
-            .frame(height: height)
+            // A MINIMUM height. The padding is free at ordinary sizes — the label is far shorter
+            // than the slab, so `minHeight` still decides and the design's 36/44/52 pt slabs are
+            // painted exactly — and it is what lets the slab grow around wrapped text instead.
+            .padding(.vertical, 4)
+            .frame(minHeight: height)
             .padding(.horizontal, horizontalPadding)
             .background(background)
             .overlay {

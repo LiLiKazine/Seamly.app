@@ -60,7 +60,7 @@ struct ReviewScreen: View {
             subtitle: SeamlyNumber.dimensions(
                 width: Int(capture.pixelSize.width),
                 height: Int(capture.pixelSize.height)
-            ) + " · \(capture.session.keyframes.count) frames",
+            ) + " · " + SeamlyNumber.counted(capture.session.keyframes.count, "frame", "frames"),
             backLabel: layout.isRegular ? "Library" : "",
             onBack: onBack
         ) {

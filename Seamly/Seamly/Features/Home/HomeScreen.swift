@@ -65,6 +65,10 @@ struct HomeScreen: View {
                 .font(SeamlyFont.largeTitle)
                 .foregroundStyle(SeamlyColor.ink)
                 .seamlyDisplayTracking()
+                // At accessibility sizes "November 15" hyphenated to three lines and then
+                // elided — "No-vem-ber…" — losing the day, which is the whole name of the
+                // capture. Let it take the lines it needs.
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: SeamlySpace.s4)
             if capture.phase == .ready {
                 Text(SeamlyNumber.dimensions(
@@ -131,14 +135,13 @@ struct HomeScreen: View {
 
     // MARK: - What this capture wants to say
 
-    @ViewBuilder
     private func statusRow(_ capture: Capture) -> some View {
         let ready = capture.phase == .ready
         let findings = ready ? capture.findings : []
         let flagged = ready ? capture.flaggedCount : 0
         let gaps = ready ? capture.gapCount : 0
 
-        HStack(spacing: SeamlySpace.s4) {
+        @ViewBuilder var notes: some View {
             HStack(spacing: SeamlySpace.s3) {
                 if capture.session.status == .recording { StatusNote(kind: .incomplete) }
                 if capture.session.orderAssumed { StatusNote(kind: .orderAssumed) }
@@ -148,7 +151,9 @@ struct HomeScreen: View {
                     StatusNote(kind: .ready, label: "Every seam matched confidently")
                 }
             }
-            Spacer(minLength: SeamlySpace.s4)
+        }
+
+        @ViewBuilder var action: some View {
             if capture.phase == .ready, capture.proxy != nil {
                 SeamlyButton(
                     findings.isEmpty ? "Open" : "Review them",
@@ -158,6 +163,22 @@ struct HomeScreen: View {
                     onReview(capture.id)
                 }
                 .accessibilityIdentifier("review-capture")
+            }
+        }
+
+        // Side by side while they fit; stacked when they do not. At accessibility sizes the
+        // row could not hold both, and BOTH ends elided mid-word — "1 fla…" beside "Re…".
+        // `ViewThatFits` keeps the design's single row at every ordinary size and only gives
+        // way at the point where the alternative is unreadable text.
+        return ViewThatFits(in: .horizontal) {
+            HStack(spacing: SeamlySpace.s4) {
+                notes
+                Spacer(minLength: SeamlySpace.s4)
+                action
+            }
+            VStack(alignment: .leading, spacing: SeamlySpace.s3) {
+                notes
+                action
             }
         }
         .padding(.horizontal, layout.gutter)
