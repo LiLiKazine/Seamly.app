@@ -109,9 +109,10 @@ nonisolated enum SeamlyColor {
     static let ruleStrong = Color.seamlyAlpha(light: (0x1F1D1A, 0.30), dark: (0xF2EFE9, 0.32))
     static let ruleFaint  = Color.seamlyAlpha(light: (0x1F1D1A, 0.07), dark: (0xF2EFE9, 0.08))
 
-    /// How a join is drawn on the sheet. Deliberately quiet — findability is the
-    /// margin's job, not this line's.
-    static let seamConfident = Color.seamlyAlpha(light: (0x1F1D1A, 0.10), dark: (0xF2EFE9, 0.10))
+    /// NOT theme-varying, unlike the rules above. This draws a join ON THE SHEET, and the
+    /// sheet is fixed white in both themes — so the ink must not flip either. colors.css:46
+    /// defines it once in `:root` with no dark override, deliberately.
+    static let seamConfident = Color(rgb: 0x1F1D1A).opacity(0.10)
     static let seamFlag      = markFlag
     static let seamGap       = markGap
 }
