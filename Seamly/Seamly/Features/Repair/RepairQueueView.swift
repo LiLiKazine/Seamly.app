@@ -109,13 +109,12 @@ struct RepairQueueView: View {
                     CaptureView(
                         content: .join(upper: frames.upper, lower: frames.lower, alignment: alignment),
                         captureSize: captureSize,
-                        // NO margin marks on the seam stage. The intention was that the margin
-                        // keep describing the whole capture, but it cannot: `.join` has no
-                        // ScrollView, so `scrollY` is pinned at 0 while `captureSize` is the whole
-                        // capture at 6×. Every mark resolves to `atPct · sheetWidth · 6 · aspect`,
-                        // which puts all of them thousands of points below the viewport on a long
-                        // capture — and, worse, lands one at a meaningless position on a short
-                        // one. A rail that is either empty or lying is worse than no rail.
+                        // Empty, and inert today: the `.join` sheet draws no marks and
+                        // `showScale` is false, so nothing here reads them. It states the
+                        // intent rather than fixing a live bug — if the seam stage ever grows a
+                        // rail, whole-capture marks are the wrong thing to put in it, because
+                        // `.join` has no ScrollView and every mark would resolve against a
+                        // `scrollY` pinned at 0 with the capture at 6×.
                         marks: [],
                         findings: findings,
                         zoom: Self.openingZoom * zoom.scale,
@@ -189,6 +188,11 @@ struct RepairQueueView: View {
         }
     }
 
+    private func uncertainEdges(of finding: Finding) -> Set<ChromeEdge> {
+        guard case .chrome(_, let edges) = finding.target else { return [] }
+        return edges
+    }
+
     private func affirmative(_ finding: Finding) -> String {
         switch finding.kind {
         case .seam: "Looks right"
@@ -231,19 +235,29 @@ struct RepairQueueView: View {
                         ) { queue.setDy($0) }
                     }
                 case .bars:
-                    StepperRow(
-                        label: "Top bar",
-                        value: queue.chromeValue(.top, for: finding),
-                        step: 5,
-                        range: queue.chromeRange(.top, for: finding),
-                        hint: "Repeated chrome cropped from this frame"
-                    ) { queue.setChrome($0, edge: .top, for: finding) }
-                    StepperRow(
-                        label: "Bottom bar",
-                        value: queue.chromeValue(.bottom, for: finding),
-                        step: 5,
-                        range: queue.chromeRange(.bottom, for: finding)
-                    ) { queue.setChrome($0, edge: .bottom, for: finding) }
+                    // ONLY the edges the finding actually flags. Offering both invited the user
+                    // to nudge an edge the pipeline had measured confidently, which is not what
+                    // this question is asking — and which used to change the answer given for
+                    // the edge that WAS in doubt.
+                    let edges = uncertainEdges(of: finding)
+                    if edges.contains(.top) {
+                        StepperRow(
+                            label: "Top bar",
+                            value: queue.chromeValue(.top, for: finding),
+                            step: 5,
+                            range: queue.chromeRange(.top, for: finding),
+                            hint: "Repeated chrome cropped from this frame"
+                        ) { queue.setChrome($0, edge: .top, for: finding) }
+                    }
+                    if edges.contains(.bottom) {
+                        StepperRow(
+                            label: "Bottom bar",
+                            value: queue.chromeValue(.bottom, for: finding),
+                            step: 5,
+                            range: queue.chromeRange(.bottom, for: finding),
+                            hint: edges.contains(.top) ? nil : "Repeated chrome cropped from this frame"
+                        ) { queue.setChrome($0, edge: .bottom, for: finding) }
+                    }
                 case .gap:
                     EmptyView()
                 }

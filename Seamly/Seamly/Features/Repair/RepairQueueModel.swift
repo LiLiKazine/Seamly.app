@@ -32,6 +32,10 @@ final class RepairQueueModel {
     /// capture — between two questions.
     private var editedDy: [Int: Int] = [:]
     private var editedChrome: [UUID: ChromeInsets] = [:]
+    /// The edges the user has actually answered. `editedChrome` cannot serve: it holds a whole
+    /// `ChromeInsets` per keyframe, so it cannot tell an edge the user set from the sibling it
+    /// carried along untouched.
+    private var editedEdges: [UUID: Set<ChromeEdge>] = [:]
 
     /// Bumped at the top of every `load()`; a load only commits its result if this still
     /// matches when its `await` returns. `CaptureModel.joinFrames` reads through an independent
@@ -231,6 +235,10 @@ final class RepairQueueModel {
         case .bottom: insets.bottom = value
         }
         editedChrome[keyframeID] = insets
+        // Which EDGE was answered, not merely that this keyframe has an entry. Keyed by keyframe
+        // alone, touching one stepper silently protected the other from being answered at all —
+        // see `acceptNoBars`.
+        editedEdges[keyframeID, default: []].insert(edge)
     }
 
     /// "No bars here" — the affirmative answer for a bars finding.
@@ -252,10 +260,15 @@ final class RepairQueueModel {
     /// so the two exits did exactly opposite things.
     func acceptNoBars(for finding: Finding) {
         guard case .chrome(let keyframeID, let edges) = finding.target else { return }
-        let held = editedChrome[keyframeID]
+        let answered = editedEdges[keyframeID] ?? []
         var insets = heldOrResolvedChrome(for: keyframeID)
-        if edges.contains(.top), held == nil { insets.top = 0 }
-        if edges.contains(.bottom), held == nil { insets.bottom = 0 }
+        // Per EDGE. A keyframe-wide test let a nudge on the confident bottom stepper protect the
+        // uncertain top edge from ever being zeroed — and `commit` then wrote that untouched,
+        // low-confidence guess as a real override, so the edge actually in doubt stopped being
+        // flagged without the user ever having answered it. Quieter than the bug it replaced,
+        // and worse: nothing on screen said anything had been decided.
+        if edges.contains(.top), !answered.contains(.top) { insets.top = 0 }
+        if edges.contains(.bottom), !answered.contains(.bottom) { insets.bottom = 0 }
         editedChrome[keyframeID] = insets
     }
 
@@ -264,7 +277,7 @@ final class RepairQueueModel {
     /// they have said what the bars actually are.
     func hasEditedChrome(for finding: Finding) -> Bool {
         guard case .chrome(let keyframeID, _) = finding.target else { return false }
-        return editedChrome[keyframeID] != nil
+        return !(editedEdges[keyframeID] ?? []).isEmpty
     }
 
     /// The crop currently in force for a keyframe — a held answer if there is one, otherwise

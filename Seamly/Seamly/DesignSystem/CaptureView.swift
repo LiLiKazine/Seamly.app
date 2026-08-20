@@ -81,6 +81,8 @@ struct CaptureView: View {
     /// the viewport, could not be scrubbed, and always announced "0 percent". Still ONE geometry:
     /// the size travels, the arithmetic does not move.
     @State private var stageSize: CGSize = .zero
+    /// Whether this view has placed itself once. See the jump handler.
+    @State private var hasPositioned = false
 
     private var layout: SeamlyLayout { SeamlyLayout(horizontal: hSize, vertical: vSize) }
 
@@ -103,13 +105,24 @@ struct CaptureView: View {
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { stageSize = $0 }
                     .onChange(of: jump, initial: true) { _, target in
                         guard let target else { return }
-                        withAnimation(SeamlyMotion.jump) {
-                            scrollPosition.scrollTo(y: g.scrollY(toShow: target.atPct, at: target.fraction))
+                        let y = g.scrollY(toShow: target.atPct, at: target.fraction)
+                        // The FIRST positioning is the screen opening where it belongs, not a
+                        // journey to it: animating that scrolls visibly from the top of a
+                        // 15 000 px capture every time the queue reaches a bars or gap finding.
+                        // Later changes are genuine jumps and keep the animation.
+                        guard hasPositioned else {
+                            scrollPosition.scrollTo(y: y)
+                            hasPositioned = true
+                            return
                         }
+                        withAnimation(SeamlyMotion.jump) { scrollPosition.scrollTo(y: y) }
                     }
                 }
             }
-            if showScale && layout.isShort { shortScale() }
+            // Not until the stage has been measured: at `stageSize == .zero` the geometry
+            // degenerates to exactly the literals this fix removed (`viewportTopPct` 0,
+            // `viewportPct` 1), so drawing it early would flash the old bug for one frame.
+            if showScale && layout.isShort && stageSize != .zero { shortScale() }
         }
     }
 

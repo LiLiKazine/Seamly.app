@@ -159,6 +159,33 @@ struct RepairQueueModelTests {
 
     /// A queue the user walked without changing anything must close cleanly. Committing
     /// nothing is a success, not a failure — otherwise "Skip all" would raise a save error.
+    /// The gap that let two versions of the same bug through: the suite tested `setChrome` →
+    /// `commit` and `acceptNoBars` → `commit`, but never `setChrome` → **accept**, which is the
+    /// only route a user actually has. The affirmative is the sole way to advance a bars finding.
+    @Test func acceptKeepsTheCropTheUserTypedAndZeroesOnlyTheRest() async throws {
+        let (model, id) = try await makeCapture(chromeUncertainOn: [1])
+        let capture = try #require(model.captures.first { $0.id == id })
+        let finding = try #require(capture.findings.first { $0.kind == .bars })
+        guard case .chrome(let keyframeID, let edges) = finding.target else {
+            Issue.record("expected a chrome target")
+            return
+        }
+        #expect(edges.contains(.top) && edges.contains(.bottom), "both edges start in doubt")
+
+        let queue = RepairQueueModel(captureID: id, model: model, startAt: finding.n)
+        queue.setChrome(44, edge: .top, for: finding)
+        queue.acceptNoBars(for: finding)
+        #expect(await queue.commit())
+
+        let after = try #require(model.captures.first { $0.id == id })
+        #expect(after.session.chromeValueForEditing(.top, keyframeID: keyframeID) == 44,
+                "the tap that submits an answer must not destroy it")
+        #expect(after.session.chromeValueForEditing(.bottom, keyframeID: keyframeID) == 0,
+                "the edge the user did not answer is still answered 'none'")
+        #expect(after.findings.filter { $0.kind == .bars }.isEmpty,
+                "and the finding is done being asked")
+    }
+
     @Test func committingNothingSucceeds() async throws {
         let (model, id) = try await makeCapture()
         let queue = RepairQueueModel(captureID: id, model: model, startAt: 1)
