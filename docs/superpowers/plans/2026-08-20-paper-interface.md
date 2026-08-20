@@ -4124,7 +4124,12 @@ final class RepairQueueModel {
     init(captureID: UUID, model: CaptureModel, startAt: Int) {
         self.captureID = captureID
         self.model = model
-        let findings = model.captures.first { $0.id == captureID }?.findings ?? []
+        // Seams only, for now. `CaptureFindings.all` already emits gaps and bars from real
+        // pipeline facts, but this task can only *answer* a seam — and `load()` has nothing to
+        // put on screen for the others, which would leave the stage spinning forever on a
+        // finding the queue cannot address. Task 14 adds those two kinds and removes this filter.
+        let findings = (model.captures.first { $0.id == captureID }?.findings ?? [])
+            .filter { if case .join = $0.target { true } else { false } }
         self.findings = findings
         self.position = findings.firstIndex { $0.n == startAt } ?? 0
     }
@@ -4210,7 +4215,16 @@ final class RepairQueueModel {
 
     /// Mark the current finding answered and move on. Returns `true` when the queue is done and
     /// the caller should close.
+    ///
+    /// Answering a seam records its offset **even if the user never dragged**. That is the
+    /// point of the queue: most flagged seams turn out fine, so the common case is one tap on
+    /// the affirmative — and that tap has to mean "I looked at this and it is right". Without
+    /// this, an untouched seam writes nothing, `isLowConfidence` stays set, and the finding
+    /// comes straight back the next time the capture is opened, having wasted the user's answer.
     func answer() async -> Bool {
+        if case .join(let joinIndex)? = current?.target, let alignment {
+            editedDy[joinIndex] = alignment.dy
+        }
         if let n = current?.n { answered.insert(n) }
         if position + 1 < findings.count {
             position += 1
@@ -4299,6 +4313,16 @@ struct RepairQueueView: View {
     @State private var zoom = ZoomState()
     @State private var showManual = false
 
+    /// The queue opens hard at 6x; pinch multiplies from there. A named constant because it
+    /// must reach BOTH the rendering zoom and the drag's zoom divisor — passing the bare pinch
+    /// factor to the drag while rendering at 6x makes the finger move `dy` six times further
+    /// than the pixels actually moved, which silently defeats "zoom is the precision mechanism".
+    private static let openingZoom: CGFloat = 6
+
+    /// Bars and gaps are judged against the whole capture rather than a live frame pair, so
+    /// they open gentler — enough to see the frame in question, not to count pixels.
+    private static let reviewZoom: CGFloat = 3
+
     init(captureID: UUID, model: CaptureModel, startAt: Int, onClose: @escaping () -> Void) {
         self.captureID = captureID
         self.model = model
@@ -4371,8 +4395,7 @@ struct RepairQueueView: View {
                     content: .join(upper: frames.upper, lower: frames.lower, alignment: alignment),
                     captureSize: captureSize,
                     marks: marks,
-                    // The queue opens hard at 6x; pinch multiplies from there.
-                    zoom: 6 * zoom.scale,
+                    zoom: Self.openingZoom * zoom.scale,
                     selected: finding.n,
                     showScale: false,
                     onDrag: { translation, ratio, start in
@@ -4380,7 +4403,7 @@ struct RepairQueueView: View {
                             translation: translation,
                             sourcePixelsPerPoint: ratio,
                             from: start,
-                            zoom: zoom.scale
+                            zoom: Self.openingZoom * zoom.scale
                         )
                     },
                     currentDy: alignment.dy
@@ -4492,7 +4515,26 @@ Run:
 xcodebuild -project Seamly/Seamly.xcodeproj -scheme Seamly \
   -destination 'platform=iOS Simulator,name=iPhone 17' test
 ```
-Expected: PASS, `RepairUITests` included — Task 10 already retargeted it at `open-repair` and the capture sheet, and the drag it performs lands on `repair-canvas` inside the queue's stage exactly as it did on the old screen.
+`RepairUITests` needs **one** more edit first. Task 10 retargeted it at `open-repair` and the
+capture sheet, and its drag lands on `repair-canvas` inside the queue's stage unchanged — but the
+old screen committed via a nav-bar **`Done`** button and the queue commits via `QueuePrompt`'s wide
+affirmative, identified `queue-accept`. There is no `Done` in `RepairQueueView`, so replace
+
+```swift
+        app.buttons["Done"].tap()
+```
+
+with
+
+```swift
+        // The queue commits through QueuePrompt's wide affirmative, not a nav-bar Done — the
+        // affirmative is the whole point of the interaction. Task 19 rewrites this test around
+        // the queue properly; this keeps it honest in the meantime.
+        app.buttons["queue-accept"].tap()
+```
+
+Expected then: PASS for `RepairUITests`. `SeamlyUITests.testHomeShowsRecordFirst` may still fail
+from the known inter-test seed leak, which Task 19 fixes.
 
 - [ ] **Step 6: Drive it by hand**
 
@@ -4806,7 +4848,7 @@ In `RepairQueueView`, replace `stage(_:)`:
                     captureSize: captureSize,
                     marks: marks,
                     findings: findings,
-                    zoom: 3 * zoom.scale,
+                    zoom: Self.reviewZoom * zoom.scale,
                     selected: finding.n,
                     showScale: false,
                     jump: CaptureJump(atPct: finding.atPct, fraction: 0.25, token: queue.position)
