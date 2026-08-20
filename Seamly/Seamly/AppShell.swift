@@ -78,7 +78,10 @@ struct AppShell: View {
             showNothingToStitch = true
             model.consumeLastPickupWasEmpty()
         }
-        .sheet(isPresented: $showFirstRun) { OnboardingView() }
+        .sheet(isPresented: $showFirstRun) {
+            FirstRunView(onDone: { showFirstRun = false })
+                .interactiveDismissDisabled(false)
+        }
         .sheet(isPresented: $showDiagnostics) { DiagnosticsView() }
         .sheet(isPresented: $showNothingToStitch) {
             nothingToStitch.presentationDetents([.medium])
