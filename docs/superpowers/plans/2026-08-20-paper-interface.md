@@ -4769,23 +4769,27 @@ Replace the two placeholder chrome members at the bottom of `RepairQueueModel` w
         return session?.chromeValueForEditing(edge, keyframeID: keyframeID) ?? 0
     }
 
-    /// The compositor refuses a combined crop past half the frame, and
-    /// `setChromeOverride` clamps to it — so the control must stop there too, rather than
-    /// letting a stepper run on while the picture stops moving.
-    func chromeRange(for finding: Finding) -> ClosedRange<Int> {
+    /// The compositor refuses a **combined** crop past half the frame, and
+    /// `setChromeOverride` clamps each edge to what the other leaves free — so the control must
+    /// stop there too, rather than letting a stepper run on while the picture stops moving.
+    ///
+    /// That means the range is per-edge and depends on the sibling's current value: a ceiling
+    /// of half the frame handed to *both* steppers would let the user dial each to the maximum
+    /// and then silently see the second one clamped to zero on commit, which is exactly the
+    /// "the number you set is not the number that got written" failure this is here to avoid.
+    func chromeRange(_ edge: ChromeEdge, for finding: Finding) -> ClosedRange<Int> {
         guard case .chrome(let keyframeID, _) = finding.target,
               let keyframe = session?.keyframes.first(where: { $0.id == keyframeID })
         else { return 0...0 }
         let limit = Int(Double(keyframe.pixelHeight) * ChromeInsets.maxCombinedCropFraction)
-        return 0...max(0, limit)
+        let held = heldOrResolvedChrome(for: keyframeID)
+        let sibling = edge == .top ? held.bottom : held.top
+        return 0...max(0, limit - sibling)
     }
 
     func setChrome(_ value: Int, edge: ChromeEdge, for finding: Finding) {
         guard case .chrome(let keyframeID, _) = finding.target else { return }
-        var insets = editedChrome[keyframeID] ?? ChromeInsets(
-            top: session?.chromeValueForEditing(.top, keyframeID: keyframeID) ?? 0,
-            bottom: session?.chromeValueForEditing(.bottom, keyframeID: keyframeID) ?? 0
-        )
+        var insets = heldOrResolvedChrome(for: keyframeID)
         switch edge {
         case .top: insets.top = value
         case .bottom: insets.bottom = value
@@ -4800,9 +4804,27 @@ Replace the two placeholder chrome members at the bottom of `RepairQueueModel` w
     /// edge now has a *user* value, which is what stops `chromeEdgesNeedingReview` returning it
     /// and stops the queue asking again. An unanswered edge and an edge answered "none" resolve
     /// to the same crop and must not read as the same state.
+    ///
+    /// Only the edges **actually in doubt** are zeroed. A finding's `edges` set can name one
+    /// edge alone — the other may carry a confidently measured crop — and blanketing both would
+    /// overwrite that measurement with a user "none", un-cropping a bar the pipeline had got
+    /// right. That is the precise regression this whole feature exists to prevent.
     func acceptNoBars(for finding: Finding) {
-        guard case .chrome(let keyframeID, _) = finding.target else { return }
-        editedChrome[keyframeID] = ChromeInsets(top: 0, bottom: 0)
+        guard case .chrome(let keyframeID, let edges) = finding.target else { return }
+        var insets = heldOrResolvedChrome(for: keyframeID)
+        if edges.contains(.top) { insets.top = 0 }
+        if edges.contains(.bottom) { insets.bottom = 0 }
+        editedChrome[keyframeID] = insets
+    }
+
+    /// The crop currently in force for a keyframe — a held answer if there is one, otherwise
+    /// what the session resolves today. Shared by `setChrome` and `acceptNoBars` so neither can
+    /// clobber the edge it is not editing.
+    private func heldOrResolvedChrome(for keyframeID: UUID) -> ChromeInsets {
+        editedChrome[keyframeID] ?? ChromeInsets(
+            top: session?.chromeValueForEditing(.top, keyframeID: keyframeID) ?? 0,
+            bottom: session?.chromeValueForEditing(.bottom, keyframeID: keyframeID) ?? 0
+        )
     }
 ```
 
@@ -4946,14 +4968,14 @@ Replace `prompt(_:)` and `manualPath(_:)`:
                         label: "Top bar",
                         value: queue.chromeValue(.top, for: finding),
                         step: 5,
-                        range: queue.chromeRange(for: finding),
+                        range: queue.chromeRange(.top, for: finding),
                         hint: "Repeated chrome cropped from this frame"
                     ) { queue.setChrome($0, edge: .top, for: finding) }
                     StepperRow(
                         label: "Bottom bar",
                         value: queue.chromeValue(.bottom, for: finding),
                         step: 5,
-                        range: queue.chromeRange(for: finding)
+                        range: queue.chromeRange(.bottom, for: finding)
                     ) { queue.setChrome($0, edge: .bottom, for: finding) }
                 case .gap:
                     EmptyView()
