@@ -220,14 +220,14 @@ struct RepairQueueView: View {
                         label: "Top bar",
                         value: queue.chromeValue(.top, for: finding),
                         step: 5,
-                        range: queue.chromeRange(for: finding),
+                        range: queue.chromeRange(.top, for: finding),
                         hint: "Repeated chrome cropped from this frame"
                     ) { queue.setChrome($0, edge: .top, for: finding) }
                     StepperRow(
                         label: "Bottom bar",
                         value: queue.chromeValue(.bottom, for: finding),
                         step: 5,
-                        range: queue.chromeRange(for: finding)
+                        range: queue.chromeRange(.bottom, for: finding)
                     ) { queue.setChrome($0, edge: .bottom, for: finding) }
                 case .gap:
                     EmptyView()

@@ -11,7 +11,10 @@ import StitchKit
 struct RepairQueueModelTests {
 
     /// A real capture on disk, so `CaptureModel` can load, assemble and re-assemble it.
-    private func makeCapture(chromeUncertainOn: Set<Int> = [], flagged: Set<Int> = []) async throws -> (CaptureModel, UUID) {
+    private func makeCapture(
+        chromeUncertainOn: Set<Int> = [], flagged: Set<Int> = [],
+        chromeMeasurements: [Int: ChromeMeasurement] = [:]
+    ) async throws -> (CaptureModel, UUID) {
         let container = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)
         try FileManager.default.createDirectory(at: container, withIntermediateDirectories: true)
@@ -41,7 +44,10 @@ struct RepairQueueModelTests {
                  isLowConfidence: flagged.contains($0))
         }
         session.keyframeChrome = session.keyframes.map { kf in
-            chromeUncertainOn.contains(kf.index)
+            if let measurement = chromeMeasurements[kf.index] {
+                return KeyframeChrome(keyframeID: kf.id, automatic: measurement)
+            }
+            return chromeUncertainOn.contains(kf.index)
                 ? KeyframeChrome(keyframeID: kf.id)
                 : KeyframeChrome(keyframeID: kf.id,
                                  automatic: ChromeMeasurement(insets: .zero, confidence: 0.9))
@@ -84,6 +90,32 @@ struct RepairQueueModelTests {
         let after = try #require(model.captures.first { $0.id == id })
         #expect(after.findings.filter { $0.kind == .bars }.isEmpty,
                 "an answered finding must stop being a finding, or the queue re-asks it")
+    }
+
+    /// A finding's `edges` can name one edge alone — the other may already carry a confident
+    /// automatic measurement. "No bars here" must answer only the edge actually in doubt: a
+    /// blanket zero on both would un-crop a bar the pipeline had measured correctly, which is
+    /// the precise regression this feature exists to prevent.
+    @Test func acceptNoBarsPreservesTheConfidentEdge() async throws {
+        let (model, id) = try await makeCapture(chromeMeasurements: [
+            1: ChromeMeasurement(insets: ChromeInsets(top: 0, bottom: 34), topConfidence: 0, bottomConfidence: 0.9)
+        ])
+        let capture = try #require(model.captures.first { $0.id == id })
+        let finding = try #require(capture.findings.first { $0.kind == .bars })
+        guard case .chrome(let keyframeID, let edges) = finding.target else {
+            Issue.record("expected a chrome target")
+            return
+        }
+        #expect(edges == [.top], "the bottom edge already has a confident measurement")
+
+        let queue = RepairQueueModel(captureID: id, model: model, startAt: finding.n)
+        queue.acceptNoBars(for: finding)
+        #expect(await queue.commit())
+
+        let after = try #require(model.captures.first { $0.id == id })
+        #expect(after.session.chromeValueForEditing(.bottom, keyframeID: keyframeID) == 34,
+                "the pipeline's confident bottom measurement must survive an answer about the top")
+        #expect(after.session.chromeValueForEditing(.top, keyframeID: keyframeID) == 0)
     }
 
     @Test func aBarsAnswerReachesTheManifest() async throws {
