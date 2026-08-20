@@ -7,6 +7,9 @@ enum Route: Hashable {
     case review(UUID)
 }
 
+/// `sheet(item:)` needs an `Identifiable`, and a bare `UUID` is not one.
+private struct IdentifiedUUID: Identifiable { let id: UUID }
+
 /// The one place the model is owned, the navigation stack lives, and every model-driven
 /// presentation is decided. Screens take closures and know nothing about routing.
 struct AppShell: View {
@@ -28,6 +31,7 @@ struct AppShell: View {
     }
 
     @State private var repairTarget: RepairTarget?
+    @State private var exportTarget: UUID?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -85,6 +89,13 @@ struct AppShell: View {
                 onClose: { repairTarget = nil }
             )
         }
+        .sheet(item: Binding(
+            get: { exportTarget.map { IdentifiedUUID(id: $0) } },
+            set: { exportTarget = $0?.id }
+        )) { target in
+            ExportSheet(captureID: target.id, model: model, onClose: { exportTarget = nil })
+                .presentationDetents([.medium, .large])
+        }
         .alert(
             "Import failed",
             isPresented: Binding(
@@ -116,7 +127,7 @@ struct AppShell: View {
                 model: model,
                 onBack: { path.removeLast() },
                 onRepair: { repairTarget = RepairTarget(captureID: id, findingNumber: $0) },
-                onExport: {}
+                onExport: { exportTarget = id }
             )
         }
     }
