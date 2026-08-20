@@ -54,6 +54,11 @@ struct CaptureView: View {
     var showScale: Bool = true
     var jump: CaptureJump?
     var onSelect: ((Int) -> Void)?
+    /// Called on every update of a drag over a `.join` sheet, with the gesture's cumulative
+    /// translation in points and the frame's 1× source-pixels-per-point ratio. The caller
+    /// applies it through `JoinAlignment.dy(draggedBy:from:sourcePixelsPerPoint:zoom:)` —
+    /// this view draws, it does not decide geometry.
+    var onDrag: ((CGFloat, CGFloat) -> Void)?
 
     @Environment(\.horizontalSizeClass) private var hSize
     @Environment(\.verticalSizeClass) private var vSize
@@ -177,10 +182,67 @@ struct CaptureView: View {
         .accessibilityIdentifier("capture-sheet")
     }
 
-    // Filled in by Task 11, when the repair queue needs a live pair under the finger.
+    /// The upper frame's tail above a pinned boundary, the lower frame's head below it. Each
+    /// half is a clipped window onto a full-resolution frame, offset so the right source row
+    /// lands on the boundary — so what the user sees is exactly the placement `JoinAlignment`
+    /// describes and `Compositor` will draw.
+    ///
+    /// There is deliberately **no panning**: one finger always means "line it up". At high zoom
+    /// only the middle of the frame's width is visible, which is why both windows align `.top`
+    /// and not `.topLeading`.
     @ViewBuilder
     private func joinSheet(upper: CGImage, lower: CGImage, alignment: JoinAlignment, g: CaptureGeometry) -> some View {
-        Color.clear
+        // Displayed points per source pixel at the current zoom.
+        let scale = g.sheetWidth * zoom / CGFloat(max(upper.width, 1))
+        let boundary = g.viewportHeight / 2
+        // The 1× ratio; `JoinAlignment` divides by the zoom itself.
+        let sourcePixelsPerPoint = CGFloat(upper.width) / max(g.sheetWidth, 1)
+
+        VStack(spacing: 0) {
+            joinWindow(
+                upper,
+                width: g.sheetWidth * zoom,
+                offsetY: boundary - CGFloat(alignment.upperContentBottom) * scale,
+                size: CGSize(width: g.sheetWidth, height: boundary)
+            )
+            joinWindow(
+                lower,
+                width: g.sheetWidth * zoom,
+                offsetY: -CGFloat(alignment.lowerSourceStart) * scale,
+                size: CGSize(width: g.sheetWidth, height: max(0, g.viewportHeight - boundary))
+            )
+        }
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 1).onChanged { value in
+                onDrag?(value.translation.height, sourcePixelsPerPoint)
+            }
+        )
+        .accessibilityIdentifier("repair-canvas")
+        .accessibilityLabel("The two halves of this join")
+        .accessibilityHint("Drag up or down to line them up. Pinch to zoom in.")
+    }
+
+    private func joinWindow(_ image: CGImage, width: CGFloat, offsetY: CGFloat, size: CGSize) -> some View {
+        ZStack(alignment: .topLeading) {
+            Color.clear
+            Image(decorative: image, scale: 1)
+                // `Compositor` draws with `.none`, so this must too. Zoom is this surface's
+                // only precision mechanism, and smoothing is precisely what it must not do: at
+                // 6× a source row is six points tall, and interpolation would blend it with its
+                // neighbours into a gradient the exported image will not contain. The user
+                // would be dragging against rows that exist nowhere but this preview.
+                .interpolation(.none)
+                .resizable()
+                .frame(width: width, height: width * CGFloat(image.height) / CGFloat(max(image.width, 1)))
+                .offset(y: offsetY)
+        }
+        // `.top`, not `.topLeading`: the image is `zoom`× wider than this frame once zoomed in,
+        // so whichever edge this aligns to is the only slice the user can see. `.top` centres
+        // the zoomed slice horizontally while leaving the vertical placement — which `offsetY`
+        // computes exactly — alone.
+        .frame(width: size.width, height: max(size.height, 0), alignment: .top)
+        .clipped()
     }
 
     // MARK: - The scale
