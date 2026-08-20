@@ -75,6 +75,13 @@ struct AppShell: View {
         // `true` again and fire this a second time.
         .onChange(of: model.lastPickupWasEmpty) { _, empty in
             guard empty else { return }
+            // Dismiss the import sheet first, exactly as the `pendingResult` handler does.
+            // `notEnoughContent` raises THIS flag rather than `importError`, so an import sheet
+            // left standing would fall through to its own success branch and say "Stitched."
+            // over a pickup that stitched nothing — while a second sheet tried to present from
+            // the same view. A false success is the one thing this app's error handling exists
+            // to prevent.
+            importSource = nil
             showNothingToStitch = true
             model.consumeLastPickupWasEmpty()
         }

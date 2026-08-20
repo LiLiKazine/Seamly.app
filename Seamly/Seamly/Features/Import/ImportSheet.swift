@@ -120,6 +120,9 @@ struct ImportSheet: View {
         }
     }
 
+    // `nonisolated` against the usual rule for views: `PhotosPicker`'s `label:` closure is not
+    // MainActor-isolated, so a main-actor-isolated helper called from inside it fails Sendability
+    // under Swift 6. Every token it touches is already `nonisolated`, so nothing is lost.
     nonisolated private func importLabel(symbol: String, title: String, detail: String) -> some View {
         HStack(spacing: SeamlySpace.s4) {
             Image(systemName: symbol).font(.system(size: 22)).foregroundStyle(SeamlyColor.accent)
