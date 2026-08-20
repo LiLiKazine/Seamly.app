@@ -17,13 +17,12 @@ final class RepairUITests: XCTestCase {
         app.launch()
         dismissOnboardingIfPresented(app)
 
-        // A seeded capture is not a new arrival, so nothing pushes to it — it appears in recents.
-        // SwiftUI's choice of accessibility element type for this button is not guaranteed (it has
-        // shown up as a button and as a generic element depending on its content), so match by
-        // identifier against `.any` rather than assuming `.buttons`.
-        let thumbnail = app.descendants(matching: .any).matching(identifier: "recent-capture").firstMatch
-        XCTAssertTrue(thumbnail.waitForExistence(timeout: 30), "the seeded capture never appeared")
-        thumbnail.tap()
+        // Return-home: a seeded capture is the newest one, so Home is already showing it —
+        // there is no recents strip to tap any more. Fully rewritten in Task 19 once the
+        // repair queue replaces this screen; for now it just reaches the same place.
+        let review = app.buttons["review-capture"]
+        XCTAssertTrue(review.waitForExistence(timeout: 30), "the seeded capture never appeared")
+        review.tap()
 
         let notice = app.staticTexts["A join may not line up"]
         XCTAssertTrue(notice.waitForExistence(timeout: 30), "the seeded capture was not flagged")

@@ -36,10 +36,9 @@ final class SeamlyUITests: XCTestCase {
         }
     }
 
-    /// Verifies the empty-home state: the record affordance and both import entries
-    /// ("From Video", "From Photos") are present. This never seeds a capture, so it
-    /// only exercises the no-captures branch — it does not assert that the recents
-    /// strip (shown once captures exist) stays free of anything list-like.
+    /// Verifies the empty-home state: the dock is present with all three ways in, and the
+    /// empty state is capture-first. This never seeds a capture, so it only exercises the
+    /// no-captures branch.
     @MainActor
     func testHomeShowsRecordFirst() throws {
         let app = XCUIApplication()
@@ -48,14 +47,20 @@ final class SeamlyUITests: XCTestCase {
 
         // Home is *behind* the onboarding sheet, so its elements exist even while the sheet is
         // covering them — these assertions are only worth something because they also check the
-        // elements can be reached. An earlier version guarded on "Get Started" (which onboarding
-        // only shows on its last page), so it never dismissed anything and asserted straight
-        // through the sheet.
-        let headline = app.staticTexts["Record a long screenshot"]
+        // elements can be reached.
+        let headline = app.staticTexts["Nothing captured yet"]
         XCTAssertTrue(headline.waitForExistence(timeout: 5))
         XCTAssertTrue(headline.isHittable, "home is covered — onboarding was not dismissed")
-        XCTAssertTrue(app.buttons["From Video"].isHittable)
-        XCTAssertTrue(app.buttons["From Photos"].isHittable)
+
+        // The dock's hero wraps `RPSystemBroadcastPickerView` (`BroadcastPickerButton`), a
+        // `UIViewRepresentable`. That surfaces as an `Other` carrying our identifier and label,
+        // not a `Button` — SwiftUI's choice of accessibility element type for wrapped UIKit
+        // content is not guaranteed, so match by identifier against `.any` rather than assuming
+        // `.buttons`, the same fix `RepairUITests` already needed for this exact class of problem.
+        let record = app.descendants(matching: .any).matching(identifier: "record-button").firstMatch
+        XCTAssertTrue(record.isHittable, "the dock's hero is missing")
+        XCTAssertTrue(app.buttons["From a screen recording"].isHittable)
+        XCTAssertTrue(app.buttons["From screenshots"].isHittable)
     }
 
     /// First launch presents onboarding as a sheet over home. Its button reads "Next" on every
