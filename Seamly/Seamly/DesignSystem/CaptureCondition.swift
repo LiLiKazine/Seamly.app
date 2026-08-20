@@ -79,6 +79,13 @@ nonisolated struct Imperfection: Equatable, Identifiable {
 /// The single user-facing verdict on a capture. This type owns the *only* translation from
 /// pipeline facts into language a user reads — "seam", "chrome", "segment", and "confidence"
 /// never appear on the far side of it.
+///
+/// This type is the **aggregate** verdict — one line for the whole capture. `Finding` in
+/// `CaptureFinding.swift` is the per-item companion the design's repair queue walks, and the
+/// two split the vocabulary deliberately: this type's `Imperfection` wording predates the
+/// design system and avoids pipeline words; `Finding`'s uses them, because the design puts
+/// them on screen. Both live in this folder so there is still exactly one place where a
+/// pipeline fact becomes English.
 nonisolated enum CaptureCondition: Equatable {
     case stitching
     case clean
