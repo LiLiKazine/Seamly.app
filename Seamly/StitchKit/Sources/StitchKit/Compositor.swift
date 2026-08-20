@@ -195,6 +195,16 @@ public struct Compositor: Sendable {
         }
     }
 
+    /// Where every strip of this session's composite lands. Loads no images, so it is cheap
+    /// enough to compute whenever a session changes.
+    ///
+    /// Uses the session's own stored offsets, which is correct for every app-side caller: the
+    /// draw path is `refinementDelta: 0`, so the manifest is the authority and refinement is
+    /// a no-op. See `StitchAssembler.freezeGeometry`.
+    public func placement(_ session: StitchSession) -> Placement {
+        Placement(spans: layoutSpans(session, dyByFrom: offsets(session.seams)))
+    }
+
     // MARK: - Layout
 
     /// One source strip: rows `[srcY, srcY+height)` of a keyframe (or a separator band)
@@ -221,42 +231,85 @@ public struct Compositor: Sendable {
     }
 
     private func plan(_ session: StitchSession, refinedSeams: [Seam], images: (Keyframe) throws -> CGImage) throws -> Layout {
-        let dyByFrom = Dictionary(uniqueKeysWithValues: refinedSeams.map { ($0.fromIndex, $0.provisionalDy) })
-        let segmentsKF = splitIntoSegments(session)
-
+        let spans = layoutSpans(session, dyByFrom: offsets(refinedSeams))
         let width = try firstImage(session, images).width
+        let byIndex = Dictionary(session.keyframes.map { ($0.index, $0) }, uniquingKeysWith: { first, _ in first })
+
         var pieces: [Piece] = []
-        var segments: [SegmentLayout] = []
+        var segments = Array(
+            repeating: SegmentLayout(pieces: [], height: 0),
+            count: (spans.map(\.segmentIndex).max() ?? -1) + 1
+        )
+        for span in spans {
+            let piece = Piece(
+                keyframe: span.keyframeIndex.flatMap { byIndex[$0] },
+                srcY: span.srcY,
+                height: span.height,
+                destY: span.destY,
+                segmentLocalY: span.segmentLocalY
+            )
+            pieces.append(piece)
+            // A separator belongs to no segment — it sits between them, and the PDF paginator
+            // must not page it as part of the segment that follows.
+            guard span.keyframeIndex != nil else { continue }
+            segments[span.segmentIndex].pieces.append(piece)
+            segments[span.segmentIndex].height = span.segmentLocalY + span.height
+        }
+
+        return Layout(
+            pieces: pieces,
+            segments: segments,
+            width: width,
+            totalHeight: spans.last.map { $0.destY + $0.height } ?? 0
+        )
+    }
+
+    /// Offset per join. `uniquingKeysWith:` rather than `uniqueKeysWithValues:` — a duplicated
+    /// seam is a malformed manifest, and trapping on one is worse than laying it out with the
+    /// first value we saw.
+    private func offsets(_ seams: [Seam]) -> [Int: Int] {
+        Dictionary(seams.map { ($0.fromIndex, $0.provisionalDy) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The single copy of the layout rule. `plan` decorates these into `Piece`s; `placement`
+    /// publishes them as-is. Nothing else may re-derive it.
+    private func layoutSpans(_ session: StitchSession, dyByFrom: [Int: Int]) -> [Placement.Span] {
+        var spans: [Placement.Span] = []
         var cursor = 0
 
-        for (s, seg) in segmentsKF.enumerated() {
+        for (s, seg) in splitIntoSegments(session).enumerated() {
             if s > 0 {
-                pieces.append(Piece(keyframe: nil, srcY: 0, height: separatorHeight, destY: cursor, segmentLocalY: 0))
+                spans.append(Placement.Span(
+                    keyframeIndex: nil, srcY: 0, height: separatorHeight,
+                    destY: cursor, segmentIndex: s, segmentLocalY: 0
+                ))
                 cursor += separatorHeight
             }
-            var segPieces: [Piece] = []
             var localY = 0
 
-            func add(_ kf: Keyframe?, _ srcY: Int, _ height: Int) {
+            func add(_ index: Int, _ srcY: Int, _ height: Int) {
                 guard height > 0 else { return }
-                let p = Piece(keyframe: kf, srcY: srcY, height: height, destY: cursor, segmentLocalY: localY)
-                pieces.append(p); segPieces.append(p); cursor += height; localY += height
+                spans.append(Placement.Span(
+                    keyframeIndex: index, srcY: srcY, height: height,
+                    destY: cursor, segmentIndex: s, segmentLocalY: localY
+                ))
+                cursor += height
+                localY += height
             }
 
             if seg.count == 1 {
-                add(seg[0], 0, seg[0].pixelHeight)
+                add(seg[0].index, 0, seg[0].pixelHeight)
             } else {
                 // Missing-seam fallback. A well-formed session has a seam for every consecutive
                 // pair in a segment, so this only fires on a malformed/partial manifest — a
-                // recoverable case where *some* placement is required (throwing would fail the
-                // whole assembly). We substitute the median of the segment's known positive offsets
-                // — a plausible scroll step. Zero/negative "offsets" are excluded from the basis as
-                // non-advances; if none remain, half the current frame's visible content is a safe
-                // non-stacking default.
+                // recoverable case where *some* placement is required. We substitute the median
+                // of the segment's known positive offsets; zero/negative "offsets" are excluded
+                // as non-advances, and if none remain, half the current frame's visible content
+                // is a safe non-stacking default.
                 let knownDys = seg.dropLast().compactMap { dyByFrom[$0.index] }.filter { $0 > 0 }
 
                 let firstChrome = effectiveChromeInsets(session, for: seg[0], frameHeight: seg[0].pixelHeight)
-                add(seg[0], 0, seg[0].pixelHeight - firstChrome.bottom)   // top chrome + visible content
+                add(seg[0].index, 0, seg[0].pixelHeight - firstChrome.bottom)
                 for j in 1..<seg.count {
                     let previous = seg[j - 1]
                     let current = seg[j]
@@ -268,18 +321,16 @@ public struct Compositor: Sendable {
                     let fallbackDy = medianDy(knownDys) ?? max(1, currentContentHeight / 2)
                     let dy = dyByFrom[previous.index] ?? fallbackDy
                     let sourceStart = clamp(previousContentBottom - dy, to: currentChrome.top...currentContentBottom)
-                    add(current, sourceStart, currentContentBottom - sourceStart)
+                    add(current.index, sourceStart, currentContentBottom - sourceStart)
                 }
                 let last = seg[seg.count - 1]
                 let lastChrome = effectiveChromeInsets(session, for: last, frameHeight: last.pixelHeight)
                 if lastChrome.bottom > 0 {
-                    add(last, last.pixelHeight - lastChrome.bottom, lastChrome.bottom)
+                    add(last.index, last.pixelHeight - lastChrome.bottom, lastChrome.bottom)
                 }
             }
-            segments.append(SegmentLayout(pieces: segPieces, height: localY))
         }
-
-        return Layout(pieces: pieces, segments: segments, width: width, totalHeight: cursor)
+        return spans
     }
 
     /// Median of the segment's known offsets, or `nil` if there are none.
@@ -434,5 +485,69 @@ public struct Compositor: Sendable {
     private func firstImage(_ session: StitchSession, _ images: (Keyframe) throws -> CGImage) throws -> CGImage {
         let first = session.keyframes.min { $0.index < $1.index }!
         return try images(first)
+    }
+}
+
+// MARK: - Placement
+
+/// A read-only view of the composite's layout: where every source strip lands, without
+/// drawing anything or loading a single image.
+///
+/// This exists so the app can answer "how far down the finished capture is this join?" —
+/// which the margin markers and the position scale need — without re-deriving
+/// `plan`'s rule. `JoinAlignment` is already a second copy of that rule, paid for with a test
+/// against a real composite; a third copy is what this replaces. `plan` and `placement` both
+/// call the same private walk, so there is nothing to drift.
+public struct Placement: Sendable, Equatable {
+    /// One laid-out strip: source rows `[srcY, srcY + height)` of the keyframe at
+    /// `keyframeIndex`, drawn at `destY` in the composite. `keyframeIndex == nil` is a
+    /// segment separator band, which comes from no keyframe at all.
+    public struct Span: Sendable, Equatable {
+        public let keyframeIndex: Int?
+        public let srcY: Int
+        public let height: Int
+        public let destY: Int
+        /// Which segment this strip belongs to. A separator carries the index of the segment
+        /// it precedes.
+        public let segmentIndex: Int
+        /// Destination Y within the segment, for the PDF paginator.
+        public let segmentLocalY: Int
+    }
+
+    public let spans: [Span]
+    public let totalHeight: Int
+
+    public init(spans: [Span]) {
+        self.spans = spans
+        self.totalHeight = spans.last.map { $0.destY + $0.height } ?? 0
+    }
+
+    public var segmentCount: Int {
+        (spans.map(\.segmentIndex).max() ?? -1) + 1
+    }
+
+    /// The first strip contributed by a keyframe. A segment's last frame contributes a second
+    /// strip for its bottom chrome; this is deliberately the first.
+    public func firstSpan(forKeyframeIndex index: Int) -> Span? {
+        spans.first { $0.keyframeIndex == index }
+    }
+
+    /// Where the join between `joinIndex` and `joinIndex + 1` sits — the row at which the
+    /// lower frame starts contributing.
+    ///
+    /// `nil` when there is no such join: the pair does not exist, or a segment break sits
+    /// between them, in which case nothing overlaps and there is nothing to line up.
+    public func destY(forJoin joinIndex: Int) -> Int? {
+        guard let i = spans.firstIndex(where: { $0.keyframeIndex == joinIndex + 1 }) else { return nil }
+        guard i > spans.startIndex, spans[i - 1].keyframeIndex != nil else { return nil }
+        return spans[i].destY
+    }
+
+    /// Where the separator band after `keyframeIndex` sits, or `nil` if no break follows it.
+    public func destY(forBreakAfter keyframeIndex: Int) -> Int? {
+        guard let i = spans.lastIndex(where: { $0.keyframeIndex == keyframeIndex }) else { return nil }
+        let next = spans.index(after: i)
+        guard next < spans.endIndex, spans[next].keyframeIndex == nil else { return nil }
+        return spans[next].destY
     }
 }
