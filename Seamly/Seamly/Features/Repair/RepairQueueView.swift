@@ -18,6 +18,12 @@ struct RepairQueueView: View {
     @State private var zoom = ZoomState()
     @State private var showManual = false
 
+    /// The queue opens hard at 6x; pinch multiplies from there. A named constant because it
+    /// must reach BOTH the rendering zoom and the drag's zoom divisor — passing the bare pinch
+    /// factor to the drag while rendering at 6x makes the finger move `dy` six times further
+    /// than the pixels actually moved, which silently defeats "zoom is the precision mechanism".
+    private static let openingZoom: CGFloat = 6
+
     init(captureID: UUID, model: CaptureModel, startAt: Int, onClose: @escaping () -> Void) {
         self.captureID = captureID
         self.model = model
@@ -30,7 +36,6 @@ struct RepairQueueView: View {
     /// marker the user tapped stays visible beside the pixels it points at.
     private var captureSize: CGSize { capture?.pixelSize ?? .zero }
     private var marks: [CaptureMark] { capture?.displayMarks ?? [] }
-    private var findings: [Finding] { queue.findings }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -90,8 +95,7 @@ struct RepairQueueView: View {
                     content: .join(upper: frames.upper, lower: frames.lower, alignment: alignment),
                     captureSize: captureSize,
                     marks: marks,
-                    // The queue opens hard at 6x; pinch multiplies from there.
-                    zoom: 6 * zoom.scale,
+                    zoom: Self.openingZoom * zoom.scale,
                     selected: finding.n,
                     showScale: false,
                     onDrag: { translation, ratio, start in
@@ -99,7 +103,7 @@ struct RepairQueueView: View {
                             translation: translation,
                             sourcePixelsPerPoint: ratio,
                             from: start,
-                            zoom: zoom.scale
+                            zoom: Self.openingZoom * zoom.scale
                         )
                     },
                     currentDy: alignment.dy

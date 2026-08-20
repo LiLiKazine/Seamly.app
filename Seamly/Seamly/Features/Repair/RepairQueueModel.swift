@@ -44,7 +44,12 @@ final class RepairQueueModel {
     init(captureID: UUID, model: CaptureModel, startAt: Int) {
         self.captureID = captureID
         self.model = model
-        let findings = model.captures.first { $0.id == captureID }?.findings ?? []
+        // Seams only, for now. `CaptureFindings.all` already emits gaps and bars from real
+        // pipeline facts, but this task can only *answer* a seam — and `load()` has nothing to
+        // put on screen for the others, which would leave the stage spinning forever on a
+        // finding the queue cannot address. Task 14 adds those two kinds and removes this filter.
+        let findings = (model.captures.first { $0.id == captureID }?.findings ?? [])
+            .filter { if case .join = $0.target { true } else { false } }
         self.findings = findings
         self.position = findings.firstIndex { $0.n == startAt } ?? 0
     }
@@ -130,7 +135,16 @@ final class RepairQueueModel {
 
     /// Mark the current finding answered and move on. Returns `true` when the queue is done and
     /// the caller should close.
+    ///
+    /// Answering a seam records its offset **even if the user never dragged**. That is the
+    /// point of the queue: most flagged seams turn out fine, so the common case is one tap on
+    /// the affirmative — and that tap has to mean "I looked at this and it is right". Without
+    /// this, an untouched seam writes nothing, `isLowConfidence` stays set, and the finding
+    /// comes straight back the next time the capture is opened, having wasted the user's answer.
     func answer() async -> Bool {
+        if case .join(let joinIndex)? = current?.target, let alignment {
+            editedDy[joinIndex] = alignment.dy
+        }
         if let n = current?.n { answered.insert(n) }
         if position + 1 < findings.count {
             position += 1
