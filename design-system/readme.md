@@ -97,12 +97,17 @@ exposes them at `window.SeamlyApp_f9e883` (the project namespace), with
 
 - **No token specimen cards.** The pane already lists every token with its value
   and source file; a card restating them is a second copy of a browser you have.
-  The four cards here document things tokens can't: how doubt is drawn, how
-  repair works, the palette's reasoning, and the voice.
+  The five cards here document things tokens can't: how doubt is drawn, how
+  repair works, the palette's reasoning, the voice, and what the app icon is.
 - **No icon-font or CDN dependency.** Icons are inline paths. Nothing to fail
   offline or drift under you.
 - **No logotype.** None exists yet; "Seamly" is set in SF Pro Display until one
-  is designed.
+  is designed. The **app icon** is a separate thing and does have a card: it
+  borrows this direction's material — stock, ink, one accent, square corners,
+  ruled not shadowed — without depicting what the app does. Four earlier rounds
+  tried to draw the stitching itself and each collapsed into a glyph that is
+  already taken (copy, menu, download, waveform, perforation, barcode); the card
+  records those dead ends so they are not re-walked.
 - **No webfonts.** SF Pro is the real typeface and ships with the platform.
 
 ## Building
