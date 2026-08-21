@@ -119,9 +119,9 @@ designs receive.
 ## Token `kind` annotations — 2026-08-22
 
 The pane's token classifier infers `kind` from the declaration, and gets eleven
-wrong. All are corrected with a trailing `/* @kind <value>_ */` comment (no
-underscore — that is the syntax the pane names). Valid kinds seen in the
-manifest: `color`, `font`, `spacing`, `radius`, `shadow`, `other`.
+wrong. All are corrected with a trailing `/* @kind <value> */` comment — the syntax the
+pane names. Valid kinds seen in the manifest: `color`, `font`, `spacing`,
+`radius`, `shadow`, `other`.
 
 - `--protect-top` / `--protect-bottom`, both scopes (4) — classified `other`,
   because the value is a `linear-gradient()` and the classifier can't tell one
