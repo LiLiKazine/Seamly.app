@@ -165,3 +165,55 @@ above: this repo is outside the converter's envelope and the project was built
 by a different tool, so a real run would create a duplicate project. Upload the
 changed file and re-arm `_ds_needs_recompile` instead; the app recompiles its
 manifest when the project is opened.
+
+## The project has files that are NOT in the repo — never use delete globs
+
+`list_files` on 2026-08-22 showed these remote-only paths, none of them tracked
+in git:
+
+    App icon - Ruled final.html      App icon - Ruled.html
+    App icon - dark and tinted.html  App icon options.html
+    Seamly iOS Kit (standalone).html support.js
+    _adherence.oxlintrc.json         components/**/*.card.html   (8 files)
+
+The `App icon *.html` pages are Leo's own explorations, authored in the design
+tool. The `components/**/*.card.html` preview cards live only there too — the
+repo has the `.jsx`/`.d.ts`/`.prompt.md` for each component but not their cards
+(except the ones added from here).
+
+**Consequence:** every `finalize_plan` from this repo must pass `deletes: []`.
+The skill's incremental path suggests delete globs for end-of-run reconciliation;
+using them here would destroy work that exists nowhere else.
+
+## There are TWO bundle outputs
+
+`src/index.js` is built twice, under different global names:
+
+    _ds_bundle.js                   --global-name=SeamlyApp_f9e883  + --footer:js alias
+    ui_kits/seamly-ios/components.js --global-name=SeamlyKit         (no footer)
+
+Component preview cards mount `SeamlyKit` from `components.js`, NOT from
+`_ds_bundle.js`. A new component is invisible to the cards until BOTH are
+rebuilt. Both commands are now in `readme.md` and both are verified reproducible.
+
+This is also the proof of the earlier drift's cause: `components.js` was
+byte-identical to a fresh build while `_ds_bundle.js` was two days stale —
+whoever edited `src/` rebuilt the output whose command was safe and skipped the
+one whose documented command dropped the alias.
+
+Adding a component touches four places: `src/<group>/`, the export in
+`src/index.js`, the `components/<group>/` copy plus `.d.ts` and `.prompt.md`,
+and both bundles. `components/**/*.jsx` are byte copies of the `src/` sources.
+
+## --icon-field / --icon-join are theme-stable ON PURPOSE
+
+The AppIcon spec says dark keeps the same field and the same paper joins, and
+changes only the accent. `--ink` and `--paper` BOTH flip under
+`[data-theme="dark"]`, so building the mark on them would invert it at night —
+joins would become cuts in a sheet, reversing the material argument the mark
+rests on. So `tokens/colors.css` defines `--icon-field: #1f1d1a` and
+`--icon-join: #ece9e3` in `:root` only, deliberately absent from the dark block,
+exactly as `--sheet` is fixed white in both themes. The accent needs no handling:
+`--mark-flag` already lifts to `#d9a544` in its dark scope.
+
+Do not "tidy" these into `--ink`/`--paper`.

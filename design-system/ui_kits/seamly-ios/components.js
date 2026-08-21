@@ -20,6 +20,7 @@ var SeamlyKit = (() => {
   // src/index.js
   var src_exports = {};
   __export(src_exports, {
+    AppIcon: () => AppIcon,
     Button: () => Button,
     CaptureDock: () => CaptureDock,
     CaptureGridCard: () => CaptureGridCard,
@@ -406,6 +407,43 @@ var SeamlyKit = (() => {
         fontVariantNumeric: "tabular-nums"
       } }, lostPx, " px lost")
     );
+  }
+
+  // src/marks/AppIcon.jsx
+  var JOINS = [
+    { y: 26, fill: "var(--icon-join)" },
+    { y: 47, fill: "var(--mark-flag)" },
+    // the uncertain seam
+    { y: 73, fill: "var(--icon-join)" }
+  ];
+  var JOIN_H = 2.8;
+  function AppIcon({ size = 120, masked = false, title, style, ...rest }) {
+    const svg = /* @__PURE__ */ react_shim_default.createElement(
+      "svg",
+      {
+        viewBox: "0 0 100 100",
+        width: size,
+        height: size,
+        shapeRendering: "crispEdges",
+        role: title ? "img" : "presentation",
+        "aria-label": title || void 0,
+        "aria-hidden": title ? void 0 : "true",
+        style: masked ? void 0 : { display: "block", ...style },
+        ...masked ? {} : rest
+      },
+      /* @__PURE__ */ react_shim_default.createElement("rect", { width: "100", height: "100", fill: "var(--icon-field)" }),
+      JOINS.map((j) => /* @__PURE__ */ react_shim_default.createElement("rect", { key: j.y, y: j.y, width: "100", height: JOIN_H, fill: j.fill }))
+    );
+    if (!masked) return svg;
+    return /* @__PURE__ */ react_shim_default.createElement("div", { style: {
+      width: size,
+      height: size,
+      borderRadius: "22.37%",
+      overflow: "hidden",
+      lineHeight: 0,
+      flex: "none",
+      ...style
+    }, ...rest }, svg);
   }
 
   // src/marks/MarginMarker.jsx

@@ -49,6 +49,15 @@
   --seam-width:       1px;
   --seam-width-mark:  1.5px;
 
+  /* --- the app icon. Theme-STABLE on purpose, the same way --sheet is fixed
+     white in both themes. The mark is ink-DOMINANT by construction: joins are
+     paper laid over an ink field. Letting these follow --ink/--paper would
+     invert the mark at night, turning the joins into cuts in a sheet and
+     reversing the material argument. Only the accent join changes appearance,
+     and it does that by itself through --mark-flag's dark scope. --- */
+  --icon-field: #1f1d1a;   /* = --ink at light, and it stays there */
+  --icon-join:  #ece9e3;   /* = --paper at light, and it stays there */
+
   /* --- protection: chrome over a capture of unknown brightness --- */
   --protect-top:    linear-gradient(to bottom, rgba(236,233,227,.94) 0%, rgba(236,233,227,0) 100%);  /* @kind color */
   --protect-bottom: linear-gradient(to top,    rgba(236,233,227,.94) 0%, rgba(236,233,227,0) 100%);  /* @kind color */

@@ -8,6 +8,7 @@ export { CueCard } from "./feedback/CueCard.jsx";
 export { EmptyState } from "./feedback/EmptyState.jsx";
 export { ProgressNote } from "./feedback/ProgressNote.jsx";
 export { SeamMark } from "./marks/SeamMark.jsx";
+export { AppIcon } from "./marks/AppIcon.jsx";
 export { MarginMarker } from "./marks/MarginMarker.jsx";
 export { PositionScale } from "./marks/PositionScale.jsx";
 export { CaptureDock } from "./capture/CaptureDock.jsx";

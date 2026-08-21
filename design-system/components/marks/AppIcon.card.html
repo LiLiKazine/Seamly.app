@@ -1,0 +1,62 @@
+<!-- @dsCard group="Marks" viewport="760x620" name="App icon — Ruled, three uneven" subtitle="Full-bleed ink, three joins at unequal spacing. The middle one is the uncertain seam." -->
+<!DOCTYPE html><html><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<style>html,body{margin:0}body{width:760px;height:620px;overflow:hidden;background:var(--paper);color:var(--ink)}
+#r{padding:22px;box-sizing:border-box;height:100%}
+.lbl{font:var(--type-caps);text-transform:uppercase;letter-spacing:var(--tracking-caps);color:var(--ink-faint)}
+.note{font:var(--type-footnote);color:var(--ink-muted);line-height:1.4}
+.rule{height:1px;background:var(--rule)}
+table{border-collapse:collapse;font:var(--type-footnote);color:var(--ink-muted)}
+th{text-align:left;font:var(--type-caps);text-transform:uppercase;letter-spacing:var(--tracking-caps);color:var(--ink-faint);padding:0 22px 6px 0;font-weight:400}
+td{padding:4px 22px 4px 0;border-top:1px solid var(--rule);font-variant-numeric:tabular-nums}
+</style>
+<script src="../../ui_kits/seamly-ios/vendor/react.js"></script>
+<script src="../../ui_kits/seamly-ios/vendor/react-dom.js"></script>
+<script src="../../ui_kits/seamly-ios/components.js"></script>
+</head><body><div id="r"></div>
+<script>
+(function(){var e=React.createElement,K=SeamlyKit;
+var LADDER=[180,120,87,80,60,58,40,29];
+var GEO=[["Field","0","100%","0 → 1024","--icon-field #1f1d1a"],
+         ["Join 1","26%","2.8%","266 · h 29","--icon-join #ece9e3"],
+         ["Join 2","47%","2.8%","481 · h 29","--mark-flag #8a6219"],
+         ["Join 3","73%","2.8%","747 · h 29","--icon-join #ece9e3"]];
+
+function cell(label,node){return e("div",{style:{display:"flex",flexDirection:"column",
+  alignItems:"center",gap:6}},node,e("div",{className:"note",style:{fontSize:11}},label));}
+
+function Demo(){return e("div",{style:{display:"flex",flexDirection:"column",gap:14,height:"100%"}},
+  e("div",null,
+    e("div",{style:{font:"var(--type-title3)"}},"Ruled, three uneven"),
+    e("div",{className:"note",style:{maxWidth:"78ch",marginTop:3}},
+      "Three joins at unequal spacing — the app's output, many captures deep. The unequal gaps are what stop it reading as a barcode; the off-centre accent gives the mark a top and a bottom.")),
+  e("div",{className:"rule"}),
+
+  /* light / dark / unmasked. The dark tile just sets data-theme, so --mark-flag
+     lifts on its own — nothing about the field or the joins is restated. */
+  e("div",{style:{display:"flex",gap:20,alignItems:"flex-end"}},
+    cell("Light · masked", e(K.AppIcon,{size:132,masked:true})),
+    cell("Dark · masked", e("div",{"data-theme":"dark"},e(K.AppIcon,{size:132,masked:true}))),
+    cell("Light · unmasked source", e(K.AppIcon,{size:132})),
+    e("div",{className:"note",style:{maxWidth:"30ch",paddingBottom:18}},
+      e("b",null,"Do not invert."),
+      " Dark is identical geometry, identical field, identical paper joins. Only the middle join moves, to #d9a544.")),
+  e("div",{className:"rule"}),
+
+  e("div",null,
+    e("div",{className:"lbl"},"Size ladder — light, masked"),
+    e("div",{style:{display:"flex",gap:16,alignItems:"flex-end",marginTop:10,flexWrap:"wrap"}},
+      LADDER.map(function(s){return e("div",{key:s},cell(String(s),e(K.AppIcon,{size:s,masked:true})));})),
+    e("div",{className:"note",style:{marginTop:10,maxWidth:"78ch"}},
+      "Thinnest element is 29px at 1024 (2.8%), above the 20px floor, and it holds to 29pt. Below that ship a two-rule reduction rather than letting the rhythm mud.")),
+  e("div",{className:"rule"}),
+
+  e("div",null,
+    e("div",{className:"lbl"},"Geometry — percentages are authoritative"),
+    e("table",{style:{marginTop:8}},
+      e("thead",null,e("tr",null,["Element","Y","Height","@1024","Fill"].map(function(h){
+        return e("th",{key:h},h);}))),
+      e("tbody",null,GEO.map(function(r){
+        return e("tr",{key:r[0]},r.map(function(c,i){return e("td",{key:i},c);}));})))));
+}
+ReactDOM.createRoot(document.getElementById("r")).render(e(Demo));})();
+</script></body></html>

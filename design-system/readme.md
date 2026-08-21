@@ -85,7 +85,7 @@ can be any brightness and a scrim dims what the user is reading.
 | `actions/` | **Button** · **IconButton** |
 | `capture/` | **CaptureDock** · **ImportRow** |
 | `data/` | **CaptureSheet** · **CaptureListRow** · **CaptureGridCard** · **StatusNote** |
-| `marks/` | **SeamMark** · **MarginMarker** · **PositionScale** |
+| `marks/` | **SeamMark** · **MarginMarker** · **PositionScale** · **AppIcon** |
 | `repair/` | **QueuePrompt** · **StepperRow** |
 | `feedback/` | **CueCard** · **EmptyState** · **ProgressNote** |
 | `navigation/` | **NavBar** · **Sheet** · **PageDots** |
@@ -127,6 +127,26 @@ above is appended by that footer. A build without it drops the alias, and any
 code that reaches for `SeamlyPaper` alone gets `undefined` — the UI kit
 survives only because it falls back through
 `SeamlyKit || SeamlyApp_f9e883 || SeamlyPaper`.
+
+**There are TWO build outputs, and both must be rebuilt together.** The same
+`src/index.js` is bundled a second time under a different global name for the UI
+kit, which is what the component preview cards mount from:
+
+```
+npx esbuild src/index.js --bundle --format=iife --global-name=SeamlyKit \
+  --jsx=transform --alias:react=./src/react-shim.js \
+  --outfile=ui_kits/seamly-ios/components.js
+```
+
+Note it takes **no footer** — `SeamlyKit` is the global esbuild already defines.
+Rebuilding only one output is how the two drift: `components.js` was current for
+two days while `_ds_bundle.js` was stale, because the documented command for the
+latter silently dropped the alias and the safe move was not to run it.
+
+`components/**/*.jsx` are copies of the `src/` sources, shipped so the design
+agent can read the real implementation. Adding a component means touching four
+places: `src/<group>/`, the export in `src/index.js`, the copy plus `.d.ts` and
+`.prompt.md` under `components/<group>/`, and both bundles.
 
 ```
 npx esbuild src/index.js --bundle --format=iife --global-name=SeamlyApp_f9e883 \
