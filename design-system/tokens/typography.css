@@ -1,15 +1,32 @@
-/* Seamly type. SF Pro is the real typeface — the app is SwiftUI and must honour
-   Dynamic Type, so the ladder is Apple's pt scale 1:1 and is IDENTICAL on iPhone
-   and iPad (Apple does not vary it by size class; iPad gets more content, not
-   bigger type).
+/* Seamly type. The typeface is whatever the PLATFORM's UI font is — SF Pro on
+   Apple, and the app is SwiftUI and must honour Dynamic Type, so the ladder is
+   Apple's pt scale 1:1 and is IDENTICAL on iPhone and iPad (Apple does not vary
+   it by size class; iPad gets more content, not bigger type).
+
+   The stacks below name NO brand family on purpose. `-apple-system` and
+   `system-ui` already resolve to SF, and they resolve FIRST — so naming
+   "SF Pro Text" after them could never win on an Apple platform, while still
+   declaring a brand font this system does not ship. That mismatch is what makes
+   a renderer report missing brand fonts and substitute. This system ships no
+   webfonts (see readme, "Deliberately absent"), so it must not claim any: it
+   asks each platform for its own UI font and gets it.
+
+   Every entry below is a vendor or generic KEYWORD — no quoted family names.
+   That is deliberate: `system-ui` already resolves to Segoe UI on Windows and
+   the distro UI font on Linux, so naming those adds nothing while handing a
+   renderer another family to report as missing. Don't add a quoted family here
+   unless the files ship in `fonts/` and are @font-face'd from styles.css.
 
    The PAPER direction is carried by margin, measure and rule — NOT by a serif.
    An iOS app that ships a display serif fights Dynamic Type and the platform;
    the document feeling comes from layout. */
 :root {
-  --font-ui:      -apple-system, "SF Pro Text", system-ui, sans-serif;
-  --font-display: -apple-system, "SF Pro Display", system-ui, sans-serif;
-  --font-mono:    ui-monospace, "SF Mono", Menlo, monospace;
+  /* Native UI font per platform. Identical stacks: on Apple, SF's optical
+     sizing already picks Text vs Display by point size, so the split lives in
+     the --type-* roles below, not in the family. */
+  --font-ui:      -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono:    ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --weight-regular: 400;
   --weight-medium: 500;

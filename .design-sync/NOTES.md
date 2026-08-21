@@ -76,3 +76,42 @@ kept working while the alias was missing from fresh builds. Corrected.
   `StatusNote` resolve for every tone in their contracts (`ink|flag|gap|error`
   and `ok|flag|gap|error`).
 - `--mark-rec` has no `--wash-rec`. Intentional — nothing pairs them.
+
+## "Missing brand fonts" — fixed 2026-08-22
+
+The pane warned: *SF Pro Text (--font-ui), SF Pro Display (--font-display) —
+rendering with substitutes until the font files are uploaded.* The warning was
+**correct**, and the cause was the token stacks declaring a brand family this
+system does not ship:
+
+    --font-ui:      -apple-system, "SF Pro Text", system-ui, sans-serif;
+    --font-display: -apple-system, "SF Pro Display", system-ui, sans-serif;
+
+`-apple-system` is FIRST, so the quoted families could never win on an Apple
+platform — they were only reachable on Windows/Linux with SF Pro separately
+installed. They contributed almost nothing and generated a permanent warning.
+
+**Uploading the fonts was not an option.** The only SF faces on this machine are
+`/System/Library/Fonts/SFNS*.ttf` — root-owned Apple *system* fonts, and not
+even the families named in the tokens ("SF NS", not "SF Pro Text"). Apple's SF
+fonts are licensed and the system copies are not redistributable; the Apple
+Developer `SF-Pro-*.otf` download is not installed here. Do not "fix" a future
+font warning by uploading anything out of `/System/Library/Fonts`.
+
+Fixed by making the stacks **keyword-only** — no quoted family names at all:
+
+    --font-ui:      -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-display: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    --font-mono:    ui-monospace, SFMono-Regular, Menlo, monospace;
+
+No rendering change on Apple (`-apple-system` already won). On Windows/Linux it
+is now *better*: `system-ui` resolves to Segoe UI / the distro UI font instead of
+falling through to generic `sans-serif`. An intermediate version named
+`"Segoe UI", Roboto` explicitly — dropped, because `system-ui` already resolves
+to them and quoting families just hands the detector another one to flag.
+
+This matches the readme's own long-standing policy ("No webfonts. SF Pro ships
+with the platform"); the tokens had been contradicting it by claiming a brand
+font. If a real brand face is ever wanted, ship the files in `fonts/` and
+`@font-face` them from `styles.css` — the @import closure is what rendered
+designs receive.

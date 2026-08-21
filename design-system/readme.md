@@ -61,7 +61,8 @@ must never be restyled. Dark theme is a **night desk**, not an inversion: the
 ground darkens, the sheet stays paper-white, because a capture has its own
 brightness and must not be dimmed.
 
-**Type** — SF Pro via `-apple-system`, and the iOS pt ladder 1:1
+**Type** — the platform's own UI font (SF Pro on Apple) via `-apple-system`
+and `system-ui`, and the iOS pt ladder 1:1
 (34/28/22/20/17/16/15/13/12/11). That ladder is **identical on iPhone and iPad** —
 Apple does not vary it by size class; iPad gets more content, not bigger type.
 Mono with tabular figures for every measurement. The paper feeling comes from
@@ -101,14 +102,20 @@ exposes them at `window.SeamlyApp_f9e883` (the project namespace), with
   repair works, the palette's reasoning, the voice, and what the app icon is.
 - **No icon-font or CDN dependency.** Icons are inline paths. Nothing to fail
   offline or drift under you.
-- **No logotype.** None exists yet; "Seamly" is set in SF Pro Display until one
-  is designed. The **app icon** is a separate thing and does have a card: it
+- **No logotype.** None exists yet; "Seamly" is set in the platform UI font
+  until one is designed. The **app icon** is a separate thing and does have a card: it
   borrows this direction's material — stock, ink, one accent, square corners,
   ruled not shadowed — without depicting what the app does. Four earlier rounds
   tried to draw the stitching itself and each collapsed into a glyph that is
   already taken (copy, menu, download, waveform, perforation, barcode); the card
   records those dead ends so they are not re-walked.
-- **No webfonts.** SF Pro is the real typeface and ships with the platform.
+- **No webfonts, and no brand family named either.** SF Pro is the real
+  typeface and ships with the platform, so the stacks ask for the platform UI
+  font (`-apple-system`, `system-ui`) and name no brand family. Naming
+  "SF Pro Text" after `-apple-system` could never win on Apple anyway, and it
+  made renderers report a missing brand font and substitute. Don't add one back
+  without shipping the files — and note Apple's SF fonts are licensed and the
+  system copies in `/System/Library/Fonts` are not redistributable.
 
 ## Building
 
