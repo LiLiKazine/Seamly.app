@@ -115,3 +115,39 @@ with the platform"); the tokens had been contradicting it by claiming a brand
 font. If a real brand face is ever wanted, ship the files in `fonts/` and
 `@font-face` them from `styles.css` — the @import closure is what rendered
 designs receive.
+
+## Token `kind` annotations — 2026-08-22
+
+The pane's token classifier infers `kind` from the declaration, and gets eleven
+wrong. All are corrected with a trailing `/* @kind <value>_ */` comment (no
+underscore — that is the syntax the pane names). Valid kinds seen in the
+manifest: `color`, `font`, `spacing`, `radius`, `shadow`, `other`.
+
+- `--protect-top` / `--protect-bottom`, both scopes (4) — classified `other`,
+  because the value is a `linear-gradient()` and the classifier can't tell one
+  function from another. → `color`
+- `--mark-gap`, `--wash-gap`, `--seam-gap`, both scopes (5) — classified
+  `spacing`. This is a NAME heuristic beating the value: "gap" reads as spacing.
+  Proof it's the name, not the value — `--mark-ok` / `--mark-flag` /
+  `--mark-error` are identical hex values on adjacent lines and classify as
+  `color` correctly. → `color`
+- `--inset-well`, both scopes (2), in **`tokens/layout.css`** not colors.css —
+  classified `spacing` because "inset" reads as spacing. It is a box-shadow, and
+  `--lift-*` beside it classifies as `shadow`. → `shadow`
+
+`--seam-width: 1px` and `--seam-width-mark: 1.5px` are genuinely spacing; left
+alone. `--mark-gap` already had a prose comment, so its annotation is a SECOND
+comment block rather than merged text — a parser matching a comment whose whole
+content is `@kind color` would miss it inside a longer sentence.
+
+**Still questionable, deliberately not changed:** the eleven `--size-*` tokens
+and `--measure` classify as `spacing`. They are lengths, so it isn't wrong
+exactly, but they are the typographic scale and arguably belong with `font`
+alongside `--leading-*`, `--tracking-*` and `--type-*`. Twelve annotations for a
+grouping preference — ask before doing it.
+
+**Do not "re-run /design-sync" when the pane suggests it.** See the section
+above: this repo is outside the converter's envelope and the project was built
+by a different tool, so a real run would create a duplicate project. Upload the
+changed file and re-arm `_ds_needs_recompile` instead; the app recompiles its
+manifest when the project is opened.

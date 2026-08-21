@@ -28,13 +28,13 @@
      thing the user must find — so it clears 4.5:1 for small text. --- */
   --mark-ok:      #3e6b4f;   /* confident, complete */
   --mark-flag:    #8a6219;   /* seam match uncertain */
-  --mark-gap:     #a6482a;   /* content genuinely missing */
+  --mark-gap:     #a6482a;   /* content genuinely missing */ /* @kind color */
   --mark-error:   #a3302b;   /* stitch or export failed */
   --mark-rec:     #ff3b30;   /* live broadcast — iOS red, never restyle */
 
   --wash-ok:      rgba(62, 107, 79, 0.10);
   --wash-flag:    rgba(138, 98, 25, 0.13);
-  --wash-gap:     rgba(166, 72, 42, 0.11);
+  --wash-gap:     rgba(166, 72, 42, 0.11); /* @kind color */
   --wash-error:   rgba(163, 48, 43, 0.10);
 
   /* --- rules. A document is ruled, not shadowed. --- */
@@ -45,7 +45,7 @@
   /* --- how a join is drawn ON the sheet (deliberately quiet) --- */
   --seam-confident: rgba(31, 29, 26, 0.10);
   --seam-flag:      var(--mark-flag);
-  --seam-gap:       var(--mark-gap);
+  --seam-gap:       var(--mark-gap); /* @kind color */
   --seam-width:       1px;
   --seam-width-mark:  1.5px;
 
@@ -74,12 +74,12 @@
 
   --mark-ok:      #6fae86;
   --mark-flag:    #d9a544;
-  --mark-gap:     #d9754e;
+  --mark-gap:     #d9754e; /* @kind color */
   --mark-error:   #d9615a;
 
   --wash-ok:      rgba(111, 174, 134, 0.14);
   --wash-flag:    rgba(217, 165, 68, 0.16);
-  --wash-gap:     rgba(217, 117, 78, 0.15);
+  --wash-gap:     rgba(217, 117, 78, 0.15); /* @kind color */
   --wash-error:   rgba(217, 97, 90, 0.14);
 
   --rule:         rgba(242, 239, 233, 0.16);
