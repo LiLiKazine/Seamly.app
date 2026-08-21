@@ -28,7 +28,7 @@
      thing the user must find — so it clears 4.5:1 for small text. --- */
   --mark-ok:      #3e6b4f;   /* confident, complete */
   --mark-flag:    #8a6219;   /* seam match uncertain */
-  --mark-gap:     #a6482a;   /* content genuinely missing */ /* @kind color */
+  --mark-gap:     #a6482a;   /* content genuinely missing */
   --mark-error:   #a3302b;   /* stitch or export failed */
   --mark-rec:     #ff3b30;   /* live broadcast — iOS red, never restyle */
 

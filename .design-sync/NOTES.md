@@ -136,9 +136,23 @@ pane names. Valid kinds seen in the manifest: `color`, `font`, `spacing`,
   `--lift-*` beside it classifies as `shadow`. → `shadow`
 
 `--seam-width: 1px` and `--seam-width-mark: 1.5px` are genuinely spacing; left
-alone. `--mark-gap` already had a prose comment, so its annotation is a SECOND
-comment block rather than merged text — a parser matching a comment whose whole
-content is `@kind color` would miss it inside a longer sentence.
+alone.
+
+**ONE ANNOTATION PER LINE — a second comment on the same line is IGNORED.**
+`--mark-gap` in `:root` already carried `/* content genuinely missing */`, and
+the `/* @kind color */` appended after it did nothing. It was removed again. If a
+declaration that needs an annotation already has a prose comment, do NOT add a
+second block: move the prose to its own line above the declaration so the
+annotation is the line's only comment. (Guessing wrong here is cheap to miss —
+the ignored comment looks exactly like a working one in the diff.)
+
+That line needs no annotation anyway: the pane reports `#a6482a` classifies as
+`color` on its own. Worth noting the tension — the pre-annotation manifest read
+`{"name":"--mark-gap","value":"#a6482a","kind":"spacing"}`, so either the
+classifier's precedence differs from what that snapshot suggested, or something
+changed between the snapshot and the recompile. If `--mark-gap` ever shows under
+Spacing again, the fix is the prose-comment move described above, not a second
+block. The remaining eight annotations all sit on lines with no other comment.
 
 **Still questionable, deliberately not changed:** the eleven `--size-*` tokens
 and `--measure` classify as `spacing`. They are lengths, so it isn't wrong
