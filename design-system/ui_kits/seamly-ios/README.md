@@ -1,7 +1,9 @@
 # Seamly for iPhone & iPad — UI kit
 
-Live click-through. Every screen is built from `window.SeamlyPaper`, so changing a
-component changes the screens.
+Live click-through. Every screen resolves the library as
+`window.SeamlyKit || window.SeamlyApp_f9e883 || window.SeamlyPaper` — the last is
+an alias appended by the bundle's `--footer:js`, not the primary name — so changing
+a component changes the screens.
 
 - **Compact / Regular** switches size class. It is the point of the kit: Review
   gains a persistent findings rail at regular width, and Library becomes a 3:5

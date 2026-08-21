@@ -109,9 +109,17 @@ exposes them at `window.SeamlyApp_f9e883` (the project namespace), with
 
 Components are authored as JSX in `src/` and bundled with esbuild:
 
+**The `--footer:js` flag is not optional.** esbuild's `--global-name` only
+defines `window.SeamlyApp_f9e883`; the `window.SeamlyPaper` alias documented
+above is appended by that footer. A build without it drops the alias, and any
+code that reaches for `SeamlyPaper` alone gets `undefined` — the UI kit
+survives only because it falls back through
+`SeamlyKit || SeamlyApp_f9e883 || SeamlyPaper`.
+
 ```
 npx esbuild src/index.js --bundle --format=iife --global-name=SeamlyApp_f9e883 \
-  --jsx=transform --alias:react=./src/react-shim.js --outfile=_ds_bundle.js
+  --jsx=transform --alias:react=./src/react-shim.js \
+  --footer:js='window.SeamlyPaper=SeamlyApp_f9e883;' --outfile=_ds_bundle.js
 ```
 
 React is taken from the host global, so nothing is vendored.
