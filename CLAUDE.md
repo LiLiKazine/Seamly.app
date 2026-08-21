@@ -44,6 +44,12 @@ was kept for; `RepairQueueModel` is its caller.
    viewport/content difference, which looks plausible until the capture is long.
 2. **`SeamlyColor.sheet` is fixed white in BOTH themes**, and `seamConfident` is fixed ink.
    A capture must never be dimmed at night. Do not "fix" either into a semantic colour.
+3. **`--icon-field` / `--icon-join` are theme-stable too**, for the same class of reason.
+   The app icon ("Ruled, three uneven" — `docs/logs/2026-08-22-app-icon.md`) is ink-dominant
+   by construction: paper joins over an ink field. `--ink` and `--paper` both flip in the dark
+   scope, so building the mark on them inverts it at night and the joins become cuts in a
+   sheet. Only the accent changes appearance, and `--mark-flag` does that by itself. Do not
+   "tidy" them into `--ink`/`--paper`.
 
 One known gap is tracked as a `withKnownIssue` test, not hidden:
 
@@ -187,6 +193,10 @@ swift test --package-path Seamly/StitchKit
 
 # One suite while iterating
 swift test --package-path Seamly/StitchKit --filter OffsetMatcherTests
+
+# Regenerate the app icon. Parses the hexes out of design-system/tokens/colors.css,
+# so the icon stays derivable from the design system — never hand-edit the PNGs.
+swift scripts/make-app-icon.swift
 
 # Visual triage on a real file — run this before believing a stitch is correct
 cd Seamly/StitchKit
