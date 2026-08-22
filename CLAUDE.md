@@ -34,7 +34,7 @@ per-seam and per-bar controls and kept "seam", "chrome", "confidence", "offset" 
 `CaptureModel.update(_:)` is the reconnection point the manifest's non-destructive design
 was kept for; `RepairQueueModel` is its caller.
 
-**Two things about that UI are load-bearing and easy to break by accident:**
+**Some things about that UI are load-bearing and easy to break by accident:**
 
 1. **`CaptureGeometry` is the one coordinate space.** The margin marker, the rule on the
    sheet, the image and the scale bracket all resolve from a single `scrollY` in a single
@@ -44,7 +44,15 @@ was kept for; `RepairQueueModel` is its caller.
    viewport/content difference, which looks plausible until the capture is long.
 2. **`SeamlyColor.sheet` is fixed white in BOTH themes**, and `seamConfident` is fixed ink.
    A capture must never be dimmed at night. Do not "fix" either into a semantic colour.
-3. **`--icon-field` / `--icon-join` are theme-stable too**, for the same class of reason.
+3. **Never fade `BroadcastPickerButton` to hide it.** SwiftUI does not route touches into a
+   near-transparent `UIViewRepresentable` host, and its cutoff is far above UIKit's documented
+   0.01 alpha floor. A `.opacity(0.02)` on it shipped a Record button that swallowed every tap
+   while `window.hitTest` still returned the picker's private `UIButton` and XCUITest still
+   called it `isHittable` — so both dock UI tests stayed green over a dead button. `CaptureDock`
+   now stacks the picker *underneath* an opaque slab with `allowsHitTesting(false)` on the
+   covers. A `#if DEBUG` guard in `BroadcastPickerButton` trips if it is ever faded again
+   (`docs/logs/2026-08-22-02-record-button-dead-tap.md`).
+4. **`--icon-field` / `--icon-join` are theme-stable too**, for the same class of reason.
    The app icon ("Ruled, three uneven" — `docs/logs/2026-08-22-app-icon.md`) is ink-dominant
    by construction: paper joins over an ink field. `--ink` and `--paper` both flip in the dark
    scope, so building the mark on them inverts it at night and the joins become cuts in a

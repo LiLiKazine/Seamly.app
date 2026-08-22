@@ -19,26 +19,36 @@ struct CaptureDock: View {
         HStack(spacing: SeamlySpace.s4) {
             side(symbol: "film", label: "From a screen recording", action: onVideo)
             ZStack {
+                // The picker is at the BOTTOM of the stack at full opacity, and our own slab is
+                // painted opaque on top of it. It must NOT be faded to hide it: SwiftUI declines
+                // to route touches into a near-transparent `UIViewRepresentable` host, so the
+                // `.opacity(0.02)` this used to carry silently ate every tap — UIKit's own
+                // `hitTest` still returned the picker's private `UIButton` (0.02 clears UIKit's
+                // documented 0.01 alpha floor), so the view looked correct from every angle
+                // except the only one that mattered. Occlusion costs nothing: z-order does not
+                // affect hit-testing, `allowsHitTesting(false)` on the covers lets the touch
+                // fall through, and there is no undocumented threshold left to sit near.
+                //
+                // Must fill the slab. `RPSystemBroadcastPickerView` reports a small intrinsic
+                // size, and a ZStack child without its own flexible frame is laid out at that
+                // size and centred — which would leave the hero button tappable only in a
+                // circle at its middle, with dead zones either side.
+                //
+                // We present the picker as-is; reaching into its private subviews to restyle or
+                // auto-tap it is the fragility we refuse.
+                BroadcastPickerButton()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityLabel(recording ? "Recording" : "Record")
+                    .accessibilityIdentifier("record-button")
                 RoundedRectangle(cornerRadius: SeamlyRadius.sm, style: .continuous)
                     .fill(recording ? SeamlyColor.markRec : SeamlyColor.accent)
+                    .allowsHitTesting(false)
                 HStack(spacing: SeamlySpace.s3) {
                     Image(systemName: "record.circle").font(.system(size: 20, weight: .light))
                     Text(recording ? "Recording" : "Record").font(SeamlyFont.headline)
                 }
                 .foregroundStyle(SeamlyColor.inkInverse)
                 .allowsHitTesting(false)
-                // The picker sits on top, transparent, and takes the tap. Reaching into its
-                // private subviews to restyle or auto-tap it is the fragility we refuse.
-                // Must fill the slab. `RPSystemBroadcastPickerView` reports a small intrinsic
-                // size, and a ZStack child without its own flexible frame is laid out at that
-                // size and centred — which would leave the hero button tappable only in a
-                // circle at its middle, with dead zones either side. The other call site in
-                // this app sizes it explicitly for the same reason.
-                BroadcastPickerButton()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .opacity(0.02)
-                    .accessibilityLabel(recording ? "Recording" : "Record")
-                    .accessibilityIdentifier("record-button")
             }
             .frame(height: 52)
             .frame(maxWidth: .infinity)
