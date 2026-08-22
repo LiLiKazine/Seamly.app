@@ -1,8 +1,15 @@
 #!/usr/bin/env swift
 //
-// Generates the Seamly app icon into Assets.xcassets/AppIcon.appiconset.
+// Generates the Seamly app icon into every target's AppIcon.appiconset.
 //
 //   swift scripts/make-app-icon.swift            # from the repo root
+//
+// BOTH the app and the broadcast extension get the same icon, written from this
+// one run. The extension needs its OWN copy because target membership follows the
+// folder (synchronized folder groups), so an asset catalog cannot be shared — and
+// an appex with no icon does not fall back to the app's current icon on screen:
+// the broadcast picker renders a fallback that is resolved once and then frozen.
+// See docs/logs/2026-08-22-03-broadcast-extension-icon.md.
 //
 // The mark is "Ruled, three uneven": a full-bleed ink field with three
 // horizontal joins at UNEQUAL spacing, the middle one carrying --mark-flag (the
@@ -45,7 +52,12 @@ precondition(joinH == 29, "geometry drifted from the spec: h = \(joinH), expecte
 
 let repoRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 let tokensURL = repoRoot.appendingPathComponent("design-system/tokens/colors.css")
-let iconSetURL = repoRoot.appendingPathComponent("Seamly/Seamly/Assets.xcassets/AppIcon.appiconset")
+/// Every appiconset the icon is written into. The extension's copy is not
+/// optional decoration — without it the broadcast picker shows a stale fallback.
+let iconSetURLs = [
+    "Seamly/Seamly/Assets.xcassets/AppIcon.appiconset",
+    "Seamly/SeamlyBroadcast/Assets.xcassets/AppIcon.appiconset",
+].map { repoRoot.appendingPathComponent($0) }
 
 guard let css = try? String(contentsOf: tokensURL, encoding: .utf8) else {
     fatalError("cannot read \(tokensURL.path) — run this from the repo root")
@@ -120,7 +132,7 @@ func render(accent: CGColor) -> CGImage {
     return image
 }
 
-func writePNG(_ image: CGImage, named name: String) {
+func writePNG(_ image: CGImage, named name: String, into iconSetURL: URL) {
     let url = iconSetURL.appendingPathComponent(name)
     guard let dest = CGImageDestinationCreateWithURL(
         url as CFURL, UTType.png.identifier as CFString, 1, nil) else {
@@ -131,12 +143,19 @@ func writePNG(_ image: CGImage, named name: String) {
     print("  \(name)  \(Int(side))×\(Int(side))")
 }
 
-var isDir: ObjCBool = false
-guard FileManager.default.fileExists(atPath: iconSetURL.path, isDirectory: &isDir), isDir.boolValue else {
-    fatalError("no appiconset at \(iconSetURL.path) — run this from the repo root")
+for iconSetURL in iconSetURLs {
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: iconSetURL.path, isDirectory: &isDir), isDir.boolValue else {
+        fatalError("no appiconset at \(iconSetURL.path) — run this from the repo root")
+    }
 }
 
 print("Ruled, three uneven — joins at y \(joinY.map(String.init).joined(separator: "/")), h \(joinH)")
-writePNG(render(accent: accentLight), named: "icon_light.png")
-writePNG(render(accent: accentDark), named: "icon_dark.png")
+let light = render(accent: accentLight)
+let dark = render(accent: accentDark)
+for iconSetURL in iconSetURLs {
+    print(iconSetURL.path.replacingOccurrences(of: repoRoot.path + "/", with: ""))
+    writePNG(light, named: "icon_light.png", into: iconSetURL)
+    writePNG(dark, named: "icon_dark.png", into: iconSetURL)
+}
 print("No tinted asset: iOS derives grayscale from the value structure.")

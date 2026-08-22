@@ -58,6 +58,16 @@ was kept for; `RepairQueueModel` is its caller.
    scope, so building the mark on them inverts it at night and the joins become cuts in a
    sheet. Only the accent changes appearance, and `--mark-flag` does that by itself. Do not
    "tidy" them into `--ink`/`--paper`.
+5. **The extension needs its own copy of the icon, and `make-app-icon.swift` writes both.**
+   The broadcast picker's row is the *extension's* row. An appex with no icon does not borrow
+   the app's current one — iOS resolves a fallback once, caches it per extension bundle id, and
+   an iconless appex has nothing whose bytes ever change to invalidate it. That shipped a picker
+   still showing the pre-Paper gradient while the Home Screen was correct. Once a device has
+   cached that fallback, **only a reboot clears it** — a delete + reinstall does not, because the
+   rendition lives in a system-wide cache keyed by bundle id + version and the version has never
+   been bumped. Do not delete `SeamlyBroadcast/Assets.xcassets` or its
+   `ASSETCATALOG_COMPILER_APPICON_NAME`; the catalog cannot be shared with the app's because
+   target membership follows the folder (`docs/logs/2026-08-22-03-broadcast-extension-icon.md`).
 
 One known gap is tracked as a `withKnownIssue` test, not hidden:
 
@@ -202,8 +212,9 @@ swift test --package-path Seamly/StitchKit
 # One suite while iterating
 swift test --package-path Seamly/StitchKit --filter OffsetMatcherTests
 
-# Regenerate the app icon. Parses the hexes out of design-system/tokens/colors.css,
-# so the icon stays derivable from the design system — never hand-edit the PNGs.
+# Regenerate the app icon into BOTH appiconsets (app + broadcast extension). Parses the
+# hexes out of design-system/tokens/colors.css, so the icon stays derivable from the design
+# system — never hand-edit the PNGs, and never update just one of the two.
 swift scripts/make-app-icon.swift
 
 # Visual triage on a real file — run this before believing a stitch is correct
@@ -251,7 +262,9 @@ team under *Signing & Capabilities*, ▶ Run. No API keys or configuration neede
   `CaptureFinding` (a capture's own problems, enumerated), `ZoomState`, and `CaptureCondition`
   — the *only* place pipeline facts and errors become English), and `Features/` (`Capture`,
   `Home`, `Library`, `Result`, `Repair`, `Import`, `Export`, `Onboarding`, `Diagnostics`)
-- **Extension:** `Seamly/SeamlyBroadcast/SampleHandler.swift`
+- **Extension:** `Seamly/SeamlyBroadcast/SampleHandler.swift` — plus its own
+  `Assets.xcassets` holding the app icon, which the broadcast picker needs and cannot
+  inherit from the app
 - **Tests:** `Seamly/StitchKit/Tests/StitchKitTests/` (the bulk) ·
   `Seamly/SeamlyTests/` (app-level import/assembly) · `Seamly/SeamlyUITests/`
 - **Fixtures:** `Seamly/StitchKit/Tests/StitchKitTests/Fixtures/` — synthetic, `wikipedia.png`,
