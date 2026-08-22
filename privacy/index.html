@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seamly — Privacy Policy</title>
+<link rel="stylesheet" href="/Seamly.app/style.css">
+</head>
+<body>
+<main>
+<header>
+  <h1>Privacy Policy</h1>
+  <p>Seamly for iOS — effective 22 August 2026</p>
+</header>
+
+<p class="lede"><strong>Seamly collects no data about you.</strong> It has no accounts, no servers and no networking code. Nothing you capture ever leaves your device unless you choose to share it yourself.</p>
+
+<h2>What we collect</h2>
+<p>Nothing. Seamly does not collect, transmit, sell, or share any personal data, usage data, identifiers, or diagnostics. There is no analytics SDK, no advertising SDK, no crash reporter, no tracking of any kind, and no advertising identifier is requested or read.</p>
+<p>Seamly contains no networking code at all — no HTTP client, no sockets, no cloud storage. It cannot send your data anywhere because it has no means to.</p>
+
+<h2>What stays on your device</h2>
+<p>To do its job, Seamly stores the following in its own private app storage on your device:</p>
+<ul>
+  <li><strong>Captured frames and stitched images.</strong> The screen frames banked during a capture, and the long screenshot assembled from them.</li>
+  <li><strong>Capture records.</strong> The alignment information Seamly derives for each capture, so a capture can be reopened and repaired later.</li>
+  <li><strong>A local diagnostics log.</strong> Plain technical messages about what the stitching pipeline did, used for troubleshooting. It is written to a file on your device and shown inside the app. It is never transmitted.</li>
+</ul>
+<p>This data is readable only by Seamly and its broadcast extension. Deleting a capture in the app removes its files. Deleting Seamly removes all of it.</p>
+
+<h2>Screen capture</h2>
+<p>When you start a capture, iOS records your screen through the system screen-broadcast sheet, which you must confirm yourself, and which shows the standard recording indicator for as long as it is active. The frames are handed to Seamly's broadcast extension and written only to Seamly's own private storage on your device. They are not uploaded, streamed, or shared with anyone.</p>
+<p>Please be aware that a capture is a picture of whatever was on your screen. If you scroll past something private, it will be in the resulting image. Review a capture before you share it.</p>
+
+<h2>Photos</h2>
+<p>Seamly asks for permission to <em>add</em> photos to your library, and only when you choose to save a capture there. This is add-only access: Seamly cannot read, browse, or modify your existing photo library with it.</p>
+<p>When you import your own screenshots or a screen recording, iOS shows the system picker. Only the specific items you pick are handed to Seamly; it never gains access to the rest of your library.</p>
+
+<h2>Third parties</h2>
+<p>There are none. Seamly uses only Apple's own frameworks, has no third-party dependencies, and shares data with no one.</p>
+<p>If you have separately chosen in iOS Settings to share crash and usage analytics with developers, Apple may provide us with anonymised, aggregated crash reports through App Store Connect. That is a service of Apple's, governed by Apple's privacy policy and controlled entirely by your iOS settings — not by Seamly.</p>
+
+<h2>Children</h2>
+<p>Seamly is rated suitable for all ages and collects no data from anyone, including children.</p>
+
+<h2>Your rights</h2>
+<p>Because no personal data is ever collected or transmitted, there is nothing for us to disclose, correct, export, or delete on request. All of your data is already in your hands: it is on your device, and you can remove it at any time by deleting a capture or the app.</p>
+
+<h2>Changes to this policy</h2>
+<p>If this policy changes, the revised version will be published on this page with a new effective date. Material changes will also be noted in the app's release notes.</p>
+
+<h2>Contact</h2>
+<p>Questions about this policy can be raised in the open at <a href="https://github.com/LiLiKazine/Seamly.app/issues">github.com/LiLiKazine/Seamly.app/issues</a>.</p>
+
+<footer>
+  <p><a href="/Seamly.app/">Support</a></p>
+</footer>
+</main>
+</body>
+</html>
