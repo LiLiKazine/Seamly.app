@@ -12,6 +12,7 @@ import StitchKit
 /// the place you had.
 struct HomeScreen: View {
     let model: CaptureModel
+    var liveCapture: LiveCaptureAvailability = .available
     var onLibrary: () -> Void
     var onReview: (UUID) -> Void
     var onRepair: (UUID, Int) -> Void
@@ -43,7 +44,7 @@ struct HomeScreen: View {
                 )
                 Spacer(minLength: 0)
             }
-            CaptureDock(onVideo: onVideo, onPhotos: onPhotos)
+            CaptureDock(liveCapture: liveCapture, onVideo: onVideo, onPhotos: onPhotos)
                 .padding(.horizontal, layout.gutter)
                 .padding(.top, SeamlySpace.s5)
         }

@@ -4,6 +4,7 @@ import SwiftUI
 /// stays, because the capture affordance is permanently present.
 struct LibraryScreen: View {
     let model: CaptureModel
+    var liveCapture: LiveCaptureAvailability = .available
     var onOpen: (UUID) -> Void
     var onBack: () -> Void
     var onVideo: () -> Void
@@ -52,7 +53,7 @@ struct LibraryScreen: View {
                 list
             }
 
-            CaptureDock(onVideo: onVideo, onPhotos: onPhotos)
+            CaptureDock(liveCapture: liveCapture, onVideo: onVideo, onPhotos: onPhotos)
                 .padding(.horizontal, layout.gutter)
                 .padding(.top, SeamlySpace.s5)
         }

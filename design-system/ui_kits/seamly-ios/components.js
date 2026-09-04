@@ -18,8 +18,8 @@ var SeamlyKit = (() => {
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
 
   // src/index.js
-  var src_exports = {};
-  __export(src_exports, {
+  var index_exports = {};
+  __export(index_exports, {
     AppIcon: () => AppIcon,
     Button: () => Button,
     CaptureDock: () => CaptureDock,
@@ -555,6 +555,7 @@ var SeamlyKit = (() => {
     onVideo,
     onPhotos,
     recording = false,
+    unavailable = null,
     style,
     ...rest
   }) {
@@ -578,7 +579,17 @@ var SeamlyKit = (() => {
       margin: "0 auto",
       width: "100%",
       ...style
-    }, ...rest }, /* @__PURE__ */ react_shim_default.createElement("button", { type: "button", onClick: onVideo, "aria-label": "From a screen recording", style: side }, /* @__PURE__ */ react_shim_default.createElement(Icon, { name: "film", size: 20 })), /* @__PURE__ */ react_shim_default.createElement(
+    }, ...rest }, /* @__PURE__ */ react_shim_default.createElement("button", { type: "button", onClick: onVideo, "aria-label": "From a screen recording", style: side }, /* @__PURE__ */ react_shim_default.createElement(Icon, { name: "film", size: 20 })), unavailable ? /* @__PURE__ */ react_shim_default.createElement("p", { style: {
+      flexGrow: 1,
+      margin: 0,
+      minHeight: 52,
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      textAlign: "center",
+      font: "var(--type-footnote)",
+      color: "var(--ink-muted)"
+    } }, unavailable) : /* @__PURE__ */ react_shim_default.createElement(
       "button",
       {
         type: "button",
@@ -977,5 +988,5 @@ var SeamlyKit = (() => {
       border: "1px solid var(--rule)"
     } }, /* @__PURE__ */ react_shim_default.createElement("button", { type: "button", style: btn, onClick: () => set(-1), "aria-label": `Decrease ${label}` }, /* @__PURE__ */ react_shim_default.createElement(Icon, { name: "minus", size: 16 })), /* @__PURE__ */ react_shim_default.createElement("span", { style: { width: 1, background: "var(--rule)" } }), /* @__PURE__ */ react_shim_default.createElement("button", { type: "button", style: btn, onClick: () => set(1), "aria-label": `Increase ${label}` }, /* @__PURE__ */ react_shim_default.createElement(Icon, { name: "plus", size: 16 }))));
   }
-  return __toCommonJS(src_exports);
+  return __toCommonJS(index_exports);
 })();

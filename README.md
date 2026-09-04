@@ -46,6 +46,12 @@ the stitched result is assembled when you come back — not shown live. (A broad
 extension can't draw on screen, so mid-capture guidance is a sound/haptic cue, never a
 banner that would land in your capture.)
 
+Record needs an iPhone or iPad whose screen recording isn't restricted. Where ReplayKit
+broadcast can't work — an iPad app running on a Mac, Screen Time or an MDM profile
+disallowing screen recording, the screen mirrored over AirPlay — the dock says so in the
+Record button's place and points at the two import paths, rather than showing a button that
+does nothing. (Seamly is not offered on Mac or Apple Vision Pro for the same reason.)
+
 ### From Video
 
 Already have a screen recording? **From Video** on home decodes it through the *same*

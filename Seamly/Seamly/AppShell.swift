@@ -14,6 +14,9 @@ private struct IdentifiedUUID: Identifiable { let id: UUID }
 /// presentation is decided. Screens take closures and know nothing about routing.
 struct AppShell: View {
     @State private var model = CaptureModel()
+    /// Whether the dock may offer Record at all on this device. Lives here, not in the dock,
+    /// because `RPScreenRecorder.delegate` is weak and the observer must outlive every screen.
+    @State private var liveCapture = LiveCaptureMonitor()
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
 
@@ -38,6 +41,7 @@ struct AppShell: View {
         NavigationStack(path: $path) {
             HomeScreen(
                 model: model,
+                liveCapture: liveCapture.availability,
                 onLibrary: { path.append(.library) },
                 onReview: { path.append(.review($0)) },
                 onRepair: { repairTarget = RepairTarget(captureID: $0, findingNumber: $1) },
@@ -121,6 +125,7 @@ struct AppShell: View {
         case .library:
             LibraryScreen(
                 model: model,
+                liveCapture: liveCapture.availability,
                 onOpen: { path.append(.review($0)) },
                 onBack: { path.removeLast() },
                 onVideo: { importSource = .video },

@@ -239,6 +239,13 @@ test cannot drive. This narrowly reverses Spec 1's "no test-only hooks in app st
 stays a single explicit launch argument, not a general fixture mechanism (`docs/logs/
 2026-08-18-02-guided-repair.md`).
 
+**Launching with `-SeamlyLiveCaptureUnavailable` (`#if DEBUG` only) forces the dock into its
+"live capture cannot work here" branch**, where the Record slab is replaced by a sentence naming the
+import paths. The simulator has no recording service and is deliberately treated as *available* so
+the dock UI tests keep touching the real picker, which leaves that branch unreachable there without
+this argument (`docs/logs/2026-09-04-01-live-capture-availability.md`). The decision itself is
+`LiveCaptureAvailability`, a pure enum; `LiveCaptureMonitor` only feeds it from ReplayKit.
+
 All paths above are from the **repo root**. Note the nested layout: the root holds
 `README.md`, `CLAUDE.md`, `DECISIONS.md`, and `docs/`; the Xcode project and the package
 live one level down in `Seamly/`.

@@ -71,6 +71,36 @@ final class SeamlyUITests: XCTestCase {
         XCTAssertTrue(app.buttons["From screenshots"].isHittable)
     }
 
+    /// On a device where ReplayKit broadcast cannot work, the dock must SAY so in the hero's
+    /// place rather than present a Record button that swallows the tap — App Review met that
+    /// silent button and called it "features intentionally hidden during review" (5.6). The
+    /// simulator has no recording service and is deliberately treated as available so the other
+    /// dock tests keep touching the real picker, so this asks for the unavailable branch
+    /// explicitly with a debug-only launch argument.
+    @MainActor
+    func testDockExplainsWhenLiveCaptureIsUnavailable() throws {
+        let app = XCUIApplication()
+        app.launchArguments += ["-SeamlyResetCaptures", "-SeamlyLiveCaptureUnavailable"]
+        app.launch()
+        dismissOnboardingIfPresented(app)
+
+        let explanation = app.descendants(matching: .any)
+            .matching(identifier: "record-unavailable").firstMatch
+        XCTAssertTrue(explanation.waitForExistence(timeout: 5), "the dock did not explain itself")
+        XCTAssertTrue(explanation.isHittable, "the explanation is covered")
+        XCTAssertTrue(
+            explanation.label.contains("screen recording or screenshots"),
+            "the explanation must point at the two paths that still work: \(explanation.label)"
+        )
+
+        let record = app.descendants(matching: .any).matching(identifier: "record-button")
+        XCTAssertFalse(record.firstMatch.exists, "a Record button that cannot work is still on screen")
+
+        // The alternatives it names are the buttons either side of it, and they must still work.
+        XCTAssertTrue(app.buttons["From a screen recording"].isHittable)
+        XCTAssertTrue(app.buttons["From screenshots"].isHittable)
+    }
+
     /// Library is reachable from Home and lists the capture Home is showing.
     @MainActor
     func testLibraryListsTheCapture() throws {
